@@ -1,6 +1,6 @@
 """Tests for stonks_cli.fetcher."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -79,6 +79,83 @@ class TestFetchPrices:
         prices = fetcher.fetch_prices(["AAPL", "UNKNOWN"])
         assert prices == {"AAPL": 150.0}
         assert "UNKNOWN" not in prices
+
+
+class TestFetchExtendedPrices:
+    def _make_info(self, data: dict):
+        mock = MagicMock()
+        mock.get = lambda key, default=None: data.get(key, default)
+        return mock
+
+    def test_empty_symbols_returns_empty(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            result = fetcher.fetch_extended_prices([])
+        assert result == {}
+        mock_ticker.assert_not_called()
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_returns_post_market_price_when_available(
+        self, mock_ticker, fetcher: PriceFetcher
+    ):
+        info = self._make_info(
+            {
+                "postMarketPrice": 170.0,
+                "preMarketPrice": 155.0,
+                "regularMarketPrice": 160.0,
+            }
+        )
+        mock_ticker.return_value.info = info
+        result = fetcher.fetch_extended_prices(["AAPL"])
+        assert result == {"AAPL": (170.0, "post")}
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_returns_pre_market_price_when_priority(
+        self, mock_ticker, fetcher: PriceFetcher
+    ):
+        info = self._make_info(
+            {
+                "postMarketPrice": None,
+                "preMarketPrice": 155.0,
+                "regularMarketPrice": 160.0,
+            }
+        )
+        mock_ticker.return_value.info = info
+        result = fetcher.fetch_extended_prices(["AAPL"])
+        assert result == {"AAPL": (155.0, "pre")}
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_falls_back_to_regular_price(self, mock_ticker, fetcher: PriceFetcher):
+        info = self._make_info(
+            {
+                "postMarketPrice": None,
+                "preMarketPrice": None,
+                "regularMarketPrice": 160.0,
+            }
+        )
+        mock_ticker.return_value.info = info
+        result = fetcher.fetch_extended_prices(["AAPL"])
+        assert result == {"AAPL": (160.0, "regular")}
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_falls_back_to_current_price(self, mock_ticker, fetcher: PriceFetcher):
+        info = self._make_info({"currentPrice": 160.0})
+        mock_ticker.return_value.info = info
+        result = fetcher.fetch_extended_prices(["AAPL"])
+        assert result == {"AAPL": (160.0, "regular")}
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_normalises_symbols_to_uppercase(self, mock_ticker, fetcher: PriceFetcher):
+        info = self._make_info({"regularMarketPrice": 160.0})
+        mock_ticker.return_value.info = info
+        result = fetcher.fetch_extended_prices(["aapl"])
+        assert "AAPL" in result
+        mock_ticker.assert_called_once_with("AAPL")
+
+    @patch("stonks_cli.fetcher.yf.Ticker")
+    def test_skips_symbol_on_exception(self, mock_ticker, fetcher: PriceFetcher):
+        mock_ticker.side_effect = RuntimeError("network error")
+        result = fetcher.fetch_extended_prices(["AAPL"])
+        assert result == {}
 
 
 class TestFetchForexRates:

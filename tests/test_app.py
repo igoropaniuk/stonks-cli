@@ -160,3 +160,53 @@ async def test_total_excludes_positions_with_missing_price(
         await pilot.pause()
         label = app.query_one("#total", Static)
         assert "16,000.00" in str(label.content)
+
+
+@pytest.mark.asyncio
+async def test_pre_market_badge_shown(portfolio: Portfolio) -> None:
+    """Price cell for a 'pre' session symbol contains 'PRE'."""
+    prices = {"AAPL": 158.0, "NVDA": 90.0}
+    sessions = {"AAPL": "pre"}
+    app = PortfolioApp(
+        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        price_cell = table.get_cell_at((0, 3))  # AAPL Last Price
+        assert "PRE" in str(price_cell)
+
+
+@pytest.mark.asyncio
+async def test_after_hours_badge_shown(portfolio: Portfolio) -> None:
+    """Price cell for a 'post' session symbol contains 'AH'."""
+    prices = {"AAPL": 162.0, "NVDA": 90.0}
+    sessions = {"AAPL": "post"}
+    app = PortfolioApp(
+        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        price_cell = table.get_cell_at((0, 3))  # AAPL Last Price
+        assert "AH" in str(price_cell)
+
+
+@pytest.mark.asyncio
+async def test_regular_session_no_badge(portfolio: Portfolio) -> None:
+    """Price cell for 'regular' session is a plain number with no badge."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    sessions = {"AAPL": "regular"}
+    app = PortfolioApp(
+        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        price_cell = str(table.get_cell_at((0, 3)))  # AAPL Last Price
+        assert price_cell == "160.00"
+        assert "PRE" not in price_cell
+        assert "AH" not in price_cell
