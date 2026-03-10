@@ -5,7 +5,6 @@ from pathlib import Path
 import click
 
 from stonks_cli.app import PortfolioApp
-from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.storage import PortfolioStore
 
 
@@ -61,8 +60,15 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
 
 
 @main.command()
+@click.option(
+    "--refresh",
+    default=5.0,
+    show_default=True,
+    type=float,
+    help="Price refresh interval in seconds.",
+)
 @click.pass_context
-def show(ctx: click.Context) -> None:
+def show(ctx: click.Context, refresh: float) -> None:
     """Display the current portfolio with live prices and P&L."""
     store: PortfolioStore = ctx.obj["store"]
     portfolio = store.load()
@@ -71,9 +77,11 @@ def show(ctx: click.Context) -> None:
         click.echo("Portfolio is empty.")
         return
 
-    symbols = [p.symbol for p in portfolio.positions]
-    prices = PriceFetcher().fetch_prices(symbols)
-    PortfolioApp(portfolio=portfolio, prices=prices).run()
+    PortfolioApp(
+        portfolio=portfolio,
+        prices={},
+        refresh_interval=refresh,
+    ).run()
 
 
 if __name__ == "__main__":

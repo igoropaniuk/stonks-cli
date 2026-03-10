@@ -116,11 +116,7 @@ class TestShow:
         assert "empty" in result.output.lower()
 
     @patch("stonks_cli.main.PortfolioApp")
-    @patch("stonks_cli.main.PriceFetcher")
-    def test_show_launches_app_with_prices(
-        self, mock_fetcher_cls, mock_app_cls, runner, portfolio_file
-    ):
-        mock_fetcher_cls.return_value.fetch_prices.return_value = {"AAPL": 160.0}
+    def test_show_launches_app(self, mock_app_cls, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
         result = invoke(runner, portfolio_file, "show")
@@ -128,18 +124,9 @@ class TestShow:
         assert result.exit_code == 0
         mock_app_cls.assert_called_once()
         mock_app_cls.return_value.run.assert_called_once()
-        _, kwargs = mock_app_cls.call_args
-        assert kwargs["prices"] == {"AAPL": 160.0}
 
     @patch("stonks_cli.main.PortfolioApp")
-    @patch("stonks_cli.main.PriceFetcher")
-    def test_show_passes_portfolio_to_app(
-        self, mock_fetcher_cls, mock_app_cls, runner, portfolio_file
-    ):
-        mock_fetcher_cls.return_value.fetch_prices.return_value = {
-            "AAPL": 160.0,
-            "NVDA": 900.0,
-        }
+    def test_show_passes_portfolio_to_app(self, mock_app_cls, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
         invoke(runner, portfolio_file, "add", "NVDA", "10", "800.0")
 
@@ -149,3 +136,30 @@ class TestShow:
         symbols = [p.symbol for p in kwargs["portfolio"].positions]
         assert "AAPL" in symbols
         assert "NVDA" in symbols
+
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_show_starts_with_empty_prices(self, mock_app_cls, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
+
+        invoke(runner, portfolio_file, "show")
+
+        _, kwargs = mock_app_cls.call_args
+        assert kwargs["prices"] == {}
+
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_show_default_refresh_interval(self, mock_app_cls, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
+
+        invoke(runner, portfolio_file, "show")
+
+        _, kwargs = mock_app_cls.call_args
+        assert kwargs["refresh_interval"] == 5.0
+
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_show_custom_refresh_interval(self, mock_app_cls, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
+
+        invoke(runner, portfolio_file, "show", "--refresh", "10")
+
+        _, kwargs = mock_app_cls.call_args
+        assert kwargs["refresh_interval"] == 10.0

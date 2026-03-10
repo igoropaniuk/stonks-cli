@@ -81,3 +81,32 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
         assert str(table.get_cell_at((0, 3))) == "N/A"  # Last Price
         assert str(table.get_cell_at((0, 4))) == "N/A"  # Mkt Value
         assert str(table.get_cell_at((0, 5))) == "N/A"  # P&L
+
+
+@pytest.mark.asyncio
+async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
+    """Calling _apply_prices() with new data re-renders the table."""
+    app = PortfolioApp(portfolio=portfolio, prices={"AAPL": 160.0, "NVDA": 90.0})
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._apply_prices({"AAPL": 200.0, "NVDA": 50.0})
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert str(table.get_cell_at((0, 3))) == "200.00"  # AAPL last price updated
+
+
+@pytest.mark.asyncio
+async def test_default_refresh_interval(portfolio: Portfolio) -> None:
+    app = PortfolioApp(portfolio=portfolio, prices={})
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.refresh_interval == 5.0
+
+
+@pytest.mark.asyncio
+async def test_custom_refresh_interval(portfolio: Portfolio) -> None:
+    app = PortfolioApp(portfolio=portfolio, prices={}, refresh_interval=30.0)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.refresh_interval == 30.0
