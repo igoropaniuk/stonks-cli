@@ -1,10 +1,12 @@
 """Tests for the Textual portfolio TUI."""
 
 import pytest
-from textual.widgets import DataTable
+from textual.widgets import DataTable, Static
 
 from stonks_cli.app import PortfolioApp
 from stonks_cli.models import Portfolio, Position
+
+USD_RATES = {"USD": 1.0}
 
 
 @pytest.fixture
@@ -20,7 +22,7 @@ def portfolio() -> Portfolio:
 @pytest.mark.asyncio
 async def test_table_row_count(portfolio: Portfolio) -> None:
     prices = {"AAPL": 160.0, "NVDA": 90.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices)
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -31,22 +33,20 @@ async def test_table_row_count(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_symbols_appear_in_table(portfolio: Portfolio) -> None:
     prices = {"AAPL": 160.0, "NVDA": 90.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices)
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        cell_aapl = table.get_cell_at((0, 0))
-        cell_nvda = table.get_cell_at((1, 0))
-        assert str(cell_aapl) == "AAPL"
-        assert str(cell_nvda) == "NVDA"
+        assert str(table.get_cell_at((0, 0))) == "AAPL"
+        assert str(table.get_cell_at((1, 0))) == "NVDA"
 
 
 @pytest.mark.asyncio
 async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
     """P&L cell must carry green style when position is in profit."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}  # AAPL profit, NVDA loss
-    app = PortfolioApp(portfolio=portfolio, prices=prices)
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -60,20 +60,19 @@ async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
 async def test_loss_pnl_is_red(portfolio: Portfolio) -> None:
     """P&L cell must carry red style when position is at a loss."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}  # NVDA at a loss (cost 112)
-    app = PortfolioApp(portfolio=portfolio, prices=prices)
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        pnl_col = 5
-        pnl_cell = table.get_cell_at((1, pnl_col))  # NVDA row
+        pnl_cell = table.get_cell_at((1, 5))  # NVDA row, P&L col
         assert "red" in pnl_cell.style
 
 
 @pytest.mark.asyncio
 async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
     """When a symbol has no price, all computed cells show N/A."""
-    app = PortfolioApp(portfolio=portfolio, prices={})  # no prices at all
+    app = PortfolioApp(portfolio=portfolio, prices={}, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -86,7 +85,9 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
     """Calling _apply_prices() with new data re-renders the table."""
-    app = PortfolioApp(portfolio=portfolio, prices={"AAPL": 160.0, "NVDA": 90.0})
+    app = PortfolioApp(
+        portfolio=portfolio, prices={"AAPL": 160.0, "NVDA": 90.0}, forex_rates=USD_RATES
+    )
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -98,7 +99,7 @@ async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
 
 @pytest.mark.asyncio
 async def test_default_refresh_interval(portfolio: Portfolio) -> None:
-    app = PortfolioApp(portfolio=portfolio, prices={})
+    app = PortfolioApp(portfolio=portfolio, prices={}, forex_rates=USD_RATES)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.refresh_interval == 5.0
@@ -106,7 +107,56 @@ async def test_default_refresh_interval(portfolio: Portfolio) -> None:
 
 @pytest.mark.asyncio
 async def test_custom_refresh_interval(portfolio: Portfolio) -> None:
-    app = PortfolioApp(portfolio=portfolio, prices={}, refresh_interval=30.0)
+    app = PortfolioApp(
+        portfolio=portfolio, prices={}, forex_rates=USD_RATES, refresh_interval=30.0
+    )
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.refresh_interval == 30.0
+
+
+@pytest.mark.asyncio
+async def test_total_usd_single_currency(portfolio: Portfolio) -> None:
+    """Total reflects sum of all position market values (all USD)."""
+    # AAPL: 100 × 160 = 16 000, NVDA: 200 × 90 = 18 000  →  total = 34 000
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        label = app.query_one("#total", Static)
+        assert "34,000.00" in str(label.content)
+
+
+@pytest.mark.asyncio
+async def test_total_converts_foreign_currency() -> None:
+    """Market value of a EUR position is converted to USD in the total."""
+    portfolio = Portfolio(
+        positions=[
+            Position(symbol="ASML", quantity=10, avg_cost=700.0, currency="EUR"),
+        ]
+    )
+    # ASML last price = 800 EUR, EUR/USD = 1.1  →  total = 10 × 800 × 1.1 = 8 800
+    prices = {"ASML": 800.0}
+    forex_rates = {"USD": 1.0, "EUR": 1.1}
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        label = app.query_one("#total", Static)
+        assert "8,800.00" in str(label.content)
+
+
+@pytest.mark.asyncio
+async def test_total_excludes_positions_with_missing_price(
+    portfolio: Portfolio,
+) -> None:
+    """Positions with no price are excluded from the total."""
+    # Only AAPL has a price: 100 × 160 = 16 000
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        label = app.query_one("#total", Static)
+        assert "16,000.00" in str(label.content)

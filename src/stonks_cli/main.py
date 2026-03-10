@@ -80,6 +80,7 @@ def show(ctx: click.Context, refresh: float) -> None:
     PortfolioApp(
         portfolio=portfolio,
         prices={},
+        forex_rates={},
         refresh_interval=refresh,
     ).run()
 

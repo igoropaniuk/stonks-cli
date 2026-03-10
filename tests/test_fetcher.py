@@ -79,3 +79,55 @@ class TestFetchPrices:
         prices = fetcher.fetch_prices(["AAPL", "UNKNOWN"])
         assert prices == {"AAPL": 150.0}
         assert "UNKNOWN" not in prices
+
+
+class TestFetchForexRates:
+    def test_base_currency_always_one(self, fetcher: PriceFetcher):
+        rates = fetcher.fetch_forex_rates([], base="USD")
+        assert rates == {"USD": 1.0}
+
+    def test_only_base_currency_skips_download(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.download") as mock_dl:
+            rates = fetcher.fetch_forex_rates(["USD"], base="USD")
+        assert rates == {"USD": 1.0}
+        mock_dl.assert_not_called()
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_single_non_base_currency(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.085})
+        rates = fetcher.fetch_forex_rates(["EUR"], base="USD")
+        assert rates["USD"] == 1.0
+        assert rates["EUR"] == pytest.approx(1.085)
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_multiple_currencies(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.085, "GBPUSD=X": 1.27})
+        rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
+        assert rates["EUR"] == pytest.approx(1.085)
+        assert rates["GBP"] == pytest.approx(1.27)
+        assert rates["USD"] == 1.0
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_uses_correct_yfinance_symbols(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.085})
+        fetcher.fetch_forex_rates(["EUR"], base="USD")
+        mock_dl.assert_called_once_with(
+            tickers=["EURUSD=X"],
+            period="1d",
+            auto_adjust=False,
+            progress=False,
+        )
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_returns_base_only_on_empty_download(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = pd.DataFrame()
+        rates = fetcher.fetch_forex_rates(["EUR"], base="USD")
+        assert rates == {"USD": 1.0}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_omits_currency_with_no_data(self, mock_dl, fetcher: PriceFetcher):
+        # Only EUR returned, GBP missing from columns
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.085})
+        rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
+        assert "EUR" in rates
+        assert "GBP" not in rates

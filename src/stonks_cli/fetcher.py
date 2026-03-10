@@ -48,3 +48,48 @@ class PriceFetcher:
                 result[symbol] = float(series.iloc[-1])
 
         return result
+
+    def fetch_forex_rates(
+        self, currencies: list[str], base: str = "USD"
+    ) -> dict[str, float]:
+        """Return exchange rates: 1 unit of currency → how many base units.
+
+        Uses yfinance forex pairs (e.g. EURUSD=X for EUR→USD).
+        The base currency is always included as 1.0. Currencies for which
+        no rate can be fetched are omitted from the result.
+
+        Args:
+            currencies: ISO 4217 currency codes (e.g. ['EUR', 'GBP']).
+            base: Target/base currency code (default 'USD').
+
+        Returns:
+            Mapping of currency code → exchange rate in base.
+        """
+        base = base.upper()
+        rates: dict[str, float] = {base: 1.0}
+
+        non_base = [c.upper() for c in currencies if c.upper() != base]
+        if not non_base:
+            return rates
+
+        symbols = [f"{c}{base}=X" for c in non_base]
+
+        data = yf.download(
+            tickers=symbols,
+            period="1d",
+            auto_adjust=False,
+            progress=False,
+        )
+
+        if data.empty:
+            return rates
+
+        close = data["Close"]
+        for currency, symbol in zip(non_base, symbols):
+            if symbol not in close.columns:
+                continue
+            series = close[symbol].dropna()
+            if not series.empty:
+                rates[currency] = float(series.iloc[-1])
+
+        return rates

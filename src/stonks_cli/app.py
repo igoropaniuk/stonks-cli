@@ -3,7 +3,7 @@
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header
+from textual.widgets import DataTable, Footer, Header, Static
 
 from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.models import Portfolio
@@ -16,8 +16,11 @@ class PortfolioApp(App):
     BINDINGS = [("q", "quit", "Quit")]
 
     CSS = """
-    DataTable {
-        height: auto;
+    DataTable { height: auto; }
+    #total {
+        padding: 0 1;
+        text-align: left;
+        border-top: solid $accent;
     }
     """
 
@@ -25,16 +28,19 @@ class PortfolioApp(App):
         self,
         portfolio: Portfolio,
         prices: dict[str, float],
+        forex_rates: dict[str, float],
         refresh_interval: float = 5.0,
     ) -> None:
         super().__init__()
         self.portfolio = portfolio
         self.prices = prices
+        self.forex_rates = forex_rates
         self.refresh_interval = refresh_interval
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(zebra_stripes=True)
+        yield Static("", id="total")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -76,13 +82,34 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
+        self._update_total()
+
+    def _update_total(self) -> None:
+        total = sum(
+            pos.market_value(last) * rate
+            for pos in self.portfolio.positions
+            if (last := self.prices.get(pos.symbol)) is not None
+            if (rate := self.forex_rates.get(pos.currency)) is not None
+        )
+        self.query_one("#total", Static).update(
+            Text("Total (USD)  ").append(f"{total:,.2f}", style="bold")
+        )
 
     @work(thread=True)
     def _refresh_prices(self) -> None:
+        fetcher = PriceFetcher()
         symbols = [p.symbol for p in self.portfolio.positions]
-        new_prices = PriceFetcher().fetch_prices(symbols)
-        self.call_from_thread(self._apply_prices, new_prices)
+        new_prices = fetcher.fetch_prices(symbols)
+        currencies = list({p.currency for p in self.portfolio.positions})
+        new_forex = fetcher.fetch_forex_rates(currencies)
+        self.call_from_thread(self._apply_prices, new_prices, new_forex)
 
-    def _apply_prices(self, prices: dict[str, float]) -> None:
+    def _apply_prices(
+        self,
+        prices: dict[str, float],
+        forex_rates: dict[str, float] | None = None,
+    ) -> None:
         self.prices = prices
+        if forex_rates is not None:
+            self.forex_rates = forex_rates
         self._populate_table()

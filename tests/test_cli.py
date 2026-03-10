@@ -145,6 +145,7 @@ class TestShow:
 
         _, kwargs = mock_app_cls.call_args
         assert kwargs["prices"] == {}
+        assert kwargs["forex_rates"] == {}
 
     @patch("stonks_cli.main.PortfolioApp")
     def test_show_default_refresh_interval(self, mock_app_cls, runner, portfolio_file):
