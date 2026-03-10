@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from stonks_cli.app import PortfolioApp
 from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.storage import PortfolioStore
 
@@ -72,27 +73,7 @@ def show(ctx: click.Context) -> None:
 
     symbols = [p.symbol for p in portfolio.positions]
     prices = PriceFetcher().fetch_prices(symbols)
-
-    header = f"{'Instrument':<12} {'Qty':>6} {'Avg Cost':>10} {'Last Price':>12} {'Mkt Value':>12} {'Unrealized P&L':>16}"
-    click.echo(header)
-    click.echo("-" * len(header))
-
-    for pos in portfolio.positions:
-        last = prices.get(pos.symbol)
-        if last is not None:
-            mkt_value = pos.market_value(last)
-            pnl = pos.unrealized_pnl(last)
-            last_str = f"{last:>10.2f}"
-            mkt_str = f"{mkt_value:>12,.2f}"
-            pnl_str = f"{pnl:>+16,.2f}"
-        else:
-            last_str = f"{'N/A':>10}"
-            mkt_str = f"{'N/A':>12}"
-            pnl_str = f"{'N/A':>16}"
-
-        click.echo(
-            f"{pos.symbol:<12} {pos.quantity:>6} {pos.avg_cost:>10.2f} {last_str} {mkt_str} {pnl_str}"
-        )
+    PortfolioApp(portfolio=portfolio, prices=prices).run()
 
 
 if __name__ == "__main__":

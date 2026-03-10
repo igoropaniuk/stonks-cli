@@ -115,30 +115,27 @@ class TestShow:
         assert result.exit_code == 0
         assert "empty" in result.output.lower()
 
+    @patch("stonks_cli.main.PortfolioApp")
     @patch("stonks_cli.main.PriceFetcher")
-    def test_show_renders_table(self, mock_fetcher_cls, runner, portfolio_file):
+    def test_show_launches_app_with_prices(
+        self, mock_fetcher_cls, mock_app_cls, runner, portfolio_file
+    ):
         mock_fetcher_cls.return_value.fetch_prices.return_value = {"AAPL": 160.0}
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
         result = invoke(runner, portfolio_file, "show")
+
         assert result.exit_code == 0
-        assert "AAPL" in result.output
-        assert "160.00" in result.output  # last price
-        assert "16,000.00" in result.output  # mkt value (100 × 160)
-        assert "+1,000.00" in result.output  # P&L (100 × 10)
+        mock_app_cls.assert_called_once()
+        mock_app_cls.return_value.run.assert_called_once()
+        _, kwargs = mock_app_cls.call_args
+        assert kwargs["prices"] == {"AAPL": 160.0}
 
+    @patch("stonks_cli.main.PortfolioApp")
     @patch("stonks_cli.main.PriceFetcher")
-    def test_show_handles_missing_price(self, mock_fetcher_cls, runner, portfolio_file):
-        mock_fetcher_cls.return_value.fetch_prices.return_value = {}
-        invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
-
-        result = invoke(runner, portfolio_file, "show")
-        assert result.exit_code == 0
-        assert "AAPL" in result.output
-        assert "N/A" in result.output
-
-    @patch("stonks_cli.main.PriceFetcher")
-    def test_show_multiple_positions(self, mock_fetcher_cls, runner, portfolio_file):
+    def test_show_passes_portfolio_to_app(
+        self, mock_fetcher_cls, mock_app_cls, runner, portfolio_file
+    ):
         mock_fetcher_cls.return_value.fetch_prices.return_value = {
             "AAPL": 160.0,
             "NVDA": 900.0,
@@ -146,6 +143,9 @@ class TestShow:
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
         invoke(runner, portfolio_file, "add", "NVDA", "10", "800.0")
 
-        result = invoke(runner, portfolio_file, "show")
-        assert "AAPL" in result.output
-        assert "NVDA" in result.output
+        invoke(runner, portfolio_file, "show")
+
+        _, kwargs = mock_app_cls.call_args
+        symbols = [p.symbol for p in kwargs["portfolio"].positions]
+        assert "AAPL" in symbols
+        assert "NVDA" in symbols
