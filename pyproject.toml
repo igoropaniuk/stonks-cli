@@ -17,6 +17,7 @@ pytest = "^8.2.0"
 isort = ">=7.0.0,<8.0.0"
 mypy = ">=1.19.0,<2.0.0"
 ruff = ">=0.14.8,<0.15.0"
+types-PyYAML = "^6.0"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
