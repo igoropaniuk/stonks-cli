@@ -26,5 +26,13 @@ stonks = "stonks_cli.main:main"
 
 [build-system]
 requires = ["poetry-core"]
-
 build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+python_version = "3.11"
+plugins = []
+files = ["src"]
+ignore_missing_imports = true
+show_error_codes = true
+pretty = true
+strict_optional = true
