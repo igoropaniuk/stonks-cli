@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "stonks-cli"
+version = "0.1.0"
+description = "CLI tool for tracking investment portfolio"
+authors = ["Igor Opaniuk <igor.opaniuk@gmail.com>"]
+readme = "README.md"
+packages = [{include = "stonks_cli", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+click = "^8.0.0"
+pyyaml = "^6.0"
+yfinance = "^0.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.0"
+
+[tool.poetry.scripts]
+stonks = "stonks_cli.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+
+build-backend = "poetry.core.masonry.api"

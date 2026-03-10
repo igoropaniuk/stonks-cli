@@ -1,0 +1,11 @@
+# Sample portfolio configuration
+portfolio:
+  positions:
+    - symbol: QCOM
+      quantity: 150
+      avg_cost: 148.25
+      currency: USD
+    - symbol: NVDA
+      quantity: 200
+      avg_cost: 112.00
+      currency: USD
