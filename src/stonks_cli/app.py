@@ -3,6 +3,7 @@
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Footer, Header, Static
 
 from stonks_cli.fetcher import PriceFetcher
@@ -55,7 +56,10 @@ class PortfolioApp(App):
         self.set_interval(self.refresh_interval, self._refresh_prices)
 
     def _populate_table(self) -> None:
-        table = self.query_one(DataTable)
+        try:
+            table = self.query_one(DataTable)
+        except NoMatches:
+            return
         table.clear()
         for pos in self.portfolio.positions:
             last = self.prices.get(pos.symbol)
