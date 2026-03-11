@@ -4,6 +4,26 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class CashPosition:
+    """A cash holding in a given currency.
+
+    Attributes:
+        currency: ISO 4217 currency code (e.g. 'USD', 'EUR').
+        amount: Amount of cash held (positive).
+    """
+
+    currency: str
+    amount: float
+
+    def __post_init__(self) -> None:
+        if not self.currency:
+            raise ValueError("Currency cannot be empty")
+        if self.amount <= 0:
+            raise ValueError("Amount must be positive")
+        self.currency = self.currency.upper()
+
+
+@dataclass
 class Position:
     """Represents a single holding in the portfolio.
 
@@ -39,18 +59,61 @@ class Position:
 
 @dataclass
 class Portfolio:
-    """A collection of positions.
+    """A collection of positions and cash holdings.
 
     Attributes:
-        positions: List of current holdings.
+        positions: List of current stock holdings.
+        cash: List of cash holdings by currency.
     """
 
     positions: list[Position] = field(default_factory=list)
+    cash: list[CashPosition] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         symbols = [p.symbol for p in self.positions]
         if len(symbols) != len(set(symbols)):
             raise ValueError("Duplicate symbols in portfolio")
+        currencies = [c.currency for c in self.cash]
+        if len(currencies) != len(set(currencies)):
+            raise ValueError("Duplicate currencies in cash positions")
+
+    def get_cash(self, currency: str) -> CashPosition | None:
+        """Return the cash position for *currency*, or None if not held."""
+        currency = currency.upper()
+        return next((c for c in self.cash if c.currency == currency), None)
+
+    def add_cash(self, currency: str, amount: float) -> None:
+        """Add *amount* of *currency* cash.
+
+        If a cash position for the currency already exists, the amount is
+        increased.  Otherwise a new cash position is created.
+        """
+        existing = self.get_cash(currency)
+        if existing is not None:
+            existing.amount += amount
+        else:
+            self.cash.append(CashPosition(currency=currency, amount=amount))
+
+    def remove_cash(self, currency: str, amount: float) -> None:
+        """Remove *amount* of *currency* cash.
+
+        If *amount* equals the full holding the position is deleted.
+
+        Raises:
+            ValueError: If the currency is not held or amount exceeds the holding.
+        """
+        existing = self.get_cash(currency)
+        if existing is None:
+            raise ValueError(f"No {currency.upper()} cash position in portfolio")
+        if amount > existing.amount:
+            raise ValueError(
+                f"Cannot remove {amount:.2f} {existing.currency}: "
+                f"only {existing.amount:.2f} held"
+            )
+        if amount == existing.amount:
+            self.cash.remove(existing)
+        else:
+            existing.amount -= amount
 
     def get_position(self, symbol: str) -> Position | None:
         """Return the position for *symbol*, or None if not held."""
