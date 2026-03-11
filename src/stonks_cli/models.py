@@ -64,11 +64,14 @@ class Portfolio:
     Attributes:
         positions: List of current stock holdings.
         cash: List of cash holdings by currency.
+        base_currency: Currency used for the portfolio total (default 'USD').
+        name: Human-readable label for the portfolio (optional).
     """
 
     positions: list[Position] = field(default_factory=list)
     cash: list[CashPosition] = field(default_factory=list)
     base_currency: str = "USD"
+    name: str = ""
 
     def __post_init__(self) -> None:
         self.base_currency = self.base_currency.upper()

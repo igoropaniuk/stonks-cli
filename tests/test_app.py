@@ -6,7 +6,7 @@ from textual.widgets import DataTable, Static
 from stonks_cli.app import PortfolioApp
 from stonks_cli.models import Portfolio, Position
 
-USD_RATES = {"USD": 1.0}
+USD_RATES = {"USD": {"USD": 1.0}}
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def portfolio() -> Portfolio:
 @pytest.mark.asyncio
 async def test_table_row_count(portfolio: Portfolio) -> None:
     prices = {"AAPL": 160.0, "NVDA": 90.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -33,7 +33,7 @@ async def test_table_row_count(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_symbols_appear_in_table(portfolio: Portfolio) -> None:
     prices = {"AAPL": 160.0, "NVDA": 90.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -46,7 +46,7 @@ async def test_symbols_appear_in_table(portfolio: Portfolio) -> None:
 async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
     """P&L cell must carry green style when position is in profit."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}  # AAPL profit, NVDA loss
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -60,7 +60,7 @@ async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
 async def test_loss_pnl_is_red(portfolio: Portfolio) -> None:
     """P&L cell must carry red style when position is at a loss."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}  # NVDA at a loss (cost 112)
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -72,7 +72,7 @@ async def test_loss_pnl_is_red(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
     """When a symbol has no price, all computed cells show N/A."""
-    app = PortfolioApp(portfolio=portfolio, prices={}, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -86,7 +86,9 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
 async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
     """Calling _apply_prices() with new data re-renders the table."""
     app = PortfolioApp(
-        portfolio=portfolio, prices={"AAPL": 160.0, "NVDA": 90.0}, forex_rates=USD_RATES
+        portfolios=[portfolio],
+        prices={"AAPL": 160.0, "NVDA": 90.0},
+        forex_rates=USD_RATES,
     )
 
     async with app.run_test() as pilot:
@@ -99,7 +101,7 @@ async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
 
 @pytest.mark.asyncio
 async def test_default_refresh_interval(portfolio: Portfolio) -> None:
-    app = PortfolioApp(portfolio=portfolio, prices={}, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.refresh_interval == 5.0
@@ -108,7 +110,7 @@ async def test_default_refresh_interval(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_custom_refresh_interval(portfolio: Portfolio) -> None:
     app = PortfolioApp(
-        portfolio=portfolio, prices={}, forex_rates=USD_RATES, refresh_interval=30.0
+        portfolios=[portfolio], prices={}, forex_rates=USD_RATES, refresh_interval=30.0
     )
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -120,7 +122,7 @@ async def test_total_usd_single_currency(portfolio: Portfolio) -> None:
     """Total reflects sum of all position market values (all USD)."""
     # AAPL: 100 × 160 = 16 000, NVDA: 200 × 90 = 18 000  →  total = 34 000
     prices = {"AAPL": 160.0, "NVDA": 90.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -138,8 +140,8 @@ async def test_total_converts_foreign_currency() -> None:
     )
     # ASML last price = 800 EUR, EUR/USD = 1.1  →  total = 10 × 800 × 1.1 = 8 800
     prices = {"ASML": 800.0}
-    forex_rates = {"USD": 1.0, "EUR": 1.1}
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=forex_rates)
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=forex_rates)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -154,7 +156,7 @@ async def test_total_excludes_positions_with_missing_price(
     """Positions with no price are excluded from the total."""
     # Only AAPL has a price: 100 × 160 = 16 000
     prices = {"AAPL": 160.0}
-    app = PortfolioApp(portfolio=portfolio, prices=prices, forex_rates=USD_RATES)
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -168,7 +170,7 @@ async def test_pre_market_badge_shown(portfolio: Portfolio) -> None:
     prices = {"AAPL": 158.0, "NVDA": 90.0}
     sessions = {"AAPL": "pre"}
     app = PortfolioApp(
-        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+        portfolios=[portfolio], prices=prices, forex_rates=USD_RATES, sessions=sessions
     )
 
     async with app.run_test() as pilot:
@@ -184,7 +186,7 @@ async def test_after_hours_badge_shown(portfolio: Portfolio) -> None:
     prices = {"AAPL": 162.0, "NVDA": 90.0}
     sessions = {"AAPL": "post"}
     app = PortfolioApp(
-        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+        portfolios=[portfolio], prices=prices, forex_rates=USD_RATES, sessions=sessions
     )
 
     async with app.run_test() as pilot:
@@ -200,7 +202,7 @@ async def test_regular_session_no_badge(portfolio: Portfolio) -> None:
     prices = {"AAPL": 160.0, "NVDA": 90.0}
     sessions = {"AAPL": "regular"}
     app = PortfolioApp(
-        portfolio=portfolio, prices=prices, forex_rates=USD_RATES, sessions=sessions
+        portfolios=[portfolio], prices=prices, forex_rates=USD_RATES, sessions=sessions
     )
 
     async with app.run_test() as pilot:
@@ -210,3 +212,27 @@ async def test_regular_session_no_badge(portfolio: Portfolio) -> None:
         assert price_cell == "160.00"
         assert "PRE" not in price_cell
         assert "AH" not in price_cell
+
+
+@pytest.mark.asyncio
+async def test_multiple_portfolios_separate_tables() -> None:
+    """Two portfolios render in separate tables."""
+    p1 = Portfolio(
+        name="Work",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    p2 = Portfolio(
+        name="Personal",
+        positions=[Position(symbol="NVDA", quantity=5, avg_cost=800.0)],
+    )
+    prices = {"AAPL": 160.0, "NVDA": 850.0}
+    app = PortfolioApp(portfolios=[p1, p2], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        t0 = app.query_one("#table-0", DataTable)
+        t1 = app.query_one("#table-1", DataTable)
+        assert t0.row_count == 1
+        assert t1.row_count == 1
+        assert str(t0.get_cell_at((0, 0))) == "AAPL"
+        assert str(t1.get_cell_at((0, 0))) == "NVDA"

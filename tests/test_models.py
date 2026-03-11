@@ -93,6 +93,12 @@ class TestPortfolio:
     def test_base_currency_normalised_to_uppercase(self):
         assert Portfolio(base_currency="eur").base_currency == "EUR"
 
+    def test_default_name_is_empty(self):
+        assert Portfolio().name == ""
+
+    def test_name_preserved(self):
+        assert Portfolio(name="Work").name == "Work"
+
     def test_duplicate_symbols_raises(self):
         positions = [
             Position(symbol="AAPL", quantity=100, avg_cost=150.0),

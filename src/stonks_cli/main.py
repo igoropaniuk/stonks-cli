@@ -5,7 +5,22 @@ from pathlib import Path
 import click
 
 from stonks_cli.app import PortfolioApp
-from stonks_cli.storage import PortfolioStore
+from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
+
+
+def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
+    """Resolve the -p value to a Path.
+
+    A plain name with no path separators and no extension is treated as a
+    shorthand for ``~/.config/stonks/<name>.yaml``.  Anything else is used
+    as-is.
+    """
+    if name_or_path is None:
+        return None
+    p = Path(name_or_path)
+    if p.parent == Path(".") and p.suffix == "":
+        return PORTFOLIO_CONFIG_DIR / f"{name_or_path}.yaml"
+    return p
 
 
 @click.group()
@@ -13,15 +28,24 @@ from stonks_cli.storage import PortfolioStore
     "-p",
     "--portfolio",
     type=click.Path(),
-    default=None,
-    help="Portfolio YAML file (default: ~/.config/stonks/portfolio.yaml).",
+    multiple=True,
+    help=(
+        "Portfolio YAML file or name (repeatable). "
+        "A plain name (e.g. 'work') resolves to "
+        "~/.config/stonks/<name>.yaml. "
+        "Defaults to ~/.config/stonks/portfolio.yaml."
+    ),
 )
 @click.pass_context
-def main(ctx: click.Context, portfolio: str | None) -> None:
+def main(ctx: click.Context, portfolio: tuple[str, ...]) -> None:
     """CLI tool for tracking an investment portfolio."""
     ctx.ensure_object(dict)
-    path = Path(portfolio) if portfolio else None
-    ctx.obj["store"] = PortfolioStore(path=path)
+    if not portfolio:
+        stores = [PortfolioStore()]
+    else:
+        stores = [PortfolioStore(path=_resolve_portfolio_path(p)) for p in portfolio]
+    ctx.obj["stores"] = stores
+    ctx.obj["store"] = stores[0]
 
 
 @main.command()
@@ -70,15 +94,15 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
 @click.pass_context
 def dashboard(ctx: click.Context, refresh: float) -> None:
     """Display the current portfolio with live prices and P&L."""
-    store: PortfolioStore = ctx.obj["store"]
-    portfolio = store.load()
+    stores: list[PortfolioStore] = ctx.obj["stores"]
+    portfolios = [store.load() for store in stores]
 
-    if not portfolio.positions and not portfolio.cash:
+    if all(not p.positions and not p.cash for p in portfolios):
         click.echo("Portfolio is empty.")
         return
 
     PortfolioApp(
-        portfolio=portfolio,
+        portfolios=portfolios,
         prices={},
         forex_rates={},
         refresh_interval=refresh,
@@ -114,6 +138,17 @@ def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
         raise click.ClickException(str(exc)) from exc
     store.save(portfolio)
     click.echo(f"Removed {amount:.2f} {currency.upper()}")
+
+
+@main.command("list")
+def list_portfolios() -> None:
+    """List all portfolios in ~/.config/stonks/."""
+    files = sorted(PORTFOLIO_CONFIG_DIR.glob("*.yaml"))
+    if not files:
+        click.echo("No portfolios found.")
+        return
+    for f in files:
+        click.echo(f.stem)
 
 
 if __name__ == "__main__":

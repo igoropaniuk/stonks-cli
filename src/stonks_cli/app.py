@@ -3,8 +3,9 @@
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, Label, Static
 
 from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.models import Portfolio
@@ -13,28 +14,33 @@ from stonks_cli.models import Portfolio
 class PortfolioApp(App):
     """Full-screen portfolio table with periodic price refresh."""
 
-    TITLE = "Portfolio"
+    TITLE = "Stonks"
     BINDINGS = [("q", "quit", "Quit")]
 
     CSS = """
     DataTable { height: auto; }
-    #total {
+    .total {
         padding: 0 1;
         text-align: left;
         border-top: solid $accent;
+    }
+    .portfolio-header {
+        padding: 1 1 0 1;
+        color: $accent;
+        text-style: bold;
     }
     """
 
     def __init__(
         self,
-        portfolio: Portfolio,
+        portfolios: list[Portfolio],
         prices: dict[str, float],
-        forex_rates: dict[str, float],
+        forex_rates: dict[str, dict[str, float]],
         sessions: dict[str, str] | None = None,
         refresh_interval: float = 5.0,
     ) -> None:
         super().__init__()
-        self.portfolio = portfolio
+        self.portfolios = portfolios
         self.prices = prices
         self.forex_rates = forex_rates
         self.sessions = sessions or {}
@@ -42,26 +48,69 @@ class PortfolioApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield DataTable(zebra_stripes=True)
-        yield Static("", id="total")
+        if len(self.portfolios) == 1:
+            yield DataTable(zebra_stripes=True)
+            yield Static("", id="total", classes="total")
+        else:
+            with VerticalScroll():
+                for i, portfolio in enumerate(self.portfolios):
+                    label = portfolio.name or f"Portfolio {i + 1}"
+                    yield Label(label, id=f"header-{i}", classes="portfolio-header")
+                    yield DataTable(zebra_stripes=True, id=f"table-{i}")
+                    yield Static("", id=f"total-{i}", classes="total")
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns(
-            "Instrument", "Qty", "Avg Cost", "Last Price", "Mkt Value", "Unrealized P&L"
+        cols = (
+            "Instrument",
+            "Qty",
+            "Avg Cost",
+            "Last Price",
+            "Mkt Value",
+            "Unrealized P&L",
         )
-        self._populate_table()
+        if len(self.portfolios) == 1:
+            self.query_one(DataTable).add_columns(*cols)
+        else:
+            for i in range(len(self.portfolios)):
+                self.query_one(f"#table-{i}", DataTable).add_columns(*cols)
+        self._populate_tables()
         self._refresh_prices()
         self.set_interval(self.refresh_interval, self._refresh_prices)
 
-    def _populate_table(self) -> None:
+    # ------------------------------------------------------------------
+    # Rendering helpers
+    # ------------------------------------------------------------------
+
+    def _populate_tables(self) -> None:
+        if len(self.portfolios) == 1:
+            self._populate_single()
+        else:
+            for i, portfolio in enumerate(self.portfolios):
+                self._populate_for(i, portfolio)
+
+    def _populate_single(self) -> None:
         try:
             table = self.query_one(DataTable)
+            total_widget = self.query_one("#total", Static)
         except NoMatches:
             return
+        self._render_rows(table, self.portfolios[0])
+        self._update_total_widget(total_widget, self.portfolios[0])
+
+    def _populate_for(self, i: int, portfolio: Portfolio) -> None:
+        try:
+            table = self.query_one(f"#table-{i}", DataTable)
+            total_widget = self.query_one(f"#total-{i}", Static)
+        except NoMatches:
+            return
+        self._render_rows(table, portfolio)
+        self._update_total_widget(total_widget, portfolio)
+
+    def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
         table.clear()
-        for pos in self.portfolio.positions:
+        rates = self.forex_rates.get(portfolio.base_currency, {})
+        for pos in portfolio.positions:
             last = self.prices.get(pos.symbol)
             if last is not None:
                 mkt_value = pos.market_value(last)
@@ -96,11 +145,15 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
-        for cash_pos in self.portfolio.cash:
-            rate = self.forex_rates.get(cash_pos.currency)
+        for cash_pos in portfolio.cash:
+            rate = rates.get(cash_pos.currency)
             if rate is not None:
                 mkt_value = cash_pos.amount * rate
-                price_cell = f"{rate:.4f}" if cash_pos.currency != "USD" else "1.0000"
+                price_cell = (
+                    f"{rate:.4f}"
+                    if cash_pos.currency != portfolio.base_currency
+                    else "1.0000"
+                )
                 table.add_row(
                     cash_pos.currency,
                     f"{cash_pos.amount:,.2f}",
@@ -118,50 +171,56 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
-        self._update_total()
 
-    def _update_total(self) -> None:
-        if not self.prices and not self.portfolio.cash:
-            self.query_one("#total", Static).update("Obtaining market data...")
+    def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
+        rates = self.forex_rates.get(portfolio.base_currency, {})
+        if not self.prices and not portfolio.cash:
+            widget.update("Obtaining market data...")
             return
         stock_total = sum(
             pos.market_value(last) * rate
-            for pos in self.portfolio.positions
+            for pos in portfolio.positions
             if (last := self.prices.get(pos.symbol)) is not None
-            if (rate := self.forex_rates.get(pos.currency)) is not None
+            if (rate := rates.get(pos.currency)) is not None
         )
         cash_total = sum(
             cash_pos.amount * rate
-            for cash_pos in self.portfolio.cash
-            if (rate := self.forex_rates.get(cash_pos.currency)) is not None
+            for cash_pos in portfolio.cash
+            if (rate := rates.get(cash_pos.currency)) is not None
         )
-        base = self.portfolio.base_currency
-        self.query_one("#total", Static).update(
+        base = portfolio.base_currency
+        widget.update(
             Text(f"Total ({base})  ").append(
                 f"{stock_total + cash_total:,.2f}", style="bold"
             )
         )
 
+    # ------------------------------------------------------------------
+    # Price refresh
+    # ------------------------------------------------------------------
+
     @work(thread=True)
     def _refresh_prices(self) -> None:
         fetcher = PriceFetcher()
-        symbols = [p.symbol for p in self.portfolio.positions]
-        extended = fetcher.fetch_extended_prices(symbols)
+        all_symbols = list(
+            {p.symbol for portfolio in self.portfolios for p in portfolio.positions}
+        )
+        extended = fetcher.fetch_extended_prices(all_symbols)
         new_prices = {sym: price for sym, (price, _) in extended.items()}
         new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
-        currencies = list(
-            {p.currency for p in self.portfolio.positions}
-            | {c.currency for c in self.portfolio.cash}
+        all_currencies = list(
+            {p.currency for portfolio in self.portfolios for p in portfolio.positions}
+            | {c.currency for portfolio in self.portfolios for c in portfolio.cash}
         )
-        new_forex = fetcher.fetch_forex_rates(
-            currencies, base=self.portfolio.base_currency
-        )
+        new_forex: dict[str, dict[str, float]] = {}
+        for base in {p.base_currency for p in self.portfolios}:
+            new_forex[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
         self.call_from_thread(self._apply_prices, new_prices, new_forex, new_sessions)
 
     def _apply_prices(
         self,
         prices: dict[str, float],
-        forex_rates: dict[str, float] | None = None,
+        forex_rates: dict[str, dict[str, float]] | None = None,
         sessions: dict[str, str] | None = None,
     ) -> None:
         self.prices = prices
@@ -169,4 +228,4 @@ class PortfolioApp(App):
             self.forex_rates = forex_rates
         if sessions is not None:
             self.sessions = sessions
-        self._populate_table()
+        self._populate_tables()
