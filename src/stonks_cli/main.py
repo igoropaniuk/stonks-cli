@@ -73,7 +73,7 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
     store: PortfolioStore = ctx.obj["store"]
     portfolio = store.load()
 
-    if not portfolio.positions:
+    if not portfolio.positions and not portfolio.cash:
         click.echo("Portfolio is empty.")
         return
 
@@ -83,6 +83,37 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
         forex_rates={},
         refresh_interval=refresh,
     ).run()
+
+
+@main.command("add-cash")
+@click.argument("currency")
+@click.argument("amount", type=float)
+@click.pass_context
+def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
+    """Add AMOUNT of CURRENCY cash to the portfolio."""
+    store: PortfolioStore = ctx.obj["store"]
+    portfolio = store.load()
+    portfolio.add_cash(currency, amount)
+    store.save(portfolio)
+    cash = portfolio.get_cash(currency)
+    assert cash is not None
+    click.echo(f"Added {amount:.2f} {currency.upper()}  (total: {cash.amount:.2f})")
+
+
+@main.command("remove-cash")
+@click.argument("currency")
+@click.argument("amount", type=float)
+@click.pass_context
+def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
+    """Remove AMOUNT of CURRENCY cash from the portfolio."""
+    store: PortfolioStore = ctx.obj["store"]
+    portfolio = store.load()
+    try:
+        portfolio.remove_cash(currency, amount)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    store.save(portfolio)
+    click.echo(f"Removed {amount:.2f} {currency.upper()}")
 
 
 if __name__ == "__main__":

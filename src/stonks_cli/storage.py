@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from stonks_cli.models import Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position
 
 DEFAULT_PORTFOLIO_PATH = Path.home() / ".config" / "stonks" / "portfolio.yaml"
 
@@ -39,7 +39,9 @@ class PortfolioStore:
                     f"Cannot parse portfolio file {self.path}: {exc}"
                 ) from exc
 
-        raw = (data or {}).get("portfolio", {}).get("positions") or []
+        section = (data or {}).get("portfolio", {})
+
+        raw_positions = section.get("positions") or []
         positions = [
             Position(
                 symbol=p["symbol"],
@@ -47,9 +49,15 @@ class PortfolioStore:
                 avg_cost=p["avg_cost"],
                 currency=p.get("currency", "USD"),
             )
-            for p in raw
+            for p in raw_positions
         ]
-        return Portfolio(positions=positions)
+
+        raw_cash = section.get("cash") or []
+        cash = [
+            CashPosition(currency=c["currency"], amount=c["amount"]) for c in raw_cash
+        ]
+
+        return Portfolio(positions=positions, cash=cash)
 
     def save(self, portfolio: Portfolio) -> None:
         """Persist the portfolio to disk.
@@ -67,7 +75,14 @@ class PortfolioStore:
                         "currency": p.currency,
                     }
                     for p in portfolio.positions
-                ]
+                ],
+                "cash": [
+                    {
+                        "currency": c.currency,
+                        "amount": round(c.amount, 2),
+                    }
+                    for c in portfolio.cash
+                ],
             }
         }
         with self.path.open("w") as fh:

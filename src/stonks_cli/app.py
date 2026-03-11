@@ -96,20 +96,49 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
+        for cash_pos in self.portfolio.cash:
+            rate = self.forex_rates.get(cash_pos.currency)
+            if rate is not None:
+                mkt_value = cash_pos.amount * rate
+                price_cell = f"{rate:.4f}" if cash_pos.currency != "USD" else "1.0000"
+                table.add_row(
+                    cash_pos.currency,
+                    f"{cash_pos.amount:,.2f}",
+                    "1.00",
+                    price_cell,
+                    f"{mkt_value:,.2f}",
+                    "--",
+                )
+            else:
+                table.add_row(
+                    cash_pos.currency,
+                    f"{cash_pos.amount:,.2f}",
+                    "1.00",
+                    "N/A",
+                    "N/A",
+                    "--",
+                )
         self._update_total()
 
     def _update_total(self) -> None:
-        if not self.prices:
+        if not self.prices and not self.portfolio.cash:
             self.query_one("#total", Static).update("Obtaining market data...")
             return
-        total = sum(
+        stock_total = sum(
             pos.market_value(last) * rate
             for pos in self.portfolio.positions
             if (last := self.prices.get(pos.symbol)) is not None
             if (rate := self.forex_rates.get(pos.currency)) is not None
         )
+        cash_total = sum(
+            cash_pos.amount * rate
+            for cash_pos in self.portfolio.cash
+            if (rate := self.forex_rates.get(cash_pos.currency)) is not None
+        )
         self.query_one("#total", Static).update(
-            Text("Total (USD)  ").append(f"{total:,.2f}", style="bold")
+            Text("Total (USD)  ").append(
+                f"{stock_total + cash_total:,.2f}", style="bold"
+            )
         )
 
     @work(thread=True)
@@ -119,7 +148,10 @@ class PortfolioApp(App):
         extended = fetcher.fetch_extended_prices(symbols)
         new_prices = {sym: price for sym, (price, _) in extended.items()}
         new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
-        currencies = list({p.currency for p in self.portfolio.positions})
+        currencies = list(
+            {p.currency for p in self.portfolio.positions}
+            | {c.currency for c in self.portfolio.cash}
+        )
         new_forex = fetcher.fetch_forex_rates(currencies)
         self.call_from_thread(self._apply_prices, new_prices, new_forex, new_sessions)
 
