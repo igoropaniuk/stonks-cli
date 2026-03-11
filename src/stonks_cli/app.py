@@ -99,6 +99,9 @@ class PortfolioApp(App):
         self._update_total()
 
     def _update_total(self) -> None:
+        if not self.prices:
+            self.query_one("#total", Static).update("Obtaining market data...")
+            return
         total = sum(
             pos.market_value(last) * rate
             for pos in self.portfolio.positions
