@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from stonks_cli.models import Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position
 from stonks_cli.storage import PortfolioStore
 
 
@@ -157,3 +157,50 @@ class TestRoundTrip:
         assert aapl is not None
         assert aapl.quantity == 200
         assert aapl.avg_cost == pytest.approx(175.0)
+
+
+class TestCashPersistence:
+    def test_saves_and_loads_cash(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = Portfolio(
+            cash=[CashPosition("USD", 5000.0), CashPosition("EUR", 3000.0)]
+        )
+        store.save(portfolio)
+        loaded = store.load()
+        assert len(loaded.cash) == 2
+        usd = loaded.get_cash("USD")
+        assert usd is not None
+        assert usd.amount == pytest.approx(5000.0)
+
+    def test_load_ignores_missing_cash_section(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(store.path, {"portfolio": {"positions": []}})
+        assert store.load().cash == []
+
+    def test_round_trip_cash_after_mutation(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = store.load()
+        portfolio.add_cash("EUR", 1000.0)
+        portfolio.add_cash("EUR", 500.0)
+        store.save(portfolio)
+        loaded = store.load()
+        eur = loaded.get_cash("EUR")
+        assert eur is not None
+        assert eur.amount == pytest.approx(1500.0)
+
+
+class TestBaseCurrency:
+    def test_default_base_currency_when_missing(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(store.path, {"portfolio": {"positions": []}})
+        assert store.load().base_currency == "USD"
+
+    def test_saves_and_loads_base_currency(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(base_currency="EUR"))
+        assert store.load().base_currency == "EUR"
+
+    def test_base_currency_round_trip(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(base_currency="gbp"))
+        assert store.load().base_currency == "GBP"

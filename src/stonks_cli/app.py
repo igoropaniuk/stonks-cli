@@ -135,8 +135,9 @@ class PortfolioApp(App):
             for cash_pos in self.portfolio.cash
             if (rate := self.forex_rates.get(cash_pos.currency)) is not None
         )
+        base = self.portfolio.base_currency
         self.query_one("#total", Static).update(
-            Text("Total (USD)  ").append(
+            Text(f"Total ({base})  ").append(
                 f"{stock_total + cash_total:,.2f}", style="bold"
             )
         )
@@ -152,7 +153,9 @@ class PortfolioApp(App):
             {p.currency for p in self.portfolio.positions}
             | {c.currency for c in self.portfolio.cash}
         )
-        new_forex = fetcher.fetch_forex_rates(currencies)
+        new_forex = fetcher.fetch_forex_rates(
+            currencies, base=self.portfolio.base_currency
+        )
         self.call_from_thread(self._apply_prices, new_prices, new_forex, new_sessions)
 
     def _apply_prices(

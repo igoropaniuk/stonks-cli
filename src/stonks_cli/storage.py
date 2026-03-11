@@ -57,7 +57,9 @@ class PortfolioStore:
             CashPosition(currency=c["currency"], amount=c["amount"]) for c in raw_cash
         ]
 
-        return Portfolio(positions=positions, cash=cash)
+        base_currency = section.get("base_currency", "USD")
+
+        return Portfolio(positions=positions, cash=cash, base_currency=base_currency)
 
     def save(self, portfolio: Portfolio) -> None:
         """Persist the portfolio to disk.
@@ -67,6 +69,7 @@ class PortfolioStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "portfolio": {
+                "base_currency": portfolio.base_currency,
                 "positions": [
                     {
                         "symbol": p.symbol,
