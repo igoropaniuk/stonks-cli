@@ -204,3 +204,20 @@ class TestBaseCurrency:
         store = make_store(tmp_path)
         store.save(Portfolio(base_currency="gbp"))
         assert store.load().base_currency == "GBP"
+
+
+class TestName:
+    def test_default_name_when_missing(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(store.path, {"portfolio": {"positions": []}})
+        assert store.load().name == ""
+
+    def test_saves_and_loads_name(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(name="Work"))
+        assert store.load().name == "Work"
+
+    def test_name_round_trip_empty(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(name=""))
+        assert store.load().name == ""

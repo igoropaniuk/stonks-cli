@@ -6,7 +6,8 @@ import yaml
 
 from stonks_cli.models import CashPosition, Portfolio, Position
 
-DEFAULT_PORTFOLIO_PATH = Path.home() / ".config" / "stonks" / "portfolio.yaml"
+PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
+DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
 
 
 class PortfolioStore:
@@ -58,8 +59,11 @@ class PortfolioStore:
         ]
 
         base_currency = section.get("base_currency", "USD")
+        name = section.get("name", "")
 
-        return Portfolio(positions=positions, cash=cash, base_currency=base_currency)
+        return Portfolio(
+            positions=positions, cash=cash, base_currency=base_currency, name=name
+        )
 
     def save(self, portfolio: Portfolio) -> None:
         """Persist the portfolio to disk.
@@ -69,6 +73,7 @@ class PortfolioStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "portfolio": {
+                "name": portfolio.name,
                 "base_currency": portfolio.base_currency,
                 "positions": [
                     {

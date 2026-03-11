@@ -6,8 +6,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from stonks_cli.main import main
-from stonks_cli.storage import PortfolioStore
+from stonks_cli.main import _resolve_portfolio_path, main
+from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
 
 
 @pytest.fixture
@@ -135,7 +135,7 @@ class TestDashboard:
         invoke(runner, portfolio_file, "dashboard")
 
         _, kwargs = mock_app_cls.call_args
-        symbols = [p.symbol for p in kwargs["portfolio"].positions]
+        symbols = [p.symbol for p in kwargs["portfolios"][0].positions]
         assert "AAPL" in symbols
         assert "NVDA" in symbols
 
@@ -150,6 +150,7 @@ class TestDashboard:
         _, kwargs = mock_app_cls.call_args
         assert kwargs["prices"] == {}
         assert kwargs["forex_rates"] == {}
+        assert len(kwargs["portfolios"]) == 1
 
     @patch("stonks_cli.main.PortfolioApp")
     def test_dashboard_default_refresh_interval(
@@ -239,3 +240,89 @@ class TestRemoveCash:
         result = invoke(runner, portfolio_file, "remove-cash", "USD", "1000")
         assert result.exit_code != 0
         assert "only 500.00 held" in result.output
+
+
+# ---------------------------------------------------------------------------
+# portfolio name resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePortfolioPath:
+    def test_none_returns_none(self):
+        assert _resolve_portfolio_path(None) is None
+
+    def test_plain_name_resolves_to_config_dir(self):
+        result = _resolve_portfolio_path("work")
+        assert result == PORTFOLIO_CONFIG_DIR / "work.yaml"
+
+    def test_name_with_extension_used_as_is(self):
+        assert _resolve_portfolio_path("work.yaml") == Path("work.yaml")
+
+    def test_path_with_separator_used_as_is(self):
+        assert _resolve_portfolio_path("/tmp/my.yaml") == Path("/tmp/my.yaml")
+
+    def test_relative_path_used_as_is(self):
+        assert _resolve_portfolio_path("subdir/work") == Path("subdir/work")
+
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+
+class TestList:
+    def test_lists_yaml_files(self, runner, tmp_path):
+        (tmp_path / "personal.yaml").write_text("")
+        (tmp_path / "work.yaml").write_text("")
+        with patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", tmp_path):
+            result = runner.invoke(main, ["list"])
+        assert result.exit_code == 0
+        assert "personal" in result.output
+        assert "work" in result.output
+
+    def test_no_portfolios_message(self, runner, tmp_path):
+        with patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", tmp_path):
+            result = runner.invoke(main, ["list"])
+        assert result.exit_code == 0
+        assert "No portfolios found" in result.output
+
+    def test_missing_config_dir(self, runner, tmp_path):
+        missing = tmp_path / "nonexistent"
+        with patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", missing):
+            result = runner.invoke(main, ["list"])
+        assert result.exit_code == 0
+        assert "No portfolios found" in result.output
+
+    def test_non_yaml_files_excluded(self, runner, tmp_path):
+        (tmp_path / "notes.txt").write_text("")
+        (tmp_path / "work.yaml").write_text("")
+        with patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", tmp_path):
+            result = runner.invoke(main, ["list"])
+        assert "notes" not in result.output
+        assert "work" in result.output
+
+
+# ---------------------------------------------------------------------------
+# dashboard with multiple portfolios
+# ---------------------------------------------------------------------------
+
+
+class TestDashboardMultiplePortfolios:
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_dashboard_shows_separate_portfolios(self, mock_app_cls, runner, tmp_path):
+        p1 = tmp_path / "p1.yaml"
+        p2 = tmp_path / "p2.yaml"
+        runner.invoke(main, ["--portfolio", str(p1), "add", "AAPL", "10", "150"])
+        runner.invoke(main, ["--portfolio", str(p2), "add", "NVDA", "5", "800"])
+
+        result = runner.invoke(
+            main, ["--portfolio", str(p1), "--portfolio", str(p2), "dashboard"]
+        )
+
+        assert result.exit_code == 0
+        _, kwargs = mock_app_cls.call_args
+        portfolios = kwargs["portfolios"]
+        assert len(portfolios) == 2
+        all_symbols = [p.symbol for port in portfolios for p in port.positions]
+        assert "AAPL" in all_symbols
+        assert "NVDA" in all_symbols
