@@ -2,7 +2,29 @@
 
 import pytest
 
-from stonks_cli.models import Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position
+
+
+class TestCashPosition:
+    def test_valid_creation(self):
+        cash = CashPosition(currency="usd", amount=1000.0)
+        assert cash.currency == "USD"
+        assert cash.amount == 1000.0
+
+    def test_currency_uppercase(self):
+        assert CashPosition(currency="eur", amount=500.0).currency == "EUR"
+
+    def test_empty_currency_raises(self):
+        with pytest.raises(ValueError, match="Currency cannot be empty"):
+            CashPosition(currency="", amount=100.0)
+
+    def test_negative_amount_raises(self):
+        with pytest.raises(ValueError, match="Amount must be positive"):
+            CashPosition(currency="USD", amount=-1.0)
+
+    def test_zero_amount_raises(self):
+        with pytest.raises(ValueError, match="Amount must be positive"):
+            CashPosition(currency="USD", amount=0.0)
 
 
 class TestPosition:
@@ -64,6 +86,12 @@ class TestPortfolio:
 
     def test_empty_portfolio(self):
         assert Portfolio().positions == []
+
+    def test_default_base_currency_is_usd(self):
+        assert Portfolio().base_currency == "USD"
+
+    def test_base_currency_normalised_to_uppercase(self):
+        assert Portfolio(base_currency="eur").base_currency == "EUR"
 
     def test_duplicate_symbols_raises(self):
         positions = [
@@ -136,3 +164,53 @@ class TestPortfolio:
         p.add_position("AAPL", 50, 150.0)
         with pytest.raises(ValueError, match="only 50 held"):
             p.remove_position("AAPL", 100)
+
+    # --- cash ---
+
+    def test_add_cash_new_currency(self):
+        p = Portfolio()
+        p.add_cash("USD", 1000.0)
+        cash = p.get_cash("USD")
+        assert cash is not None
+        assert cash.amount == 1000.0
+
+    def test_add_cash_accumulates(self):
+        p = Portfolio()
+        p.add_cash("EUR", 500.0)
+        p.add_cash("EUR", 300.0)
+        assert p.get_cash("EUR").amount == pytest.approx(800.0)
+
+    def test_add_cash_normalises_currency(self):
+        p = Portfolio()
+        p.add_cash("eur", 100.0)
+        assert p.get_cash("EUR") is not None
+
+    def test_get_cash_missing_returns_none(self):
+        assert Portfolio().get_cash("USD") is None
+
+    def test_remove_cash_full(self):
+        p = Portfolio()
+        p.add_cash("USD", 1000.0)
+        p.remove_cash("USD", 1000.0)
+        assert p.get_cash("USD") is None
+
+    def test_remove_cash_partial(self):
+        p = Portfolio()
+        p.add_cash("USD", 1000.0)
+        p.remove_cash("USD", 400.0)
+        assert p.get_cash("USD").amount == pytest.approx(600.0)
+
+    def test_remove_cash_missing_raises(self):
+        p = Portfolio()
+        with pytest.raises(ValueError, match="No USD cash position"):
+            p.remove_cash("USD", 100.0)
+
+    def test_remove_cash_excess_raises(self):
+        p = Portfolio()
+        p.add_cash("USD", 500.0)
+        with pytest.raises(ValueError, match="only 500.00 held"):
+            p.remove_cash("USD", 1000.0)
+
+    def test_duplicate_cash_currencies_raises(self):
+        with pytest.raises(ValueError, match="Duplicate currencies"):
+            Portfolio(cash=[CashPosition("USD", 100.0), CashPosition("USD", 200.0)])

@@ -172,3 +172,70 @@ class TestDashboard:
 
         _, kwargs = mock_app_cls.call_args
         assert kwargs["refresh_interval"] == 10.0
+
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_dashboard_shows_with_only_cash(self, mock_app_cls, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "USD", "5000")
+
+        result = invoke(runner, portfolio_file, "dashboard")
+
+        assert result.exit_code == 0
+        mock_app_cls.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# add-cash
+# ---------------------------------------------------------------------------
+
+
+class TestAddCash:
+    def test_adds_new_cash_position(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "add-cash", "USD", "5000")
+        assert result.exit_code == 0
+        assert "USD" in result.output
+
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        cash = portfolio.get_cash("USD")
+        assert cash is not None
+        assert cash.amount == pytest.approx(5000.0)
+
+    def test_add_cash_normalises_currency(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "eur", "1000")
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_cash("EUR") is not None
+
+    def test_add_cash_twice_accumulates(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "USD", "3000")
+        invoke(runner, portfolio_file, "add-cash", "USD", "2000")
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_cash("USD").amount == pytest.approx(5000.0)
+
+
+# ---------------------------------------------------------------------------
+# remove-cash
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveCash:
+    def test_removes_full_cash_position(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "USD", "1000")
+        result = invoke(runner, portfolio_file, "remove-cash", "USD", "1000")
+        assert result.exit_code == 0
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_cash("USD") is None
+
+    def test_removes_partial_cash(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "EUR", "2000")
+        invoke(runner, portfolio_file, "remove-cash", "EUR", "500")
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_cash("EUR").amount == pytest.approx(1500.0)
+
+    def test_error_on_missing_currency(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "remove-cash", "USD", "100")
+        assert result.exit_code != 0
+
+    def test_error_on_excess_amount(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "USD", "500")
+        result = invoke(runner, portfolio_file, "remove-cash", "USD", "1000")
+        assert result.exit_code != 0
+        assert "only 500.00 held" in result.output

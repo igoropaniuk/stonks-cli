@@ -68,8 +68,10 @@ class Portfolio:
 
     positions: list[Position] = field(default_factory=list)
     cash: list[CashPosition] = field(default_factory=list)
+    base_currency: str = "USD"
 
     def __post_init__(self) -> None:
+        self.base_currency = self.base_currency.upper()
         symbols = [p.symbol for p in self.positions]
         if len(symbols) != len(set(symbols)):
             raise ValueError("Duplicate symbols in portfolio")
