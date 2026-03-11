@@ -1,10 +1,17 @@
 # stonks-cli
 
-![stonks](docs/assets/stonks.png)
+Track your investment portfolio directly from the terminal.
 
-A terminal-based investment portfolio tracker. Displays your holdings with live
-market prices, unrealized P&L, and a total portfolio value converted to USD —
-all in a full-screen TUI that refreshes automatically.
+![demo](docs/assets/demo.gif)
+
+## Features
+
+- terminal dashboard (TUI)
+- tracks stock portfolio with **live market prices** including **extended-hours**
+  quotes
+- calculates a total portfolio value converted to USD and unrealized P&L
+- Yahoo Finance integration (**no API token required**)
+- open source (**MIT licensed**)
 
 ---
 
@@ -247,6 +254,12 @@ Drop `:ro` if you want `add` / `remove` commands to persist changes back to
 the host.
 
 ---
+
+## Market analysis
+
+![stonks](docs/assets/stonks.png)
+
+Looks bullish.
 
 ## License
 
