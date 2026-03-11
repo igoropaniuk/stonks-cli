@@ -225,6 +225,29 @@ positions and costs are fictitious test data.*
 
 ---
 
+## Running with Docker
+
+### Build the image
+
+```bash
+docker build -t stonks .
+```
+
+### Run the container
+
+```bash
+docker run --rm -it \
+  -v ./config/sample_portfolio.yaml:/data/portfolio.yaml:ro \
+  stonks --portfolio /data/portfolio.yaml show
+```
+
+The `-v` flag bind-mounts a local YAML file into the container. Replace
+`./config/sample_portfolio.yaml` with the path to your own portfolio file.
+Drop `:ro` if you want `add` / `remove` commands to persist changes back to
+the host.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
