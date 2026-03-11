@@ -68,7 +68,7 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
     help="Price refresh interval in seconds.",
 )
 @click.pass_context
-def show(ctx: click.Context, refresh: float) -> None:
+def dashboard(ctx: click.Context, refresh: float) -> None:
     """Display the current portfolio with live prices and P&L."""
     store: PortfolioStore = ctx.obj["store"]
     portfolio = store.load()

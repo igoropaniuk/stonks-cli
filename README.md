@@ -169,7 +169,7 @@ Options:
 Commands:
   add     Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
   remove  Remove QUANTITY shares of SYMBOL from the portfolio.
-  show    Display the current portfolio with live prices and P&L.
+  dashboard  Display the current portfolio with live prices and P&L.
 ```
 
 #### Add a position
@@ -202,10 +202,10 @@ poetry run stonks remove AAPL 10
 
 ```bash
 # Launch the TUI with the default 5-second refresh
-poetry run stonks show
+poetry run stonks dashboard
 
 # Refresh prices every 30 seconds
-poetry run stonks show --refresh 30
+poetry run stonks dashboard --refresh 30
 ```
 
 The TUI displays a table with the following columns:
@@ -245,7 +245,7 @@ docker build -t stonks .
 ```bash
 docker run --rm -it \
   -v ./config/sample_portfolio.yaml:/data/portfolio.yaml:ro \
-  stonks --portfolio /data/portfolio.yaml show
+  stonks --portfolio /data/portfolio.yaml dashboard
 ```
 
 The `-v` flag bind-mounts a local YAML file into the container. Replace

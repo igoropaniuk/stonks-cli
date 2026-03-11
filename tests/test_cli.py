@@ -105,32 +105,34 @@ class TestRemove:
 
 
 # ---------------------------------------------------------------------------
-# show
+# dashboard
 # ---------------------------------------------------------------------------
 
 
-class TestShow:
+class TestDashboard:
     def test_empty_portfolio_message(self, runner, portfolio_file):
-        result = invoke(runner, portfolio_file, "show")
+        result = invoke(runner, portfolio_file, "dashboard")
         assert result.exit_code == 0
         assert "empty" in result.output.lower()
 
     @patch("stonks_cli.main.PortfolioApp")
-    def test_show_launches_app(self, mock_app_cls, runner, portfolio_file):
+    def test_dashboard_launches_app(self, mock_app_cls, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
-        result = invoke(runner, portfolio_file, "show")
+        result = invoke(runner, portfolio_file, "dashboard")
 
         assert result.exit_code == 0
         mock_app_cls.assert_called_once()
         mock_app_cls.return_value.run.assert_called_once()
 
     @patch("stonks_cli.main.PortfolioApp")
-    def test_show_passes_portfolio_to_app(self, mock_app_cls, runner, portfolio_file):
+    def test_dashboard_passes_portfolio_to_app(
+        self, mock_app_cls, runner, portfolio_file
+    ):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
         invoke(runner, portfolio_file, "add", "NVDA", "10", "800.0")
 
-        invoke(runner, portfolio_file, "show")
+        invoke(runner, portfolio_file, "dashboard")
 
         _, kwargs = mock_app_cls.call_args
         symbols = [p.symbol for p in kwargs["portfolio"].positions]
@@ -138,29 +140,35 @@ class TestShow:
         assert "NVDA" in symbols
 
     @patch("stonks_cli.main.PortfolioApp")
-    def test_show_starts_with_empty_prices(self, mock_app_cls, runner, portfolio_file):
+    def test_dashboard_starts_with_empty_prices(
+        self, mock_app_cls, runner, portfolio_file
+    ):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
-        invoke(runner, portfolio_file, "show")
+        invoke(runner, portfolio_file, "dashboard")
 
         _, kwargs = mock_app_cls.call_args
         assert kwargs["prices"] == {}
         assert kwargs["forex_rates"] == {}
 
     @patch("stonks_cli.main.PortfolioApp")
-    def test_show_default_refresh_interval(self, mock_app_cls, runner, portfolio_file):
+    def test_dashboard_default_refresh_interval(
+        self, mock_app_cls, runner, portfolio_file
+    ):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
-        invoke(runner, portfolio_file, "show")
+        invoke(runner, portfolio_file, "dashboard")
 
         _, kwargs = mock_app_cls.call_args
         assert kwargs["refresh_interval"] == 5.0
 
     @patch("stonks_cli.main.PortfolioApp")
-    def test_show_custom_refresh_interval(self, mock_app_cls, runner, portfolio_file):
+    def test_dashboard_custom_refresh_interval(
+        self, mock_app_cls, runner, portfolio_file
+    ):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
 
-        invoke(runner, portfolio_file, "show", "--refresh", "10")
+        invoke(runner, portfolio_file, "dashboard", "--refresh", "10")
 
         _, kwargs = mock_app_cls.call_args
         assert kwargs["refresh_interval"] == 10.0
