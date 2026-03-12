@@ -261,6 +261,16 @@ the host.
 
 Looks bullish.
 
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for
+development setup, coding style, commit message conventions, and the pull
+request workflow.
+
+For the release process, see [RELEASING.md](RELEASING.md).
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
