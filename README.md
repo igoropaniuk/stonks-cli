@@ -15,23 +15,19 @@ Track your investment portfolio directly from the terminal.
 
 ---
 
-## Prerequisites
+## Installation
 
-- **Python 3.11+**
-- **Poetry** — [installation guide](https://python-poetry.org/docs/#installation)
-- An internet connection (prices are fetched from Yahoo Finance via
-  [yfinance](https://github.com/ranaroussi/yfinance))
-
----
-
-## Fetching the project
+**Requirements:** Python 3.11+
 
 ```bash
-git clone https://github.com/igorpaniuk/stonks-cli.git
-cd stonks-cli
+pip install stonks-cli
 ```
 
----
+Or with [pipx](https://pipx.pypa.io/) (recommended — keeps the tool isolated):
+
+```bash
+pipx install stonks-cli
+```
 
 ## Preparing configuration in YAML format
 
@@ -148,15 +144,7 @@ Append the appropriate suffix to the base ticker symbol.
 
 ---
 
-## Installing and running the project with Poetry
-
-### Install dependencies
-
-```bash
-poetry install
-```
-
-### Usage
+## Usage
 
 ```text
 stonks [OPTIONS] COMMAND [ARGS]...
@@ -172,40 +160,40 @@ Commands:
   dashboard  Display the current portfolio with live prices and P&L.
 ```
 
-#### Add a position
+### Show the portfolio
+
+```bash
+# Launch the TUI with the default 5-second refresh
+stonks dashboard
+
+# Refresh prices every 30 seconds
+stonks dashboard --refresh 30
+```
+
+### Add a position
 
 ```bash
 # Add 10 shares of Apple at $150.00
-poetry run stonks add AAPL 10 150.00
+stonks add AAPL 10 150.00
 
 # Add a non-US stock (ASML on Euronext Amsterdam)
-poetry run stonks add ASML.AS 5 680.00
+stonks add ASML.AS 5 680.00
 
 # Use a custom portfolio file
-poetry run stonks -p ~/my-portfolio.yaml add NVDA 2 800.00
+stonks -p ~/my-portfolio.yaml add NVDA 2 800.00
 ```
 
 When a symbol is added a second time, the quantity is increased and the average
 cost is recalculated as a weighted average automatically.
 
-#### Remove a position
+### Remove a position
 
 ```bash
 # Remove 5 shares (partial close)
-poetry run stonks remove AAPL 5
+stonks remove AAPL 5
 
 # Remove all shares (position deleted)
-poetry run stonks remove AAPL 10
-```
-
-#### Show the portfolio
-
-```bash
-# Launch the TUI with the default 5-second refresh
-poetry run stonks dashboard
-
-# Refresh prices every 30 seconds
-poetry run stonks dashboard --refresh 30
+stonks remove AAPL 10
 ```
 
 The TUI displays a table with the following columns:
