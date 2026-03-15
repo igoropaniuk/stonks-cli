@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from stonks_cli import __version__
 from stonks_cli.main import _resolve_portfolio_path, main
 from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
 
@@ -300,6 +301,14 @@ class TestList:
             result = runner.invoke(main, ["list"])
         assert "notes" not in result.output
         assert "work" in result.output
+
+
+class TestVersion:
+    @pytest.mark.parametrize("flag", ["--version", "-V"])
+    def test_prints_version(self, runner, flag):
+        result = runner.invoke(main, [flag])
+        assert result.exit_code == 0
+        assert __version__ in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 
+from stonks_cli import __version__
 from stonks_cli.app import PortfolioApp
 from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
 
@@ -24,6 +25,7 @@ def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
 
 
 @click.group()
+@click.version_option(__version__, "--version", "-V")
 @click.option(
     "-p",
     "--portfolio",
