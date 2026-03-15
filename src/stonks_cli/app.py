@@ -126,6 +126,8 @@ class PortfolioApp(App):
                     price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
                 elif session == "post":
                     price_cell = Text(f"{last:.2f} ").append("AH", style="bold cyan")
+                elif session == "closed":
+                    price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
                 else:
                     price_cell = f"{last:.2f}"
                 table.add_row(
