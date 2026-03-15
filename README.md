@@ -157,6 +157,8 @@ Append the appropriate suffix to the base ticker symbol.
 | `7203.T`     | Toyota (Tokyo SE)         |
 | `HSBA.L`     | HSBC (London SE)          |
 | `005930.KS`  | Samsung (KOSPI)           |
+| `BTC-USD`    | Bitcoin / USD             |
+| `ETH-EUR`    | Ethereum / EUR            |
 
 ---
 
