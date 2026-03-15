@@ -54,7 +54,16 @@ portfolio:
       quantity: 100
       avg_cost: 1850.00
       currency: JPY
+
+  cash:
+    - currency: USD
+      amount: 4250.00
+
+    - currency: EUR
+      amount: 2100.00
 ```
+
+**Positions** fields:
 
 | Field      | Type   | Required | Description                             |
 | ---------- | ------ | -------- | --------------------------------------- |
@@ -63,9 +72,16 @@ portfolio:
 | `avg_cost` | float  | yes      | Average cost per share (positive)       |
 | `currency` | string | no       | ISO 4217 code; defaults to `USD`        |
 
-> The file is created and updated automatically when you use the `add` and
-> `remove` commands, so you only need to create it manually if you prefer to
-> seed your positions by hand.
+**Cash** fields:
+
+| Field      | Type   | Required | Description                      |
+| ---------- | ------ | -------- | -------------------------------- |
+| `currency` | string | yes      | ISO 4217 code (e.g. `USD`, `EUR`) |
+| `amount`   | float  | yes      | Cash held (positive)             |
+
+> The file is created and updated automatically when you use the `add`,
+> `remove`, `add-cash`, and `remove-cash` commands, so you only need to
+> create it manually if you prefer to seed your data by hand.
 
 ### Ticker symbols and exchange suffixes
 
@@ -155,9 +171,11 @@ Options:
   --help                Show this message and exit.
 
 Commands:
-  add     Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
-  remove  Remove QUANTITY shares of SYMBOL from the portfolio.
-  dashboard  Display the current portfolio with live prices and P&L.
+  add         Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
+  remove      Remove QUANTITY shares of SYMBOL from the portfolio.
+  add-cash    Add AMOUNT of CURRENCY cash to the portfolio.
+  remove-cash Remove AMOUNT of CURRENCY cash from the portfolio.
+  dashboard   Display the current portfolio with live prices and P&L.
 ```
 
 ### Show the portfolio
@@ -195,6 +213,23 @@ stonks remove AAPL 5
 # Remove all shares (position deleted)
 stonks remove AAPL 10
 ```
+
+### Manage cash
+
+```bash
+# Deposit cash
+stonks add-cash USD 5000.00
+stonks add-cash EUR 2000.00
+
+# Withdraw cash (partial)
+stonks remove-cash USD 500.00
+
+# Withdraw all remaining cash of a currency (position deleted)
+stonks remove-cash EUR 2000.00
+```
+
+Cash is displayed in the dashboard below the stock positions and is included
+in the total portfolio value converted to the base currency.
 
 The TUI displays a table with the following columns:
 
