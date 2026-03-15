@@ -72,6 +72,16 @@ portfolio:
       avg_cost: 108.35
       currency: USD
 
+    - symbol: BTC-USD
+      quantity: 0.25
+      avg_cost: 52000.00
+      currency: USD
+
+    - symbol: ETH-USD
+      quantity: 2.5
+      avg_cost: 2800.00
+      currency: USD
+
   cash:
     - currency: USD
       amount: 4250.00
