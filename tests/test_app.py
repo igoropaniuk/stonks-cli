@@ -51,7 +51,7 @@ async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        pnl_col = 5  # "Unrealized P&L" is the 6th column (index 5)
+        pnl_col = 6  # "Unrealized P&L" is the 7th column (index 6)
         pnl_cell = table.get_cell_at((0, pnl_col))  # AAPL row
         assert "green" in pnl_cell.style
 
@@ -65,7 +65,7 @@ async def test_loss_pnl_is_red(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        pnl_cell = table.get_cell_at((1, 5))  # NVDA row, P&L col
+        pnl_cell = table.get_cell_at((1, 6))  # NVDA row, P&L col
         assert "red" in pnl_cell.style
 
 
@@ -77,9 +77,9 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        assert str(table.get_cell_at((0, 3))) == "N/A"  # Last Price
-        assert str(table.get_cell_at((0, 4))) == "N/A"  # Mkt Value
-        assert str(table.get_cell_at((0, 5))) == "N/A"  # P&L
+        assert str(table.get_cell_at((0, 4))) == "N/A"  # Last Price
+        assert str(table.get_cell_at((0, 5))) == "N/A"  # Mkt Value
+        assert str(table.get_cell_at((0, 6))) == "N/A"  # P&L
 
 
 @pytest.mark.asyncio
@@ -96,7 +96,7 @@ async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
         app._apply_prices({"AAPL": 200.0, "NVDA": 50.0})
         await pilot.pause()
         table = app.query_one(DataTable)
-        assert str(table.get_cell_at((0, 3))) == "200.00"  # AAPL last price updated
+        assert str(table.get_cell_at((0, 4))) == "200.00"  # AAPL last price updated
 
 
 @pytest.mark.asyncio
@@ -176,7 +176,7 @@ async def test_pre_market_badge_shown(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = table.get_cell_at((0, 3))  # AAPL Last Price
+        price_cell = table.get_cell_at((0, 4))  # AAPL Last Price
         assert "PRE" in str(price_cell)
 
 
@@ -192,7 +192,7 @@ async def test_after_hours_badge_shown(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = table.get_cell_at((0, 3))  # AAPL Last Price
+        price_cell = table.get_cell_at((0, 4))  # AAPL Last Price
         assert "AH" in str(price_cell)
 
 
@@ -208,7 +208,7 @@ async def test_regular_session_no_badge(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = str(table.get_cell_at((0, 3)))  # AAPL Last Price
+        price_cell = str(table.get_cell_at((0, 4)))  # AAPL Last Price
         assert price_cell == "160.00"
         assert "PRE" not in price_cell
         assert "AH" not in price_cell
