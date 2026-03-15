@@ -28,7 +28,7 @@ def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
     return p
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option(__version__, "--version", "-V")
 @click.option(
     "-p",
@@ -55,6 +55,8 @@ def main(ctx: click.Context, portfolio: tuple[str, ...]) -> None:
         stores = [PortfolioStore(path=_resolve_portfolio_path(p)) for p in portfolio]
     ctx.obj["stores"] = stores
     ctx.obj["store"] = stores[0]
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(dashboard)
 
 
 @main.command()
