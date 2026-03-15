@@ -71,3 +71,13 @@ portfolio:
       quantity: 32
       avg_cost: 108.35
       currency: USD
+
+  cash:
+    - currency: USD
+      amount: 4250.00
+
+    - currency: EUR
+      amount: 2100.00
+
+    - currency: GBP
+      amount: 850.00
