@@ -269,12 +269,6 @@ forex rates and sums them up.
 
 Press `q` to quit.
 
-*Screenshot uses the sample portfolio from
-[config/sample_portfolio.yaml](config/sample_portfolio.yaml) -- all
-positions and costs are fictitious test data.*
-
-![Portfolio TUI](docs/assets/screenshot.png)
-
 ---
 
 ## Running with Docker
