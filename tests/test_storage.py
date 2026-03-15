@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+import stonks_cli.storage as storage_module
 from stonks_cli.models import CashPosition, Portfolio, Position
-from stonks_cli.storage import PortfolioStore
+from stonks_cli.storage import PortfolioStore, seed_sample_portfolio
 
 
 def make_store(tmp_path: Path) -> PortfolioStore:
@@ -204,6 +205,49 @@ class TestBaseCurrency:
         store = make_store(tmp_path)
         store.save(Portfolio(base_currency="gbp"))
         assert store.load().base_currency == "GBP"
+
+
+class TestSeedSamplePortfolio:
+    def _patch(self, monkeypatch, tmp_path: Path):
+        config_dir = tmp_path / "stonks"
+        dest = config_dir / "portfolio.yaml"
+        monkeypatch.setattr(storage_module, "PORTFOLIO_CONFIG_DIR", config_dir)
+        monkeypatch.setattr(storage_module, "DEFAULT_PORTFOLIO_PATH", dest)
+        return config_dir, dest
+
+    def test_creates_portfolio_when_config_dir_absent(
+        self, monkeypatch, tmp_path: Path
+    ):
+        config_dir, dest = self._patch(monkeypatch, tmp_path)
+        result = seed_sample_portfolio()
+        assert result is True
+        assert dest.exists()
+
+    def test_written_file_is_valid_yaml_with_positions(
+        self, monkeypatch, tmp_path: Path
+    ):
+        _, dest = self._patch(monkeypatch, tmp_path)
+        seed_sample_portfolio()
+        data = yaml.safe_load(dest.read_text())
+        assert "portfolio" in data
+        assert len(data["portfolio"]["positions"]) > 0
+
+    def test_does_not_overwrite_existing_yaml(self, monkeypatch, tmp_path: Path):
+        config_dir, dest = self._patch(monkeypatch, tmp_path)
+        config_dir.mkdir(parents=True)
+        existing = config_dir / "other.yaml"
+        existing.write_text("portfolio: {positions: []}")
+        result = seed_sample_portfolio()
+        assert result is False
+        assert not dest.exists()
+
+    def test_idempotent_after_seed(self, monkeypatch, tmp_path: Path):
+        _, dest = self._patch(monkeypatch, tmp_path)
+        seed_sample_portfolio()
+        first_mtime = dest.stat().st_mtime
+        result = seed_sample_portfolio()
+        assert result is False
+        assert dest.stat().st_mtime == first_mtime
 
 
 class TestName:

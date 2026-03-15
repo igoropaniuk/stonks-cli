@@ -1,5 +1,6 @@
 """Portfolio persistence: read and write the portfolio YAML file."""
 
+import importlib.resources
 from pathlib import Path
 
 import yaml
@@ -8,6 +9,26 @@ from stonks_cli.models import CashPosition, Portfolio, Position
 
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
+
+
+def seed_sample_portfolio() -> bool:
+    """Copy the bundled sample portfolio to ~/.config/stonks/portfolio.yaml.
+
+    Only acts when the config directory contains no .yaml files at all.
+
+    Returns:
+        True if the sample was written, False if portfolios already exist.
+    """
+    if PORTFOLIO_CONFIG_DIR.exists() and any(PORTFOLIO_CONFIG_DIR.glob("*.yaml")):
+        return False
+    sample = (
+        importlib.resources.files("stonks_cli.data")
+        .joinpath("sample_portfolio.yaml")
+        .read_text(encoding="utf-8")
+    )
+    DEFAULT_PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_PORTFOLIO_PATH.write_text(sample, encoding="utf-8")
+    return True
 
 
 class PortfolioStore:
