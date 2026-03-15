@@ -2,12 +2,20 @@
 
 import zoneinfo
 from datetime import datetime
+from datetime import time as dtime
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
-from stonks_cli.fetcher import PriceFetcher, exchange_label
+from stonks_cli.fetcher import (
+    PriceFetcher,
+    _exchange_calendar_name,
+    _finite,
+    _is_exchange_open,
+    _market_session,
+    exchange_label,
+)
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 _AMS = zoneinfo.ZoneInfo("Europe/Amsterdam")

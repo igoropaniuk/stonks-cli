@@ -1,12 +1,30 @@
 """Tests for the Textual portfolio TUI."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from textual.widgets import DataTable, Static
 
 from stonks_cli.app import PortfolioApp
-from stonks_cli.models import Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position
+
+# Capture before autouse fixture in conftest.py replaces it with a lambda
+_REAL_REFRESH_PRICES = PortfolioApp.__dict__["_refresh_prices"]
 
 USD_RATES = {"USD": {"USD": 1.0}}
+
+_COLS = (
+    "Instrument",
+    "Exchange",
+    "Qty",
+    "Avg Cost",
+    "Last Price",
+    "Mkt Value",
+    "Unrealized P&L",
+)
+_COL_LAST = _COLS.index("Last Price")
+_COL_MKT = _COLS.index("Mkt Value")
+_COL_PNL = _COLS.index("Unrealized P&L")
 
 
 @pytest.fixture
@@ -51,8 +69,7 @@ async def test_profit_pnl_is_green(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        pnl_col = 6  # "Unrealized P&L" is the 7th column (index 6)
-        pnl_cell = table.get_cell_at((0, pnl_col))  # AAPL row
+        pnl_cell = table.get_cell_at((0, _COL_PNL))  # AAPL row
         assert "green" in pnl_cell.style
 
 
@@ -65,7 +82,7 @@ async def test_loss_pnl_is_red(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        pnl_cell = table.get_cell_at((1, 6))  # NVDA row, P&L col
+        pnl_cell = table.get_cell_at((1, _COL_PNL))  # NVDA row
         assert "red" in pnl_cell.style
 
 
@@ -77,9 +94,9 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        assert str(table.get_cell_at((0, 4))) == "N/A"  # Last Price
-        assert str(table.get_cell_at((0, 5))) == "N/A"  # Mkt Value
-        assert str(table.get_cell_at((0, 6))) == "N/A"  # P&L
+        assert str(table.get_cell_at((0, _COL_LAST))) == "N/A"
+        assert str(table.get_cell_at((0, _COL_MKT))) == "N/A"
+        assert str(table.get_cell_at((0, _COL_PNL))) == "N/A"
 
 
 @pytest.mark.asyncio
@@ -96,7 +113,7 @@ async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
         app._apply_prices({"AAPL": 200.0, "NVDA": 50.0})
         await pilot.pause()
         table = app.query_one(DataTable)
-        assert str(table.get_cell_at((0, 4))) == "200.00"  # AAPL last price updated
+        assert str(table.get_cell_at((0, _COL_LAST))) == "200.00"
 
 
 @pytest.mark.asyncio
@@ -176,7 +193,7 @@ async def test_pre_market_badge_shown(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = table.get_cell_at((0, 4))  # AAPL Last Price
+        price_cell = table.get_cell_at((0, _COL_LAST))
         assert "PRE" in str(price_cell)
 
 
@@ -192,7 +209,7 @@ async def test_after_hours_badge_shown(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = table.get_cell_at((0, 4))  # AAPL Last Price
+        price_cell = table.get_cell_at((0, _COL_LAST))
         assert "AH" in str(price_cell)
 
 
@@ -208,7 +225,7 @@ async def test_regular_session_no_badge(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        price_cell = str(table.get_cell_at((0, 4)))  # AAPL Last Price
+        price_cell = str(table.get_cell_at((0, _COL_LAST)))
         assert price_cell == "160.00"
         assert "PRE" not in price_cell
         assert "AH" not in price_cell
@@ -236,3 +253,127 @@ async def test_multiple_portfolios_separate_tables() -> None:
         assert t1.row_count == 1
         assert str(t0.get_cell_at((0, 0))) == "AAPL"
         assert str(t1.get_cell_at((0, 0))) == "NVDA"
+
+
+@pytest.mark.asyncio
+async def test_closed_session_badge_shown(portfolio: Portfolio) -> None:
+    """Price cell for a 'closed' session symbol contains 'CLS'."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    sessions = {"AAPL": "closed"}
+    app = PortfolioApp(
+        portfolios=[portfolio], prices=prices, forex_rates=USD_RATES, sessions=sessions
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        price_cell = table.get_cell_at((0, _COL_LAST))
+        assert "CLS" in str(price_cell)
+
+
+@pytest.mark.asyncio
+async def test_cash_position_with_known_rate_shown() -> None:
+    """Cash row with a known forex rate renders amount and market value."""
+    portfolio = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+        cash=[CashPosition(currency="EUR", amount=5000.0)],
+        base_currency="USD",
+    )
+    prices = {"AAPL": 160.0}
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        # Cash row follows the equity row (row index 1)
+        assert str(table.get_cell_at((1, 0))) == "EUR"
+        assert str(table.get_cell_at((1, 1))) == "Cash"
+        # Market value = 5000 * 1.1 = 5500
+        assert "5,500.00" in str(table.get_cell_at((1, _COL_MKT)))
+
+
+@pytest.mark.asyncio
+async def test_cash_position_without_rate_shows_na() -> None:
+    """Cash row with no forex rate shows N/A for price and market value."""
+    portfolio = Portfolio(
+        positions=[],
+        cash=[CashPosition(currency="JPY", amount=100000.0)],
+        base_currency="USD",
+    )
+    forex_rates: dict[str, dict[str, float]] = {"USD": {"USD": 1.0}}
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert str(table.get_cell_at((0, 0))) == "JPY"
+        assert str(table.get_cell_at((0, _COL_LAST))) == "N/A"
+        assert str(table.get_cell_at((0, _COL_MKT))) == "N/A"
+
+
+@pytest.mark.asyncio
+async def test_apply_prices_with_all_optional_args(portfolio: Portfolio) -> None:
+    """_apply_prices updates sessions and exchange_codes when provided."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._apply_prices(
+            {"AAPL": 170.0},
+            forex_rates=USD_RATES,
+            sessions={"AAPL": "pre"},
+            exchange_codes={"AAPL": "NMS"},
+        )
+        await pilot.pause()
+        assert app.sessions == {"AAPL": "pre"}
+        assert app.exchange_codes == {"AAPL": "NMS"}
+        table = app.query_one(DataTable)
+        assert "PRE" in str(table.get_cell_at((0, _COL_LAST)))
+
+
+@pytest.mark.asyncio
+async def test_apply_prices_without_optional_args_preserves_state(
+    portfolio: Portfolio,
+) -> None:
+    """_apply_prices called with only prices leaves existing sessions/codes intact."""
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices={},
+        forex_rates=USD_RATES,
+        sessions={"AAPL": "post"},
+    )
+    app.exchange_codes = {"AAPL": "NMS"}
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._apply_prices({"AAPL": 160.0})
+        await pilot.pause()
+        # sessions and exchange_codes unchanged
+        assert app.sessions == {"AAPL": "post"}
+        assert app.exchange_codes == {"AAPL": "NMS"}
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_calls_fetcher_and_applies(portfolio: Portfolio) -> None:
+    """_refresh_prices fetches prices and forwards them to _apply_prices."""
+    mock_fetcher = MagicMock()
+    mock_fetcher.fetch_extended_prices.return_value = {
+        "AAPL": (160.0, "regular"),
+        "NVDA": (90.0, "regular"),
+    }
+    mock_fetcher.fetch_exchange_names.return_value = {"AAPL": "NMS", "NVDA": "NMS"}
+    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+
+    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # call_from_thread requires a real worker thread -- stub it to call directly
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+    assert mock_fetcher.fetch_extended_prices.called
+    assert app.prices == {"AAPL": 160.0, "NVDA": 90.0}
+    assert app.sessions == {"AAPL": "regular", "NVDA": "regular"}
+    assert app.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
