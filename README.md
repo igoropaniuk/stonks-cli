@@ -44,6 +44,11 @@ stonks-cli stores your portfolio in a YAML file.  By default the file is read
 from `~/.config/stonks/portfolio.yaml`; you can override this with the
 `-p` / `--portfolio` option (see [Usage](#usage)).
 
+> **First run:** if `~/.config/stonks/` contains no `.yaml` files, stonks-cli
+> automatically creates a sample portfolio at
+> `~/.config/stonks/portfolio.yaml` so you can explore the dashboard right
+> away.  Replace its contents with your own positions whenever you are ready.
+
 ### File structure
 
 ```yaml
@@ -191,8 +196,13 @@ Commands:
 
 ### Show the portfolio
 
+Running `stonks` without a subcommand launches the dashboard automatically:
+
 ```bash
-# Launch the TUI with the default 5-second refresh
+# Launch the TUI (dashboard is the default command)
+stonks
+
+# Equivalent -- explicit subcommand
 stonks dashboard
 
 # Refresh prices every 30 seconds
