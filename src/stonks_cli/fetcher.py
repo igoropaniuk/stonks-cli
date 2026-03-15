@@ -1,9 +1,60 @@
 """Market data fetching via yfinance."""
 
 import math
-import warnings
+import zoneinfo
+from datetime import time as dtime
 
 import yfinance as yf
+
+# (IANA timezone, market_open, market_close) keyed by Yahoo Finance suffix.
+# Crypto symbols contain '-' and have no entry here → always "regular".
+# Plain symbols (no '.' and no '-') are US equities → "America/New_York".
+_EXCHANGE_HOURS: dict[str, tuple[str, dtime, dtime]] = {
+    # ── Americas ──────────────────────────────────────────────────────────
+    "SA": ("America/Sao_Paulo", dtime(10, 0), dtime(17, 55)),
+    "BA": ("America/Argentina/Buenos_Aires", dtime(11, 0), dtime(17, 0)),
+    "MX": ("America/Mexico_City", dtime(8, 30), dtime(15, 0)),
+    "SN": ("America/Santiago", dtime(9, 30), dtime(16, 0)),
+    "LIM": ("America/Lima", dtime(9, 0), dtime(16, 0)),
+    "TO": ("America/Toronto", dtime(9, 30), dtime(16, 0)),
+    "V": ("America/Toronto", dtime(9, 30), dtime(16, 0)),
+    # ── Europe ────────────────────────────────────────────────────────────
+    "L": ("Europe/London", dtime(8, 0), dtime(16, 30)),
+    "PA": ("Europe/Paris", dtime(9, 0), dtime(17, 30)),
+    "AS": ("Europe/Amsterdam", dtime(9, 0), dtime(17, 30)),
+    "BR": ("Europe/Brussels", dtime(9, 0), dtime(17, 30)),
+    "LS": ("Europe/Lisbon", dtime(8, 0), dtime(16, 30)),
+    "MI": ("Europe/Rome", dtime(9, 0), dtime(17, 30)),
+    "DE": ("Europe/Berlin", dtime(9, 0), dtime(17, 30)),
+    "F": ("Europe/Berlin", dtime(8, 0), dtime(20, 0)),
+    "SW": ("Europe/Zurich", dtime(9, 0), dtime(17, 30)),
+    "ST": ("Europe/Stockholm", dtime(9, 0), dtime(17, 25)),
+    "HE": ("Europe/Helsinki", dtime(10, 0), dtime(18, 25)),
+    "CO": ("Europe/Copenhagen", dtime(9, 0), dtime(17, 0)),
+    "OL": ("Europe/Oslo", dtime(9, 0), dtime(16, 20)),
+    "WA": ("Europe/Warsaw", dtime(9, 0), dtime(17, 35)),
+    "AT": ("Europe/Athens", dtime(10, 15), dtime(17, 20)),
+    # ── Asia-Pacific ──────────────────────────────────────────────────────
+    "AX": ("Australia/Sydney", dtime(10, 0), dtime(16, 0)),
+    "NZ": ("Pacific/Auckland", dtime(10, 0), dtime(17, 0)),
+    "HK": ("Asia/Hong_Kong", dtime(9, 30), dtime(16, 0)),
+    "T": ("Asia/Tokyo", dtime(9, 0), dtime(15, 30)),
+    "KS": ("Asia/Seoul", dtime(9, 0), dtime(15, 30)),
+    "KQ": ("Asia/Seoul", dtime(9, 0), dtime(15, 30)),
+    "TW": ("Asia/Taipei", dtime(9, 0), dtime(13, 30)),
+    "TWO": ("Asia/Taipei", dtime(9, 0), dtime(13, 30)),
+    "SS": ("Asia/Shanghai", dtime(9, 30), dtime(15, 0)),
+    "SZ": ("Asia/Shanghai", dtime(9, 30), dtime(15, 0)),
+    "NS": ("Asia/Kolkata", dtime(9, 15), dtime(15, 30)),
+    "BO": ("Asia/Kolkata", dtime(9, 15), dtime(15, 30)),
+    "JK": ("Asia/Jakarta", dtime(9, 30), dtime(16, 0)),
+    "SI": ("Asia/Singapore", dtime(9, 0), dtime(17, 0)),
+    "KL": ("Asia/Kuala_Lumpur", dtime(9, 0), dtime(17, 0)),
+    "BK": ("Asia/Bangkok", dtime(10, 0), dtime(16, 30)),
+    "VN": ("Asia/Ho_Chi_Minh", dtime(9, 15), dtime(14, 45)),
+}
+
+_US_HOURS: tuple[str, dtime, dtime] = ("America/New_York", dtime(9, 30), dtime(16, 0))
 
 
 def _finite(value) -> float | None:
@@ -17,6 +68,43 @@ def _finite(value) -> float | None:
     if not math.isfinite(f):
         return None
     return f
+
+
+def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
+    """Return 'pre', 'regular', or 'post' given a bar timestamp and exchange hours."""
+    try:
+        t = ts.astimezone(zoneinfo.ZoneInfo(tz_name)).time()
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        return "regular"
+    if t < open_time:
+        return "pre"
+    if t < close_time:
+        return "regular"
+    return "post"
+
+
+def _is_exchange_open(tz_name: str, open_time: dtime, close_time: dtime) -> bool:
+    """Return True if the exchange is currently open (weekdays within trading hours).
+
+    Holidays are not accounted for — only weekends and trading hours are checked.
+    """
+    from datetime import datetime
+
+    now = datetime.now(zoneinfo.ZoneInfo(tz_name))
+    if now.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        return False
+    t = now.time()
+    return open_time <= t < close_time
+
+
+def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
+    """Return (tz_name, open, close) for *symbol*, or None for crypto/unknown."""
+    if "-" in symbol:
+        return None  # crypto
+    if "." in symbol:
+        suffix = symbol.rsplit(".", 1)[1]
+        return _EXCHANGE_HOURS.get(suffix)  # None if unrecognised
+    return _US_HOURS  # plain US ticker
 
 
 class PriceFetcher:
@@ -68,45 +156,59 @@ class PriceFetcher:
     def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
         """Return the best available price for each symbol, including extended hours.
 
-        For each symbol, queries ``yf.Ticker(symbol).info`` and picks the
-        first finite price in priority order: postMarketPrice → preMarketPrice →
-        regularMarketPrice.  The session label reflects which source was used:
-        "post", "pre", or "regular".
+        Uses a single batched ``yf.download()`` call with ``prepost=True`` and a
+        1-minute interval so that pre- and post-market bars are included.  The
+        session label is derived from the timestamp of each symbol's last bar
+        relative to its exchange's market hours.  If the exchange is currently
+        closed (weekend or holiday), the session is "closed".
 
-        Symbols with no valid price or where the Ticker call raises are silently
-        omitted from the result.
+        * Equities on supported exchanges: "pre" / "regular" / "post" / "closed"
+        * Crypto or equities on unknown exchanges: always "regular"
+
+        Symbols with no available data are silently omitted from the result.
 
         Args:
             symbols: List of ticker symbols (e.g. ['AAPL', 'NVDA']).
 
         Returns:
-            Mapping of uppercase symbol → (price, session).
+            Mapping of uppercase symbol -> (price, session).
         """
         if not symbols:
             return {}
 
+        normalized = [s.upper() for s in symbols]
+
+        data = yf.download(
+            tickers=normalized,
+            period="1d",
+            interval="1m",
+            prepost=True,
+            auto_adjust=True,
+            progress=False,
+        )
+
+        if data.empty:
+            return {}
+
+        close = data["Close"]
+
         result: dict[str, tuple[float, str]] = {}
-        for raw in symbols:
-            symbol = raw.upper()
-            try:
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", module="yfinance")
-                    info = yf.Ticker(symbol).info
-                post = _finite(info.get("postMarketPrice"))
-                if post is not None:
-                    result[symbol] = (post, "post")
-                    continue
-                pre = _finite(info.get("preMarketPrice"))
-                if pre is not None:
-                    result[symbol] = (pre, "pre")
-                    continue
-                regular = _finite(
-                    info.get("regularMarketPrice") or info.get("currentPrice")
-                )
-                if regular is not None:
-                    result[symbol] = (regular, "regular")
-            except Exception:
-                pass
+        for symbol in normalized:
+            if symbol not in close.columns:
+                continue
+            series = close[symbol].dropna()
+            if series.empty:
+                continue
+            price = float(series.iloc[-1])
+            ts = series.index[-1]
+            hours = _exchange_hours(symbol)
+            if hours is None:
+                session = "regular"
+            elif not _is_exchange_open(*hours):
+                session = "closed"
+            else:
+                session = _market_session(ts, *hours)
+            result[symbol] = (price, session)
 
         return result
 
