@@ -6,7 +6,11 @@ import click
 
 from stonks_cli import __version__
 from stonks_cli.app import PortfolioApp
-from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
+from stonks_cli.storage import (
+    PORTFOLIO_CONFIG_DIR,
+    PortfolioStore,
+    seed_sample_portfolio,
+)
 
 
 def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
@@ -43,6 +47,9 @@ def main(ctx: click.Context, portfolio: tuple[str, ...]) -> None:
     """CLI tool for tracking an investment portfolio."""
     ctx.ensure_object(dict)
     if not portfolio:
+        if seed_sample_portfolio():
+            dest = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
+            click.echo(f"No portfolio found. Created sample portfolio at {dest}")
         stores = [PortfolioStore()]
     else:
         stores = [PortfolioStore(path=_resolve_portfolio_path(p)) for p in portfolio]
