@@ -137,7 +137,7 @@ async def test_custom_refresh_interval(portfolio: Portfolio) -> None:
 @pytest.mark.asyncio
 async def test_total_usd_single_currency(portfolio: Portfolio) -> None:
     """Total reflects sum of all position market values (all USD)."""
-    # AAPL: 100 × 160 = 16 000, NVDA: 200 × 90 = 18 000  →  total = 34 000
+    # AAPL: 100 * 160 = 16 000, NVDA: 200 * 90 = 18 000  ->  total = 34 000
     prices = {"AAPL": 160.0, "NVDA": 90.0}
     app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
@@ -155,7 +155,7 @@ async def test_total_converts_foreign_currency() -> None:
             Position(symbol="ASML", quantity=10, avg_cost=700.0, currency="EUR"),
         ]
     )
-    # ASML last price = 800 EUR, EUR/USD = 1.1  →  total = 10 × 800 × 1.1 = 8 800
+    # ASML last price = 800 EUR, EUR/USD = 1.1  ->  total = 10 * 800 * 1.1 = 8 800
     prices = {"ASML": 800.0}
     forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
     app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=forex_rates)

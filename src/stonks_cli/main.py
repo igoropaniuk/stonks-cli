@@ -64,7 +64,7 @@ def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
     pos = portfolio.get_position(symbol)
     assert pos is not None
     click.echo(
-        f"Added {quantity} × {symbol.upper()} @ {price:.2f}  "
+        f"Added {quantity} * {symbol.upper()} @ {price:.2f}  "
         f"(position: {pos.quantity} shares, avg cost {pos.avg_cost:.2f})"
     )
 
@@ -82,7 +82,7 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     store.save(portfolio)
-    click.echo(f"Removed {quantity} × {symbol.upper()}")
+    click.echo(f"Removed {quantity} * {symbol.upper()}")
 
 
 @main.command()

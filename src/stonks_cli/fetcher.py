@@ -339,7 +339,7 @@ class PriceFetcher:
             symbols: List of ticker symbols (e.g. ['AAPL', 'NVDA']).
 
         Returns:
-            Mapping of uppercase symbol → latest closing price.
+            Mapping of uppercase symbol -> latest closing price.
         """
         if not symbols:
             return {}
@@ -470,9 +470,9 @@ class PriceFetcher:
     def fetch_forex_rates(
         self, currencies: list[str], base: str = "USD"
     ) -> dict[str, float]:
-        """Return exchange rates: 1 unit of currency → how many base units.
+        """Return exchange rates: 1 unit of currency -> how many base units.
 
-        Uses yfinance forex pairs (e.g. EURUSD=X for EUR→USD).
+        Uses yfinance forex pairs (e.g. EURUSD=X for EUR->USD).
         The base currency is always included as 1.0. Currencies for which
         no rate can be fetched are omitted from the result.
 
@@ -481,7 +481,7 @@ class PriceFetcher:
             base: Target/base currency code (default 'USD').
 
         Returns:
-            Mapping of currency code → exchange rate in base.
+            Mapping of currency code -> exchange rate in base.
         """
         base = base.upper()
         rates: dict[str, float] = {base: 1.0}
