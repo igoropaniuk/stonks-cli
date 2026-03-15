@@ -4,4 +4,4 @@ set -euo pipefail
 ruff format --check .
 ruff check .
 mypy
-pytest -q
+pytest -q --cov --cov-report=xml --cov-report=term-missing
