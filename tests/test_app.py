@@ -167,18 +167,37 @@ async def test_total_converts_foreign_currency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_total_excludes_positions_with_missing_price(
+async def test_total_shows_na_when_any_price_missing(
     portfolio: Portfolio,
 ) -> None:
-    """Positions with no price are excluded from the total."""
-    # Only AAPL has a price: 100 × 160 = 16 000
-    prices = {"AAPL": 160.0}
+    """Total shows N/A when any equity position has no price yet."""
+    prices = {"AAPL": 160.0}  # NVDA price is missing
     app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         label = app.query_one("#total", Static)
-        assert "16,000.00" in str(label.content)
+        assert "N/A" in str(label.content)
+
+
+@pytest.mark.asyncio
+async def test_total_shows_na_when_equity_forex_rate_missing() -> None:
+    """Total shows N/A when the forex rate for an equity's currency is missing."""
+    portfolio = Portfolio(
+        positions=[
+            Position(symbol="ASML.AS", quantity=10, avg_cost=700.0, currency="EUR")
+        ],
+        base_currency="USD",
+    )
+    # EUR rate is absent from forex_rates
+    forex_rates: dict[str, dict[str, float]] = {"USD": {"USD": 1.0}}
+    prices = {"ASML.AS": 800.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        label = app.query_one("#total", Static)
+        assert "N/A" in str(label.content)
 
 
 @pytest.mark.asyncio

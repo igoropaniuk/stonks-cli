@@ -185,16 +185,23 @@ class PortfolioApp(App):
         if not self.prices and not portfolio.cash:
             widget.update("Obtaining market data...")
             return
+        missing_price = any(
+            self.prices.get(pos.symbol) is None for pos in portfolio.positions
+        )
+        missing_rate = any(
+            rates.get(p.currency) is None for p in portfolio.positions
+        ) or any(rates.get(c.currency) is None for c in portfolio.cash)
+        if missing_price or missing_rate:
+            widget.update(
+                Text(f"Total ({portfolio.base_currency})  ").append("N/A", style="bold")
+            )
+            return
         stock_total = sum(
-            pos.market_value(last) * rate
+            pos.market_value(self.prices[pos.symbol]) * rates[pos.currency]
             for pos in portfolio.positions
-            if (last := self.prices.get(pos.symbol)) is not None
-            if (rate := rates.get(pos.currency)) is not None
         )
         cash_total = sum(
-            cash_pos.amount * rate
-            for cash_pos in portfolio.cash
-            if (rate := rates.get(cash_pos.currency)) is not None
+            cash_pos.amount * rates[cash_pos.currency] for cash_pos in portfolio.cash
         )
         base = portfolio.base_currency
         widget.update(
