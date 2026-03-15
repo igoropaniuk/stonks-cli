@@ -22,6 +22,7 @@ mypy = ">=1.19.0,<2.0.0"
 ruff = ">=0.14.8,<0.15.0"
 types-PyYAML = "^6.0"
 pre-commit = "^4.5.0"
+pytest-cov = "^7.0.0"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -35,6 +36,14 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["stonks_cli"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.mypy]
 python_version = "3.11"

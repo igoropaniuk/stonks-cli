@@ -46,3 +46,11 @@ jobs:
       - name: Run CI checks (ruff, mypy, pytest)
         run: poetry run bash ./scripts/ci-check
         shell: bash
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
