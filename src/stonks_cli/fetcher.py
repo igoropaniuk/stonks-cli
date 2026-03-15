@@ -2,8 +2,13 @@
 
 import math
 import zoneinfo
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from datetime import time as dtime
+from functools import lru_cache
 
+import exchange_calendars as xcals  # type: ignore[import-untyped]
+import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
 # (IANA timezone, market_open, market_close) keyed by Yahoo Finance suffix.
@@ -56,6 +61,59 @@ _EXCHANGE_HOURS: dict[str, tuple[str, dtime, dtime]] = {
 
 _US_HOURS: tuple[str, dtime, dtime] = ("America/New_York", dtime(9, 30), dtime(16, 0))
 
+# exchange-calendars MIC identifiers keyed by Yahoo Finance suffix.
+# Vietnam (.VN / XSTC) is intentionally absent — not supported by exchange-calendars;
+# the time-based fallback in _is_exchange_open handles it.
+_EXCHANGE_CALENDAR: dict[str, str] = {
+    # ── Americas ──────────────────────────────────────────────────────────
+    "SA": "BVMF",  # B3 São Paulo
+    "BA": "XBUE",  # Buenos Aires
+    "MX": "XMEX",  # Bolsa Mexicana
+    "SN": "XSGO",  # Santiago
+    "LIM": "XLIM",  # Lima
+    "TO": "XTSE",  # Toronto
+    "V": "XTSE",  # TSX Venture → same calendar
+    # ── Europe ────────────────────────────────────────────────────────────
+    "L": "XLON",  # London
+    "PA": "XPAR",  # Paris
+    "AS": "XAMS",  # Amsterdam
+    "BR": "XBRU",  # Brussels
+    "LS": "XLIS",  # Lisbon
+    "MI": "XMIL",  # Milan
+    "DE": "XETR",  # XETRA
+    "F": "XFRA",  # Frankfurt
+    "SW": "XSWX",  # SIX Swiss
+    "ST": "XSTO",  # Stockholm
+    "HE": "XHEL",  # Helsinki
+    "CO": "XCSE",  # Copenhagen
+    "OL": "XOSL",  # Oslo Børs
+    "WA": "XWAR",  # Warsaw
+    "AT": "ASEX",  # Athens
+    # ── Asia-Pacific ──────────────────────────────────────────────────────
+    "AX": "XASX",  # ASX
+    "NZ": "XNZE",  # NZX
+    "HK": "XHKG",  # Hong Kong
+    "T": "XTKS",  # Tokyo
+    "KS": "XKRX",  # KOSPI
+    "KQ": "XKRX",  # KOSDAQ → same calendar
+    "TW": "XTAI",  # Taiwan SE
+    "TWO": "XTAI",  # Taiwan OTC → same calendar
+    "SS": "XSHG",  # Shanghai
+    "SZ": "XSHE",  # Shenzhen
+    "NS": "XNSE",  # NSE India
+    "BO": "XBOM",  # BSE India
+    "JK": "XIDX",  # Indonesia
+    "SI": "XSES",  # Singapore
+    "KL": "XKLS",  # Malaysia
+    "BK": "XBKK",  # Thailand
+}
+_US_CALENDAR = "XNYS"
+
+
+@lru_cache(maxsize=64)
+def _load_calendar(name: str):
+    return xcals.get_calendar(name)
+
 
 def _finite(value) -> float | None:
     """Convert *value* to float, returning None for None/NaN/inf."""
@@ -83,18 +141,40 @@ def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> st
     return "post"
 
 
-def _is_exchange_open(tz_name: str, open_time: dtime, close_time: dtime) -> bool:
-    """Return True if the exchange is currently open (weekdays within trading hours).
+def _is_exchange_open(
+    tz_name: str,
+    open_time: dtime,
+    close_time: dtime,
+    calendar_name: str | None = None,
+) -> bool:
+    """Return True if the exchange is currently open.
 
-    Holidays are not accounted for — only weekends and trading hours are checked.
+    When *calendar_name* is provided, delegates to exchange-calendars for
+    accurate holiday awareness.  Falls back to a weekend + trading-hours
+    check (no holiday awareness) if the calendar cannot be loaded.
     """
-    from datetime import datetime
+    if calendar_name:
+        try:
+            cal = _load_calendar(calendar_name)
+            now = pd.Timestamp.now(tz="UTC")
+            return bool(cal.is_open_on_minute(now, ignore_breaks=True))
+        except (AttributeError, LookupError, ValueError):
+            pass  # fall through to time-based check
 
-    now = datetime.now(zoneinfo.ZoneInfo(tz_name))
-    if now.weekday() >= 5:  # Saturday = 5, Sunday = 6
+    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
+    if now_local.weekday() >= 5:
         return False
-    t = now.time()
-    return open_time <= t < close_time
+    return open_time <= now_local.time() < close_time
+
+
+def _exchange_calendar_name(symbol: str) -> str | None:
+    """Return the exchange-calendars MIC for *symbol*'s exchange, or None."""
+    if "-" in symbol:
+        return None  # crypto -- no calendar
+    if "." in symbol:
+        suffix = symbol.rsplit(".", 1)[1]
+        return _EXCHANGE_CALENDAR.get(suffix)
+    return _US_CALENDAR  # plain US ticker
 
 
 def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
@@ -204,7 +284,9 @@ class PriceFetcher:
             hours = _exchange_hours(symbol)
             if hours is None:
                 session = "regular"
-            elif not _is_exchange_open(*hours):
+            elif not _is_exchange_open(
+                *hours, calendar_name=_exchange_calendar_name(symbol)
+            ):
                 session = "closed"
             else:
                 session = _market_session(ts, *hours)
