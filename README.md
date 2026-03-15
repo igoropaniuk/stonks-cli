@@ -1,5 +1,14 @@
 # stonks-cli
 
+[![PyPI version](https://img.shields.io/pypi/v/stonks-cli.svg)](https://pypi.org/project/stonks-cli/)
+[![Python versions](https://img.shields.io/pypi/pyversions/stonks-cli.svg)](https://pypi.org/project/stonks-cli/)
+[![Install](https://img.shields.io/badge/install-pip%20install%20stonks--cli-blue)](https://pypi.org/project/stonks-cli/)
+[![Downloads](https://img.shields.io/pypi/dm/stonks-cli)](https://pypi.org/project/stonks-cli/)
+[![CI](https://github.com/igoropaniuk/stonks-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/igoropaniuk/stonks-cli/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/igoropaniuk/stonks-cli)](https://codecov.io/gh/igoropaniuk/stonks-cli)
+[![License](https://img.shields.io/github/license/igoropaniuk/stonks-cli)](https://github.com/igoropaniuk/stonks-cli/blob/main/LICENSE)
+[![CLI](https://img.shields.io/badge/CLI-Click-green)](https://click.palletsprojects.com/)
+
 Track your investment portfolio directly from the terminal.
 
 ![demo](docs/assets/demo.gif)
