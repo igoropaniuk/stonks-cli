@@ -10,7 +10,7 @@ packages = [{include = "stonks_cli", from = "src"}]
 python = "^3.11"
 click = "^8.0.0"
 pyyaml = "^6.0"
-yfinance = "^0.2.0"
+yfinance = "^1.2.0"
 textual = "^8.1.0"
 rich = "^14.0"
 exchange-calendars = "^4.13.2"
