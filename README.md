@@ -32,7 +32,7 @@ Track your investment portfolio directly from the terminal.
 pip install stonks-cli
 ```
 
-Or with [pipx](https://pipx.pypa.io/) (recommended — keeps the tool isolated):
+Or with [pipx](https://pipx.pypa.io/) (recommended -- keeps the tool isolated):
 
 ```bash
 pipx install stonks-cli
@@ -250,7 +250,7 @@ The TUI displays a table with the following columns:
 | Qty            | Number of shares held                        |
 | Avg Cost       | Average purchase price per share             |
 | Last Price     | Most recent closing price from Yahoo Finance |
-| Mkt Value      | Current market value (Qty × Last Price)      |
+| Mkt Value      | Current market value (Qty * Last Price)      |
 | Unrealized P&L | Profit/loss vs. average cost (green/red)     |
 
 A **Total (USD)** line at the bottom converts all positions to USD using live
@@ -259,7 +259,7 @@ forex rates and sums them up.
 Press `q` to quit.
 
 *Screenshot uses the sample portfolio from
-[config/sample_portfolio.yaml](config/sample_portfolio.yaml) — all
+[config/sample_portfolio.yaml](config/sample_portfolio.yaml) -- all
 positions and costs are fictitious test data.*
 
 ![Portfolio TUI](docs/assets/screenshot.png)

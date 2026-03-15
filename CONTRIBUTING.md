@@ -74,7 +74,7 @@ Guidelines:
 
 - Prefer **pure / deterministic** functions and small units.
 - Mock external services (Yahoo Finance / yfinance network calls).
-- Tests should not require network access — stub the price refresh worker
+- Tests should not require network access -- stub the price refresh worker
   in TUI tests (see `tests/conftest.py` for the existing autouse fixture).
 
 ---
@@ -137,13 +137,13 @@ optional body
 
 Common types:
 
-- `feat` — new feature
-- `fix` — bug fix
-- `docs` — documentation changes
-- `test` — adding/updating tests
-- `refactor` — internal refactoring
-- `chore` — tooling/meta changes
-- `ci` — CI-related changes (GitHub Actions)
+- `feat` -- new feature
+- `fix` -- bug fix
+- `docs` -- documentation changes
+- `test` -- adding/updating tests
+- `refactor` -- internal refactoring
+- `chore` -- tooling/meta changes
+- `ci` -- CI-related changes (GitHub Actions)
 
 Examples:
 
