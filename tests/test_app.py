@@ -167,6 +167,29 @@ async def test_total_converts_foreign_currency() -> None:
 
 
 @pytest.mark.asyncio
+async def test_status_bar_shows_obtaining_when_no_prices(portfolio: Portfolio) -> None:
+    """Status bar shows 'Obtaining market data...' before any prices are loaded."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        status = app.query_one("#status", Static)
+        assert "Obtaining market data" in str(status.content)
+
+
+@pytest.mark.asyncio
+async def test_status_bar_clears_after_prices_loaded(portfolio: Portfolio) -> None:
+    """Status bar is empty once prices have been loaded."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        status = app.query_one("#status", Static)
+        assert str(status.content).strip() == ""
+
+
+@pytest.mark.asyncio
 async def test_total_shows_na_when_any_price_missing(
     portfolio: Portfolio,
 ) -> None:

@@ -29,6 +29,10 @@ class PortfolioApp(App):
         color: $accent;
         text-style: bold;
     }
+    #status {
+        padding: 0 1;
+        color: $text-muted;
+    }
     """
 
     def __init__(
@@ -59,6 +63,7 @@ class PortfolioApp(App):
                     yield Label(label, id=f"header-{i}", classes="portfolio-header")
                     yield DataTable(zebra_stripes=True, id=f"table-{i}")
                     yield Static("", id=f"total-{i}", classes="total")
+        yield Static("", id="status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -85,6 +90,14 @@ class PortfolioApp(App):
     # ------------------------------------------------------------------
 
     def _populate_tables(self) -> None:
+        try:
+            status = self.query_one("#status", Static)
+            if not self.prices:
+                status.update("Obtaining market data...")
+            else:
+                status.update("")
+        except NoMatches:
+            pass
         if len(self.portfolios) == 1:
             self._populate_single()
         else:
@@ -182,9 +195,6 @@ class PortfolioApp(App):
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
         rates = self.forex_rates.get(portfolio.base_currency, {})
-        if not self.prices and not portfolio.cash:
-            widget.update("Obtaining market data...")
-            return
         missing_price = any(
             self.prices.get(pos.symbol) is None for pos in portfolio.positions
         )
