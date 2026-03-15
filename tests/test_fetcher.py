@@ -2,12 +2,12 @@
 
 import zoneinfo
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
-from stonks_cli.fetcher import PriceFetcher
+from stonks_cli.fetcher import PriceFetcher, exchange_label
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 _AMS = zoneinfo.ZoneInfo("Europe/Amsterdam")
@@ -285,3 +285,250 @@ class TestFetchForexRates:
         rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
         assert "EUR" in rates
         assert "GBP" not in rates
+
+
+def _make_ticker(exchange_code: str | None):
+    """Return a mock yf.Ticker whose fast_info.exchange is *exchange_code*."""
+    ticker = MagicMock()
+    ticker.fast_info.exchange = exchange_code
+    return ticker
+
+
+class TestFetchExchangeNames:
+    def test_empty_symbols_returns_empty(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            result = fetcher.fetch_exchange_names([])
+        assert result == {}
+        mock_ticker.assert_not_called()
+
+    def test_crypto_symbols_skipped(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            result = fetcher.fetch_exchange_names(["BTC-USD", "ETH-EUR"])
+        assert result == {}
+        mock_ticker.assert_not_called()
+
+    def test_us_symbols_resolved(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker(
+                {"AAPL": "NMS", "JPM": "NYQ"}[sym]
+            )
+            result = fetcher.fetch_exchange_names(["AAPL", "JPM"])
+        assert result == {"AAPL": "NMS", "JPM": "NYQ"}
+
+    def test_eu_symbol_resolved(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker({"ASML.AS": "AMS"}[sym])
+            result = fetcher.fetch_exchange_names(["ASML.AS"])
+        assert result == {"ASML.AS": "AMS"}
+
+    def test_asia_symbol_resolved(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker({"7203.T": "TKY"}[sym])
+            result = fetcher.fetch_exchange_names(["7203.T"])
+        assert result == {"7203.T": "TKY"}
+
+    def test_mixed_symbols(self, fetcher: PriceFetcher):
+        codes = {"AAPL": "NMS", "ASML.AS": "AMS", "7203.T": "TKY"}
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker(codes[sym])
+            result = fetcher.fetch_exchange_names(
+                ["AAPL", "ASML.AS", "7203.T", "BTC-USD"]
+            )
+        # crypto excluded, equities resolved
+        assert result == {"AAPL": "NMS", "ASML.AS": "AMS", "7203.T": "TKY"}
+        assert "BTC-USD" not in result
+
+    def test_failed_fetch_omitted(self, fetcher: PriceFetcher):
+        def _side(sym):
+            if sym == "BAD":
+                raise RuntimeError("network error")
+            return _make_ticker("NMS")
+
+        with patch("stonks_cli.fetcher.yf.Ticker", side_effect=_side):
+            result = fetcher.fetch_exchange_names(["AAPL", "BAD"])
+        assert "AAPL" in result
+        assert "BAD" not in result
+
+    def test_none_code_omitted(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value = _make_ticker(None)
+            result = fetcher.fetch_exchange_names(["AAPL"])
+        assert result == {}
+
+
+class TestExchangeLabel:
+    def test_crypto_returns_crypto(self):
+        assert exchange_label("BTC-USD") == "Crypto"
+        assert exchange_label("ETH-EUR") == "Crypto"
+
+    def test_us_with_known_code(self):
+        assert exchange_label("AAPL", "NMS") == "NASDAQ"
+        assert exchange_label("JPM", "NYQ") == "NYSE"
+
+    def test_us_without_code_fallback(self):
+        assert exchange_label("AAPL") == "NYSE/NASDAQ"
+
+    def test_eu_suffix_via_yf_code(self):
+        assert exchange_label("ASML.AS", "AMS") == "ENX AMS"
+        assert exchange_label("HSBA.L", "LSE") == "LSE"
+
+    def test_eu_suffix_fallback_no_code(self):
+        assert exchange_label("ASML.AS") == "ENX AMS"
+
+    def test_eu_suffix_unknown_yf_code_falls_back_to_suffix(self):
+        # Unknown yfinance code -- suffix label used
+        assert exchange_label("ASML.AS", "ZZZZZ") == "ENX AMS"
+
+    def test_asia_suffix_via_yf_code(self):
+        assert exchange_label("7203.T", "TKY") == "TSE"
+        assert exchange_label("005930.KS", "KRX") == "KRX"
+
+    def test_asia_suffix_fallback_no_code(self):
+        assert exchange_label("7203.T") == "TSE"
+
+    def test_unknown_suffix_returns_raw_suffix(self):
+        assert exchange_label("FOO.XX") == "XX"
+
+
+class TestFinite:
+    def test_none_returns_none(self):
+        assert _finite(None) is None
+
+    def test_non_numeric_string_returns_none(self):
+        assert _finite("not_a_number") is None
+
+    def test_inf_returns_none(self):
+        assert _finite(float("inf")) is None
+
+    def test_nan_returns_none(self):
+        assert _finite(float("nan")) is None
+
+    def test_valid_float_returned(self):
+        assert _finite(42.5) == pytest.approx(42.5)
+
+    def test_zero_returned(self):
+        assert _finite(0.0) == pytest.approx(0.0)
+
+
+class TestMarketSession:
+    _OPEN = dtime(9, 30)
+    _CLOSE = dtime(16, 0)
+    _ET = zoneinfo.ZoneInfo("America/New_York")
+
+    def test_invalid_timezone_returns_regular(self):
+        ts = datetime(2026, 3, 10, 12, 0, tzinfo=self._ET)
+        result = _market_session(ts, "Invalid/Timezone", self._OPEN, self._CLOSE)
+        assert result == "regular"
+
+    def test_pre_session(self):
+        ts = datetime(2026, 3, 10, 7, 0, tzinfo=self._ET)
+        assert _market_session(ts, "America/New_York", self._OPEN, self._CLOSE) == "pre"
+
+    def test_regular_session(self):
+        ts = datetime(2026, 3, 10, 12, 0, tzinfo=self._ET)
+        assert (
+            _market_session(ts, "America/New_York", self._OPEN, self._CLOSE)
+            == "regular"
+        )
+
+    def test_post_session(self):
+        ts = datetime(2026, 3, 10, 17, 0, tzinfo=self._ET)
+        assert (
+            _market_session(ts, "America/New_York", self._OPEN, self._CLOSE) == "post"
+        )
+
+
+class TestIsExchangeOpen:
+    _TZ = "America/New_York"
+    _OPEN = dtime(9, 30)
+    _CLOSE = dtime(16, 0)
+
+    def test_calendar_success_returns_calendar_result(self):
+        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+            mock_cal.return_value.is_open_on_minute.return_value = True
+            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE, "XNYS")
+        assert result is True
+
+    def test_calendar_exception_falls_back_to_time_check(self):
+        with patch("stonks_cli.fetcher._load_calendar", side_effect=LookupError):
+            with patch("stonks_cli.fetcher.datetime") as mock_dt:
+                mock_now = MagicMock()
+                mock_now.weekday.return_value = 0  # Monday
+                mock_now.time.return_value = dtime(12, 0)
+                mock_dt.now.return_value = mock_now
+                result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE, "XNYS")
+        assert result is True
+
+    def test_weekend_returns_false(self):
+        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 6  # Sunday
+            mock_dt.now.return_value = mock_now
+            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+        assert result is False
+
+    def test_weekday_within_hours_returns_true(self):
+        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 1  # Tuesday
+            mock_now.time.return_value = dtime(12, 0)
+            mock_dt.now.return_value = mock_now
+            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+        assert result is True
+
+    def test_weekday_outside_hours_returns_false(self):
+        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 1  # Tuesday
+            mock_now.time.return_value = dtime(20, 0)
+            mock_dt.now.return_value = mock_now
+            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+        assert result is False
+
+
+class TestExchangeCalendarName:
+    def test_crypto_returns_none(self):
+        assert _exchange_calendar_name("BTC-USD") is None
+
+    def test_us_ticker_returns_us_calendar(self):
+        from stonks_cli.fetcher import _US_EXCHANGE
+
+        assert _exchange_calendar_name("AAPL") == _US_EXCHANGE.calendar_name
+
+    def test_known_suffix_returns_mic(self):
+        result = _exchange_calendar_name("ASML.AS")
+        assert result is not None  # Amsterdam -> XAMS
+
+    def test_unknown_suffix_returns_none(self):
+        assert _exchange_calendar_name("FOO.XX") is None
+
+
+class TestFetchExtendedPricesSkipsEmptySeries:
+    @patch(_OPEN, return_value=True)
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_skips_symbol_with_all_nan_series(
+        self, mock_dl, _open, fetcher: PriceFetcher
+    ):
+        et = zoneinfo.ZoneInfo("America/New_York")
+        ts = datetime(2026, 3, 10, 12, 0, tzinfo=et)
+        idx = pd.DatetimeIndex([pd.Timestamp(ts)])
+        cols = pd.MultiIndex.from_product([["Close"], ["AAPL", "NVDA"]])
+        df = pd.DataFrame([[float("nan"), 900.0]], columns=cols, index=idx)
+        mock_dl.return_value = df
+
+        result = fetcher.fetch_extended_prices(["AAPL", "NVDA"])
+        assert "AAPL" not in result
+        assert result["NVDA"][0] == pytest.approx(900.0)
+
+
+class TestFetchForexRatesEmptySeries:
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_skips_currency_with_all_nan_series(self, mock_dl, fetcher: PriceFetcher):
+        idx = pd.to_datetime(["2026-03-10"])
+        cols = pd.MultiIndex.from_product([["Close"], ["EURUSD=X", "GBPUSD=X"]])
+        df = pd.DataFrame([[float("nan"), 1.27]], columns=cols, index=idx)
+        mock_dl.return_value = df
+
+        rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
+        assert "EUR" not in rates
+        assert rates["GBP"] == pytest.approx(1.27)

@@ -7,7 +7,7 @@ from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.widgets import DataTable, Footer, Header, Label, Static
 
-from stonks_cli.fetcher import PriceFetcher
+from stonks_cli.fetcher import PriceFetcher, exchange_label
 from stonks_cli.models import Portfolio
 
 
@@ -44,6 +44,7 @@ class PortfolioApp(App):
         self.prices = prices
         self.forex_rates = forex_rates
         self.sessions = sessions or {}
+        self.exchange_codes: dict[str, str] = {}
         self.refresh_interval = refresh_interval
 
     def compose(self) -> ComposeResult:
@@ -63,6 +64,7 @@ class PortfolioApp(App):
     def on_mount(self) -> None:
         cols = (
             "Instrument",
+            "Exchange",
             "Qty",
             "Avg Cost",
             "Last Price",
@@ -132,6 +134,7 @@ class PortfolioApp(App):
                     price_cell = f"{last:.2f}"
                 table.add_row(
                     pos.symbol,
+                    exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol)),
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     price_cell,
@@ -141,6 +144,7 @@ class PortfolioApp(App):
             else:
                 table.add_row(
                     pos.symbol,
+                    exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol)),
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     "N/A",
@@ -158,6 +162,7 @@ class PortfolioApp(App):
                 )
                 table.add_row(
                     cash_pos.currency,
+                    "Cash",
                     f"{cash_pos.amount:,.2f}",
                     "1.00",
                     price_cell,
@@ -167,6 +172,7 @@ class PortfolioApp(App):
             else:
                 table.add_row(
                     cash_pos.currency,
+                    "Cash",
                     f"{cash_pos.amount:,.2f}",
                     "1.00",
                     "N/A",
@@ -210,6 +216,7 @@ class PortfolioApp(App):
         extended = fetcher.fetch_extended_prices(all_symbols)
         new_prices = {sym: price for sym, (price, _) in extended.items()}
         new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
+        new_exchange_codes = fetcher.fetch_exchange_names(all_symbols)
         all_currencies = list(
             {p.currency for portfolio in self.portfolios for p in portfolio.positions}
             | {c.currency for portfolio in self.portfolios for c in portfolio.cash}
@@ -217,17 +224,22 @@ class PortfolioApp(App):
         new_forex: dict[str, dict[str, float]] = {}
         for base in {p.base_currency for p in self.portfolios}:
             new_forex[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
-        self.call_from_thread(self._apply_prices, new_prices, new_forex, new_sessions)
+        self.call_from_thread(
+            self._apply_prices, new_prices, new_forex, new_sessions, new_exchange_codes
+        )
 
     def _apply_prices(
         self,
         prices: dict[str, float],
         forex_rates: dict[str, dict[str, float]] | None = None,
         sessions: dict[str, str] | None = None,
+        exchange_codes: dict[str, str] | None = None,
     ) -> None:
         self.prices = prices
         if forex_rates is not None:
             self.forex_rates = forex_rates
         if sessions is not None:
             self.sessions = sessions
+        if exchange_codes is not None:
+            self.exchange_codes = exchange_codes
         self._populate_tables()

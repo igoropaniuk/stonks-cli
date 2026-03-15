@@ -3,6 +3,7 @@
 import math
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as dtime
 from functools import lru_cache
@@ -11,103 +12,235 @@ import exchange_calendars as xcals  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
-# (IANA timezone, market_open, market_close) keyed by Yahoo Finance suffix.
-# Crypto symbols contain '-' and have no entry here → always "regular".
-# Plain symbols (no '.' and no '-') are US equities → "America/New_York".
-_EXCHANGE_HOURS: dict[str, tuple[str, dtime, dtime]] = {
-    # ── Americas ──────────────────────────────────────────────────────────
-    "SA": ("America/Sao_Paulo", dtime(10, 0), dtime(17, 55)),
-    "BA": ("America/Argentina/Buenos_Aires", dtime(11, 0), dtime(17, 0)),
-    "MX": ("America/Mexico_City", dtime(8, 30), dtime(15, 0)),
-    "SN": ("America/Santiago", dtime(9, 30), dtime(16, 0)),
-    "LIM": ("America/Lima", dtime(9, 0), dtime(16, 0)),
-    "TO": ("America/Toronto", dtime(9, 30), dtime(16, 0)),
-    "V": ("America/Toronto", dtime(9, 30), dtime(16, 0)),
-    # ── Europe ────────────────────────────────────────────────────────────
-    "L": ("Europe/London", dtime(8, 0), dtime(16, 30)),
-    "PA": ("Europe/Paris", dtime(9, 0), dtime(17, 30)),
-    "AS": ("Europe/Amsterdam", dtime(9, 0), dtime(17, 30)),
-    "BR": ("Europe/Brussels", dtime(9, 0), dtime(17, 30)),
-    "LS": ("Europe/Lisbon", dtime(8, 0), dtime(16, 30)),
-    "MI": ("Europe/Rome", dtime(9, 0), dtime(17, 30)),
-    "DE": ("Europe/Berlin", dtime(9, 0), dtime(17, 30)),
-    "F": ("Europe/Berlin", dtime(8, 0), dtime(20, 0)),
-    "SW": ("Europe/Zurich", dtime(9, 0), dtime(17, 30)),
-    "ST": ("Europe/Stockholm", dtime(9, 0), dtime(17, 25)),
-    "HE": ("Europe/Helsinki", dtime(10, 0), dtime(18, 25)),
-    "CO": ("Europe/Copenhagen", dtime(9, 0), dtime(17, 0)),
-    "OL": ("Europe/Oslo", dtime(9, 0), dtime(16, 20)),
-    "WA": ("Europe/Warsaw", dtime(9, 0), dtime(17, 35)),
-    "AT": ("Europe/Athens", dtime(10, 15), dtime(17, 20)),
-    # ── Asia-Pacific ──────────────────────────────────────────────────────
-    "AX": ("Australia/Sydney", dtime(10, 0), dtime(16, 0)),
-    "NZ": ("Pacific/Auckland", dtime(10, 0), dtime(17, 0)),
-    "HK": ("Asia/Hong_Kong", dtime(9, 30), dtime(16, 0)),
-    "T": ("Asia/Tokyo", dtime(9, 0), dtime(15, 30)),
-    "KS": ("Asia/Seoul", dtime(9, 0), dtime(15, 30)),
-    "KQ": ("Asia/Seoul", dtime(9, 0), dtime(15, 30)),
-    "TW": ("Asia/Taipei", dtime(9, 0), dtime(13, 30)),
-    "TWO": ("Asia/Taipei", dtime(9, 0), dtime(13, 30)),
-    "SS": ("Asia/Shanghai", dtime(9, 30), dtime(15, 0)),
-    "SZ": ("Asia/Shanghai", dtime(9, 30), dtime(15, 0)),
-    "NS": ("Asia/Kolkata", dtime(9, 15), dtime(15, 30)),
-    "BO": ("Asia/Kolkata", dtime(9, 15), dtime(15, 30)),
-    "JK": ("Asia/Jakarta", dtime(9, 30), dtime(16, 0)),
-    "SI": ("Asia/Singapore", dtime(9, 0), dtime(17, 0)),
-    "KL": ("Asia/Kuala_Lumpur", dtime(9, 0), dtime(17, 0)),
-    "BK": ("Asia/Bangkok", dtime(10, 0), dtime(16, 30)),
-    "VN": ("Asia/Ho_Chi_Minh", dtime(9, 15), dtime(14, 45)),
+_MAX_EXCHANGE_FETCH_WORKERS = 8
+
+
+@dataclass(frozen=True)
+class ExchangeInfo:
+    """All static metadata for a single exchange.
+
+    Each entry in _EXCHANGES uses four distinct identifiers, each consumed by
+    a different system:
+
+    - The dict key (e.g. "BA") is the Yahoo Finance ticker suffix.  Tickers
+      traded on this exchange carry it as a dot-suffix (e.g. "YPF.BA").
+      _exchange_hours() and _exchange_calendar_name() look up the entry via
+      symbol.rsplit(".", 1)[1].  US exchanges use yfinance exchange codes as
+      keys instead (e.g. "NMS", "NYQ") since US tickers have no suffix.
+
+    - calendar_name (e.g. "XBUE") is the ISO 10383 MIC used by the
+      exchange-calendars library.  It is passed to xcals.get_calendar() for
+      holiday-aware open/closed detection.  None when the exchange is not
+      supported by exchange-calendars (e.g. Vietnam/HOSE).
+
+    - label (e.g. "BYMA") is the display string shown in the Exchange column
+      of the TUI.  It reflects the current operator name rather than the
+      legacy exchange name (e.g. BYMA replaced MERVAL/BCBA in 2017).
+
+    - yf_codes (e.g. ("BUE",)) lists the exchange code(s) that
+      yf.Ticker(sym).fast_info.exchange returns for securities on this
+      exchange.  _YF_CODE_TO_LABEL is built from these so that
+      exchange_label() can resolve a display name from the code alone,
+      without needing the ticker suffix.
+    """
+
+    tz_name: str
+    open_time: dtime
+    close_time: dtime
+    calendar_name: str | None
+    label: str
+    yf_codes: tuple[str, ...] = ()
+
+
+# Exchange metadata keyed either by Yahoo Finance ticker suffix (e.g. "AS", "L")
+# or by yfinance exchange code for US exchanges (e.g. "NMS", "NYQ").
+# Crypto symbols contain '-' and have no entry;
+# plain US tickers (no '.', no '-') use _US_EXCHANGE.
+# Vietnam (.VN / XSTC) has calendar_name=None -- not supported by exchange-calendars.
+_EXCHANGES: dict[str, ExchangeInfo] = {
+    # -- United States (keyed by yfinance exchange code) --
+    "NMS": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NMS",)
+    ),
+    "NGM": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NGM",)
+    ),
+    "NCM": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NCM",)
+    ),
+    "NYQ": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE", ("NYQ",)
+    ),
+    "NYA": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE AMEX", ("NYA",)
+    ),
+    "PCX": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE Arca", ("PCX",)
+    ),
+    "BTS": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "CBOE", ("BTS",)
+    ),
+    "OBB": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("OBB",)
+    ),
+    "PNK": ExchangeInfo(
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("PNK",)
+    ),
+    # -- Americas --
+    "SA": ExchangeInfo(
+        "America/Sao_Paulo", dtime(10, 0), dtime(17, 55), "BVMF", "B3", ("SAO",)
+    ),
+    "BA": ExchangeInfo(
+        "America/Argentina/Buenos_Aires",
+        dtime(11, 0),
+        dtime(17, 0),
+        "XBUE",
+        "BYMA",
+        ("BUE",),
+    ),
+    "MX": ExchangeInfo(
+        "America/Mexico_City", dtime(8, 30), dtime(15, 0), "XMEX", "BMV", ("MEX",)
+    ),
+    "SN": ExchangeInfo(
+        "America/Santiago", dtime(9, 30), dtime(16, 0), "XSGO", "BCS", ("SAN",)
+    ),
+    "LIM": ExchangeInfo(
+        "America/Lima", dtime(9, 0), dtime(16, 0), "XLIM", "BVL", ("LIM",)
+    ),
+    "TO": ExchangeInfo(
+        "America/Toronto", dtime(9, 30), dtime(16, 0), "XTSE", "TSX", ("TOR",)
+    ),
+    "V": ExchangeInfo(
+        "America/Toronto", dtime(9, 30), dtime(16, 0), "XTSE", "TSXV", ("VAN",)
+    ),
+    # -- Europe --
+    "L": ExchangeInfo(
+        "Europe/London", dtime(8, 0), dtime(16, 30), "XLON", "LSE", ("LSE", "IOB")
+    ),
+    "PA": ExchangeInfo(
+        "Europe/Paris", dtime(9, 0), dtime(17, 30), "XPAR", "ENX Paris", ("PAR",)
+    ),
+    "AS": ExchangeInfo(
+        "Europe/Amsterdam", dtime(9, 0), dtime(17, 30), "XAMS", "ENX AMS", ("AMS",)
+    ),
+    "BR": ExchangeInfo(
+        "Europe/Brussels", dtime(9, 0), dtime(17, 30), "XBRU", "ENX BRU", ("BRU",)
+    ),
+    "LS": ExchangeInfo(
+        "Europe/Lisbon", dtime(8, 0), dtime(16, 30), "XLIS", "ENX LIS", ("LIS",)
+    ),
+    "MI": ExchangeInfo(
+        "Europe/Rome", dtime(9, 0), dtime(17, 30), "XMIL", "Borsa IT", ("MIL",)
+    ),
+    "DE": ExchangeInfo(
+        "Europe/Berlin", dtime(9, 0), dtime(17, 30), "XETR", "XETRA", ("ETR",)
+    ),
+    "F": ExchangeInfo(
+        "Europe/Berlin", dtime(8, 0), dtime(20, 0), "XFRA", "FSE", ("FRA",)
+    ),
+    "SW": ExchangeInfo(
+        "Europe/Zurich", dtime(9, 0), dtime(17, 30), "XSWX", "SIX", ("EBS",)
+    ),
+    "ST": ExchangeInfo(
+        "Europe/Stockholm", dtime(9, 0), dtime(17, 25), "XSTO", "NASDAQ", ("STO",)
+    ),
+    "HE": ExchangeInfo(
+        "Europe/Helsinki", dtime(10, 0), dtime(18, 25), "XHEL", "NASDAQ", ("HEL",)
+    ),
+    "CO": ExchangeInfo(
+        "Europe/Copenhagen", dtime(9, 0), dtime(17, 0), "XCSE", "NASDAQ", ("CPH",)
+    ),
+    "OL": ExchangeInfo(
+        "Europe/Oslo", dtime(9, 0), dtime(16, 20), "XOSL", "Oslo Bors", ("OSL",)
+    ),
+    "WA": ExchangeInfo(
+        "Europe/Warsaw", dtime(9, 0), dtime(17, 35), "XWAR", "GPW", ("WSE",)
+    ),
+    "AT": ExchangeInfo(
+        "Europe/Athens", dtime(10, 15), dtime(17, 20), "ASEX", "ATHEX", ("ATH",)
+    ),
+    # -- Asia-Pacific --
+    "AX": ExchangeInfo(
+        "Australia/Sydney", dtime(10, 0), dtime(16, 0), "XASX", "ASX", ("ASX",)
+    ),
+    "NZ": ExchangeInfo(
+        "Pacific/Auckland", dtime(10, 0), dtime(17, 0), "XNZE", "NZX", ("NZE",)
+    ),
+    "HK": ExchangeInfo(
+        "Asia/Hong_Kong", dtime(9, 30), dtime(16, 0), "XHKG", "HKEX", ("HKG",)
+    ),
+    "T": ExchangeInfo(
+        "Asia/Tokyo", dtime(9, 0), dtime(15, 30), "XTKS", "TSE", ("TKY", "JPX")
+    ),
+    "KS": ExchangeInfo(
+        "Asia/Seoul", dtime(9, 0), dtime(15, 30), "XKRX", "KRX", ("KRX",)
+    ),
+    "KQ": ExchangeInfo(
+        "Asia/Seoul", dtime(9, 0), dtime(15, 30), "XKRX", "KOSDAQ", ("KOQ",)
+    ),
+    "TW": ExchangeInfo(
+        "Asia/Taipei", dtime(9, 0), dtime(13, 30), "XTAI", "TWSE", ("TAI",)
+    ),
+    "TWO": ExchangeInfo(
+        "Asia/Taipei", dtime(9, 0), dtime(13, 30), "XTAI", "TPEX", ("TWO",)
+    ),
+    "SS": ExchangeInfo(
+        "Asia/Shanghai", dtime(9, 30), dtime(15, 0), "XSHG", "SSE", ("SHH",)
+    ),
+    "SZ": ExchangeInfo(
+        "Asia/Shanghai", dtime(9, 30), dtime(15, 0), "XSHE", "SZSE", ("SHZ",)
+    ),
+    "NS": ExchangeInfo(
+        "Asia/Kolkata", dtime(9, 15), dtime(15, 30), "XNSE", "NSE", ("NSI",)
+    ),
+    "BO": ExchangeInfo(
+        "Asia/Kolkata", dtime(9, 15), dtime(15, 30), "XBOM", "BSE", ("BSE",)
+    ),
+    "JK": ExchangeInfo(
+        "Asia/Jakarta", dtime(9, 30), dtime(16, 0), "XIDX", "IDX", ("JKT",)
+    ),
+    "SI": ExchangeInfo(
+        "Asia/Singapore", dtime(9, 0), dtime(17, 0), "XSES", "SGX", ("SGX",)
+    ),
+    "KL": ExchangeInfo(
+        "Asia/Kuala_Lumpur", dtime(9, 0), dtime(17, 0), "XKLS", "Bursa", ("KLS",)
+    ),
+    "BK": ExchangeInfo(
+        "Asia/Bangkok", dtime(10, 0), dtime(16, 30), "XBKK", "SET", ("BKK",)
+    ),
+    "VN": ExchangeInfo("Asia/Ho_Chi_Minh", dtime(9, 15), dtime(14, 45), None, "HOSE"),
 }
 
-_US_HOURS: tuple[str, dtime, dtime] = ("America/New_York", dtime(9, 30), dtime(16, 0))
+_US_EXCHANGE = ExchangeInfo(
+    "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE/NASDAQ"
+)
 
-# exchange-calendars MIC identifiers keyed by Yahoo Finance suffix.
-# Vietnam (.VN / XSTC) is intentionally absent — not supported by exchange-calendars;
-# the time-based fallback in _is_exchange_open handles it.
-_EXCHANGE_CALENDAR: dict[str, str] = {
-    # ── Americas ──────────────────────────────────────────────────────────
-    "SA": "BVMF",  # B3 São Paulo
-    "BA": "XBUE",  # Buenos Aires
-    "MX": "XMEX",  # Bolsa Mexicana
-    "SN": "XSGO",  # Santiago
-    "LIM": "XLIM",  # Lima
-    "TO": "XTSE",  # Toronto
-    "V": "XTSE",  # TSX Venture → same calendar
-    # ── Europe ────────────────────────────────────────────────────────────
-    "L": "XLON",  # London
-    "PA": "XPAR",  # Paris
-    "AS": "XAMS",  # Amsterdam
-    "BR": "XBRU",  # Brussels
-    "LS": "XLIS",  # Lisbon
-    "MI": "XMIL",  # Milan
-    "DE": "XETR",  # XETRA
-    "F": "XFRA",  # Frankfurt
-    "SW": "XSWX",  # SIX Swiss
-    "ST": "XSTO",  # Stockholm
-    "HE": "XHEL",  # Helsinki
-    "CO": "XCSE",  # Copenhagen
-    "OL": "XOSL",  # Oslo Børs
-    "WA": "XWAR",  # Warsaw
-    "AT": "ASEX",  # Athens
-    # ── Asia-Pacific ──────────────────────────────────────────────────────
-    "AX": "XASX",  # ASX
-    "NZ": "XNZE",  # NZX
-    "HK": "XHKG",  # Hong Kong
-    "T": "XTKS",  # Tokyo
-    "KS": "XKRX",  # KOSPI
-    "KQ": "XKRX",  # KOSDAQ → same calendar
-    "TW": "XTAI",  # Taiwan SE
-    "TWO": "XTAI",  # Taiwan OTC → same calendar
-    "SS": "XSHG",  # Shanghai
-    "SZ": "XSHE",  # Shenzhen
-    "NS": "XNSE",  # NSE India
-    "BO": "XBOM",  # BSE India
-    "JK": "XIDX",  # Indonesia
-    "SI": "XSES",  # Singapore
-    "KL": "XKLS",  # Malaysia
-    "BK": "XBKK",  # Thailand
+
+# Reverse lookup: yfinance exchange code -> display label, derived from _EXCHANGES.
+_YF_CODE_TO_LABEL: dict[str, str] = {
+    code: info.label for info in _EXCHANGES.values() for code in info.yf_codes
 }
-_US_CALENDAR = "XNYS"
+
+
+def exchange_label(symbol: str, exchange_code: str | None = None) -> str:
+    """Return a short exchange name for *symbol*.
+
+    Resolution order:
+    1. Crypto (contains '-')          -> "Crypto"
+    2. *exchange_code* in lookup table -> mapped display name
+    3. Known exchange suffix           -> short name from the suffix label table
+    4. Unknown suffix                  -> the raw suffix (e.g. "XY")
+    5. Plain US ticker, no code        -> "NYSE/NASDAQ"
+    """
+    if "-" in symbol:
+        return "Crypto"
+    if exchange_code and exchange_code in _YF_CODE_TO_LABEL:
+        return _YF_CODE_TO_LABEL[exchange_code]
+    if "." in symbol:
+        suffix = symbol.rsplit(".", 1)[1]
+        info = _EXCHANGES.get(suffix)
+        return info.label if info else suffix
+    return "NYSE/NASDAQ"
 
 
 @lru_cache(maxsize=64)
@@ -173,8 +306,9 @@ def _exchange_calendar_name(symbol: str) -> str | None:
         return None  # crypto -- no calendar
     if "." in symbol:
         suffix = symbol.rsplit(".", 1)[1]
-        return _EXCHANGE_CALENDAR.get(suffix)
-    return _US_CALENDAR  # plain US ticker
+        info = _EXCHANGES.get(suffix)
+        return info.calendar_name if info else None
+    return _US_EXCHANGE.calendar_name  # plain US ticker
 
 
 def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
@@ -183,8 +317,11 @@ def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
         return None  # crypto
     if "." in symbol:
         suffix = symbol.rsplit(".", 1)[1]
-        return _EXCHANGE_HOURS.get(suffix)  # None if unrecognised
-    return _US_HOURS  # plain US ticker
+        info = _EXCHANGES.get(suffix)
+        if info is None:
+            return None
+        return (info.tz_name, info.open_time, info.close_time)
+    return (_US_EXCHANGE.tz_name, _US_EXCHANGE.open_time, _US_EXCHANGE.close_time)
 
 
 class PriceFetcher:
@@ -292,6 +429,42 @@ class PriceFetcher:
                 session = _market_session(ts, *hours)
             result[symbol] = (price, session)
 
+        return result
+
+    def fetch_exchange_names(self, symbols: list[str]) -> dict[str, str]:
+        """Return yfinance exchange codes for all equity symbols (US and non-US).
+
+        Crypto symbols (containing '-') are skipped -- they have no exchange
+        code in yfinance.  All other symbols (plain US tickers and those with
+        a dot suffix) are queried concurrently.
+
+        Uses a thread pool so that N symbols are fetched concurrently rather
+        than sequentially.
+
+        Args:
+            symbols: List of ticker symbols (mixed US and non-US).
+
+        Returns:
+            Mapping of uppercase symbol -> yfinance exchange code
+            (e.g. ``{"AAPL": "NMS", "ASML.AS": "AMS", "7203.T": "TKY"}``).
+        """
+        equities = [s.upper() for s in symbols if "-" not in s]
+        if not equities:
+            return {}
+
+        def _get(sym: str) -> tuple[str, str | None]:
+            try:
+                return sym, yf.Ticker(sym).fast_info.exchange
+            except Exception:
+                return sym, None
+
+        result: dict[str, str] = {}
+        with ThreadPoolExecutor(
+            max_workers=min(_MAX_EXCHANGE_FETCH_WORKERS, len(equities))
+        ) as pool:
+            for sym, code in pool.map(_get, equities):
+                if code:
+                    result[sym] = code
         return result
 
     def fetch_forex_rates(
