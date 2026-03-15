@@ -22,5 +22,9 @@ Thumbs.db
 .mypy_cache/
 .pytest_cache/
 
+# Coverage
+.coverage
+coverage.xml
+
 # Poetry lock file
 poetry.lock
