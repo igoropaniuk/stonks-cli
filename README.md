@@ -254,14 +254,15 @@ in the total portfolio value converted to the base currency.
 
 The TUI displays a table with the following columns:
 
-| Column         | Description                                  |
-| -------------- | -------------------------------------------- |
-| Instrument     | Ticker symbol                                |
-| Qty            | Number of shares held                        |
-| Avg Cost       | Average purchase price per share             |
-| Last Price     | Most recent closing price from Yahoo Finance |
-| Mkt Value      | Current market value (Qty * Last Price)      |
-| Unrealized P&L | Profit/loss vs. average cost (green/red)     |
+| Column         | Description                                                    |
+| -------------- | -------------------------------------------------------------- |
+| Instrument     | Ticker symbol                                                  |
+| Exchange       | Exchange name derived from ticker suffix (e.g. NYSE/NASDAQ)    |
+| Qty            | Number of shares held                                          |
+| Avg Cost       | Average purchase price per share                               |
+| Last Price     | Most recent price from Yahoo Finance; tagged PRE / AH / CLS    |
+| Mkt Value      | Current market value (Qty * Last Price)                        |
+| Unrealized P&L | Profit/loss vs. average cost (green/red)                       |
 
 A **Total (USD)** line at the bottom converts all positions to USD using live
 forex rates and sums them up.
