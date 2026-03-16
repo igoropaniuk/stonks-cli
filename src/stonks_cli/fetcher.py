@@ -436,7 +436,7 @@ class PriceFetcher:
         if session != "regular":
             suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
             info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
-            if info is None or not info.extended_hours:
+            if not info or not info.extended_hours:
                 return "closed"
         return session
 
