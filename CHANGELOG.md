@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-16
+
+### Fixed
+
+- Non-US tickers (e.g. `6758.T`, `7203.T`) always showing no session label
+  despite being outside trading hours. `fetch_extended_prices` now derives the
+  session from the current wall-clock time via `current_session()` rather than
+  the yfinance bar timestamp, which is always within regular hours for exchanges
+  that have no extended-hours data.
+- `TypeError: 'NoneType' object is not subscriptable` crash when fetching
+  prices for illiquid or delisted tickers (e.g. `KSG.WA`) via the individual
+  fallback path. `TypeError` is now caught alongside `ValueError`, `KeyError`,
+  and `AttributeError` in `fetch_price_single`.
+- Unhandled crash in `fetch_extended_prices` when the batch contains a mix of
+  equity and forex tickers. `yf.download()` internally calls `pd.concat()`,
+  which raises `ValueError` (or `TypeError`) when tz-aware daily forex bars
+  are concatenated with tz-naive minute equity bars. The exception is now
+  caught so the fetch falls back gracefully to the tier-2/tier-3 paths.
+- Non-US tickers (e.g. `6758.T`, `IWDA.AS`) incorrectly showing `PRE` or
+  `AH` outside trading hours. Non-US exchanges do not offer extended-hours
+  trading via yfinance, so `current_session()` now returns `CLS` whenever
+  the wall-clock time falls outside regular session hours for any exchange
+  that does not have `extended_hours` enabled. Only US exchanges (NASDAQ,
+  NYSE, Arca, CBOE, OTC) retain the `PRE`/`AH` labels.
+
 ## [0.2.0] - 2026-03-16
 
 ### Added
@@ -80,5 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[0.2.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/igoropaniuk/stonks-cli/releases/tag/v0.1.0
