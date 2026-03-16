@@ -346,12 +346,15 @@ class PriceFetcher:
 
         normalized = [s.upper() for s in symbols]
 
-        data = yf.download(
-            tickers=normalized,
-            period="1d",
-            auto_adjust=True,
-            progress=False,
-        )
+        try:
+            data = yf.download(
+                tickers=normalized,
+                period="1d",
+                auto_adjust=True,
+                progress=False,
+            )
+        except RuntimeError:
+            return {}
 
         if data.empty:
             return {}
@@ -395,14 +398,17 @@ class PriceFetcher:
 
         normalized = [s.upper() for s in symbols]
 
-        data = yf.download(
-            tickers=normalized,
-            period="1d",
-            interval="1m",
-            prepost=True,
-            auto_adjust=True,
-            progress=False,
-        )
+        try:
+            data = yf.download(
+                tickers=normalized,
+                period="1d",
+                interval="1m",
+                prepost=True,
+                auto_adjust=True,
+                progress=False,
+            )
+        except RuntimeError:
+            return {}
 
         if data.empty:
             return {}
@@ -492,12 +498,15 @@ class PriceFetcher:
 
         symbols = [f"{c}{base}=X" for c in non_base]
 
-        data = yf.download(
-            tickers=symbols,
-            period="1d",
-            auto_adjust=False,
-            progress=False,
-        )
+        try:
+            data = yf.download(
+                tickers=symbols,
+                period="1d",
+                auto_adjust=False,
+                progress=False,
+            )
+        except RuntimeError:
+            return rates
 
         if data.empty:
             return rates
