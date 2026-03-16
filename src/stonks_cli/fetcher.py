@@ -426,7 +426,7 @@ class PriceFetcher:
             if price is None or (isinstance(price, float) and math.isnan(price)):
                 return None
             return float(price)
-        except (ValueError, KeyError, AttributeError):
+        except (TypeError, ValueError, KeyError, AttributeError):
             return None
 
     def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
