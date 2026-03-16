@@ -637,6 +637,12 @@ class TestCurrentSession:
     def test_non_us_post_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
         assert fetcher.current_session("IWDA.AS") == "closed"
 
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher._market_session", return_value="regular")
+    def test_regular_session_returned_as_regular(self, _ms, _td, fetcher: PriceFetcher):
+        # session == "regular" skips the extended-hours guard and returns directly
+        assert fetcher.current_session("AAPL") == "regular"
+
 
 class TestFetchPriceSingle:
     def test_returns_price_on_success(self, fetcher: PriceFetcher):
