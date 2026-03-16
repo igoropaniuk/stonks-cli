@@ -373,6 +373,21 @@ class PriceFetcher:
 
         return result
 
+    def fetch_price_single(self, symbol: str) -> float | None:
+        """Return the most recent price for *symbol* using an individual lookup.
+
+        Uses ``yf.Ticker.fast_info`` so it is not affected by the DataFrame
+        alignment issues that can occur when batch-downloading tickers from
+        multiple exchanges.  Returns ``None`` when no price is available.
+        """
+        try:
+            price = yf.Ticker(symbol.upper()).fast_info.last_price
+            if price is None or (isinstance(price, float) and math.isnan(price)):
+                return None
+            return float(price)
+        except (ValueError, KeyError, AttributeError):
+            return None
+
     def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
         """Return the best available price for each symbol, including extended hours.
 

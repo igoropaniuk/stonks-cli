@@ -234,13 +234,22 @@ class PortfolioApp(App):
         new_prices = {sym: price for sym, (price, _) in extended.items()}
         new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
 
-        # Fall back to daily prices for symbols that had no 1-minute data
-        # (e.g. some European tickers or illiquid instruments).
+        # Fall back to daily batch prices for symbols that had no 1-minute data.
         missing = [s for s in all_symbols if s not in new_prices]
         if missing:
             fallback = fetcher.fetch_prices(missing)
             new_prices.update(fallback)
             new_sessions.update({sym: "regular" for sym in fallback})
+
+        # Final fallback: fetch individually for symbols still missing after
+        # the batch attempt (cross-exchange DataFrame alignment can silently
+        # drop tickers from the batch result).
+        still_missing = [s for s in missing if s not in new_prices]
+        for sym in still_missing:
+            price = fetcher.fetch_price_single(sym)
+            if price is not None:
+                new_prices[sym] = price
+                new_sessions[sym] = "regular"
         new_exchange_codes = fetcher.fetch_exchange_names(all_symbols)
         all_currencies = list(
             {p.currency for portfolio in self.portfolios for p in portfolio.positions}
