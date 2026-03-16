@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Static
 
 from stonks_cli.app import PortfolioApp
@@ -419,3 +420,114 @@ async def test_refresh_prices_calls_fetcher_and_applies(portfolio: Portfolio) ->
     assert app.prices == {"AAPL": 160.0, "NVDA": 90.0}
     assert app.sessions == {"AAPL": "regular", "NVDA": "regular"}
     assert app.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_tier2_fallback(portfolio: Portfolio) -> None:
+    """Symbols missing from extended prices are fetched via daily batch fallback."""
+    mock_fetcher = MagicMock()
+    # Extended fetch only returns AAPL; NVDA is missing
+    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
+    mock_fetcher.fetch_prices.return_value = {"NVDA": 90.0}
+    mock_fetcher.fetch_price_single.return_value = None
+    mock_fetcher.current_session.return_value = "regular"
+    mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+
+    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+    assert mock_fetcher.fetch_prices.called
+    assert app.prices.get("NVDA") == pytest.approx(90.0)
+    assert app.sessions.get("NVDA") == "regular"
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_tier3_fallback(portfolio: Portfolio) -> None:
+    """Symbols still missing after daily batch are fetched individually."""
+    mock_fetcher = MagicMock()
+    # Both tiers 1 and 2 return nothing for NVDA
+    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
+    mock_fetcher.fetch_prices.return_value = {}
+    mock_fetcher.fetch_price_single.return_value = 88.0
+    mock_fetcher.current_session.return_value = "pre"
+    mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+
+    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+    mock_fetcher.fetch_price_single.assert_called_once_with("NVDA")
+    assert app.prices.get("NVDA") == pytest.approx(88.0)
+    assert app.sessions.get("NVDA") == "pre"
+
+
+@pytest.mark.asyncio
+async def test_populate_tables_no_matches_is_silent(portfolio: Portfolio) -> None:
+    """_populate_tables swallows NoMatches from the status widget gracefully."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "query_one", side_effect=NoMatches):
+            # Must not raise
+            app._populate_tables()
+
+
+@pytest.mark.asyncio
+async def test_populate_single_no_matches_returns_early(portfolio: Portfolio) -> None:
+    """_populate_single returns without error when widgets are gone."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "query_one", side_effect=NoMatches):
+            app._populate_single()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_tier3_none_price_skipped(portfolio: Portfolio) -> None:
+    """Tier-3 fetch returning None leaves the symbol absent from prices."""
+    mock_fetcher = MagicMock()
+    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
+    mock_fetcher.fetch_prices.return_value = {}
+    mock_fetcher.fetch_price_single.return_value = None  # NVDA unreachable
+    mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+
+    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+    assert "NVDA" not in app.prices
+
+
+@pytest.mark.asyncio
+async def test_populate_for_no_matches_returns_early() -> None:
+    """_populate_for returns without error when widgets are gone."""
+    p1 = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    p2 = Portfolio(positions=[Position(symbol="NVDA", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(
+        portfolios=[p1, p2],
+        prices={"AAPL": 100.0, "NVDA": 100.0},
+        forex_rates=USD_RATES,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "query_one", side_effect=NoMatches):
+            app._populate_for(0, p1)  # must not raise
