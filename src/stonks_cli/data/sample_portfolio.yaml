@@ -82,6 +82,11 @@ portfolio:
       avg_cost: 2800.00
       currency: USD
 
+    - symbol: 6758.T
+      quantity: 20
+      avg_cost: 3200.00
+      currency: JPY
+
   cash:
     - currency: USD
       amount: 4250.00

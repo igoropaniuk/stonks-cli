@@ -479,17 +479,7 @@ class PriceFetcher:
             if series.empty:
                 continue
             price = float(series.iloc[-1])
-            ts = series.index[-1]
-            hours = _exchange_hours(symbol)
-            if hours is None:
-                session = "regular"
-            elif not _is_trading_day(
-                hours[0], calendar_name=_exchange_calendar_name(symbol)
-            ):
-                session = "closed"
-            else:
-                session = _market_session(ts, *hours)
-            result[symbol] = (price, session)
+            result[symbol] = (price, self.current_session(symbol))
 
         return result
 
