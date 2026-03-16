@@ -589,6 +589,18 @@ class TestFetchExtendedPricesRuntimeError:
     def test_returns_empty_dict_on_runtime_error(self, _mock, fetcher: PriceFetcher):
         assert fetcher.fetch_extended_prices(["AAPL"]) == {}
 
+    @patch(
+        "stonks_cli.fetcher.yf.download",
+        side_effect=ValueError("cannot reindex on an axis with duplicate labels"),
+    )
+    def test_returns_empty_dict_on_pandas_concat_error(
+        self, _mock, fetcher: PriceFetcher
+    ):
+        # yf.download() can raise ValueError (or TypeError) when tickers from
+        # different exchanges return DataFrames with incompatible index types
+        # (e.g. tz-aware daily forex vs tz-naive minute equity bars).
+        assert fetcher.fetch_extended_prices(["AAPL", "GBPUSD=X"]) == {}
+
 
 class TestFetchForexRatesRuntimeError:
     @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
