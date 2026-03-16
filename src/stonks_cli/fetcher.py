@@ -50,6 +50,9 @@ class ExchangeInfo:
     calendar_name: str | None
     label: str
     yf_codes: tuple[str, ...] = ()
+    extended_hours: bool = (
+        False  # True only for US exchanges (pre/post market via yfinance)
+    )
 
 
 # Exchange metadata keyed either by Yahoo Finance ticker suffix (e.g. "AS", "L")
@@ -60,31 +63,43 @@ class ExchangeInfo:
 _EXCHANGES: dict[str, ExchangeInfo] = {
     # -- United States (keyed by yfinance exchange code) --
     "NMS": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NMS",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NMS",), True
     ),
     "NGM": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NGM",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NGM",), True
     ),
     "NCM": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NCM",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NASDAQ", ("NCM",), True
     ),
     "NYQ": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE", ("NYQ",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE", ("NYQ",), True
     ),
     "NYA": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE AMEX", ("NYA",)
+        "America/New_York",
+        dtime(9, 30),
+        dtime(16, 0),
+        "XNYS",
+        "NYSE AMEX",
+        ("NYA",),
+        True,
     ),
     "PCX": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE Arca", ("PCX",)
+        "America/New_York",
+        dtime(9, 30),
+        dtime(16, 0),
+        "XNYS",
+        "NYSE Arca",
+        ("PCX",),
+        True,
     ),
     "BTS": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "CBOE", ("BTS",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "CBOE", ("BTS",), True
     ),
     "OBB": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("OBB",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("OBB",), True
     ),
     "PNK": ExchangeInfo(
-        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("PNK",)
+        "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "OTC", ("PNK",), True
     ),
     # -- Americas --
     "SA": ExchangeInfo(
@@ -212,7 +227,12 @@ _EXCHANGES: dict[str, ExchangeInfo] = {
 }
 
 _US_EXCHANGE = ExchangeInfo(
-    "America/New_York", dtime(9, 30), dtime(16, 0), "XNYS", "NYSE/NASDAQ"
+    "America/New_York",
+    dtime(9, 30),
+    dtime(16, 0),
+    "XNYS",
+    "NYSE/NASDAQ",
+    extended_hours=True,
 )
 
 
@@ -412,7 +432,13 @@ class PriceFetcher:
         if not _is_trading_day(hours[0], calendar_name=calendar_name):
             return "closed"
         now = pd.Timestamp.now(tz="UTC")
-        return _market_session(now, *hours)
+        session = _market_session(now, *hours)
+        if session != "regular":
+            suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
+            info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
+            if info is None or not info.extended_hours:
+                return "closed"
+        return session
 
     def fetch_price_single(self, symbol: str) -> float | None:
         """Return the most recent price for *symbol* using an individual lookup.
