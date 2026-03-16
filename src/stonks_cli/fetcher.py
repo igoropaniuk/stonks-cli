@@ -396,6 +396,24 @@ class PriceFetcher:
 
         return result
 
+    def current_session(self, symbol: str) -> str:
+        """Return the current market session label for *symbol*.
+
+        Uses the current wall-clock time rather than a bar timestamp, so it
+        can assign a meaningful session label to prices that were fetched via
+        a fallback path that has no associated bar.
+
+        Returns one of ``'pre'``, ``'regular'``, ``'post'``, or ``'closed'``.
+        """
+        hours = _exchange_hours(symbol)
+        if hours is None:
+            return "regular"  # crypto -- always regular
+        calendar_name = _exchange_calendar_name(symbol)
+        if not _is_trading_day(hours[0], calendar_name=calendar_name):
+            return "closed"
+        now = pd.Timestamp.now(tz="UTC")
+        return _market_session(now, *hours)
+
     def fetch_price_single(self, symbol: str) -> float | None:
         """Return the most recent price for *symbol* using an individual lookup.
 
