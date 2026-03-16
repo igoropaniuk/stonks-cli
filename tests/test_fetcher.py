@@ -122,6 +122,7 @@ class TestFetchPrices:
 
 _OPEN = "stonks_cli.fetcher._is_exchange_open"
 _TRADING_DAY = "stonks_cli.fetcher._is_trading_day"
+_CURRENT_SESSION = "stonks_cli.fetcher.PriceFetcher.current_session"
 
 
 class TestFetchExtendedPrices:
@@ -131,100 +132,104 @@ class TestFetchExtendedPrices:
         assert result == {}
         mock_dl.assert_not_called()
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="post")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_post_market_price(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"AAPL": 170.0}, _POST_MARKET_TS)
+    def test_returns_post_market_price(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"AAPL": 170.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (170.0, "post")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="pre")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_pre_market_price(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"AAPL": 155.0}, _PRE_MARKET_TS)
+    def test_returns_pre_market_price(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"AAPL": 155.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (155.0, "pre")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_regular_price(self, mock_dl, _td, fetcher: PriceFetcher):
+    def test_returns_regular_price(self, mock_dl, _cs, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (160.0, "regular")}
 
-    @patch(_TRADING_DAY, return_value=False)
+    @patch(_CURRENT_SESSION, return_value="closed")
     @patch("stonks_cli.fetcher.yf.download")
     def test_returns_closed_when_exchange_closed(
-        self, mock_dl, _td, fetcher: PriceFetcher
+        self, mock_dl, _cs, fetcher: PriceFetcher
     ):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (160.0, "closed")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="pre")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_pre_market(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_PRE_TS)
+    def test_eu_pre_market(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "pre")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_regular(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_REGULAR_TS)
+    def test_eu_regular(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "regular")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="post")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_post_market(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_POST_TS)
+    def test_eu_post_market(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "post")}
 
-    @patch(_TRADING_DAY, return_value=False)
+    @patch(_CURRENT_SESSION, return_value="closed")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_closed(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_REGULAR_TS)
+    def test_eu_closed(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "closed")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="pre")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_pre_market(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_PRE_TS)
+    def test_asia_pre_market(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "pre")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_regular(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_REGULAR_TS)
+    def test_asia_regular(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "regular")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="post")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_post_market(self, mock_dl, _td, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_POST_TS)
+    def test_asia_post_market(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "post")}
 
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_crypto_always_regular(self, mock_dl, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"BTC-USD": 50000.0}, _POST_MARKET_TS)
+    def test_crypto_always_regular(self, mock_dl, _cs, fetcher: PriceFetcher):
+        mock_dl.return_value = _extended_close_df({"BTC-USD": 50000.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["BTC-USD"])
         assert result == {"BTC-USD": (50000.0, "regular")}
 
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_unknown_suffix_falls_back_to_regular(self, mock_dl, fetcher: PriceFetcher):
-        mock_dl.return_value = _extended_close_df({"FOO.XX": 100.0}, _POST_MARKET_TS)
+    def test_unknown_suffix_falls_back_to_regular(
+        self, mock_dl, _cs, fetcher: PriceFetcher
+    ):
+        mock_dl.return_value = _extended_close_df({"FOO.XX": 100.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["FOO.XX"])
         assert result == {"FOO.XX": (100.0, "regular")}
 
-    @patch(_TRADING_DAY, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_normalises_symbols_to_uppercase(self, mock_dl, _td, fetcher: PriceFetcher):
+    def test_normalises_symbols_to_uppercase(self, mock_dl, _cs, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["aapl"])
         assert "AAPL" in result
@@ -235,8 +240,11 @@ class TestFetchExtendedPrices:
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {}
 
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_symbol_missing_from_download_skipped(self, mock_dl, fetcher: PriceFetcher):
+    def test_symbol_missing_from_download_skipped(
+        self, mock_dl, _cs, fetcher: PriceFetcher
+    ):
         mock_dl.return_value = _extended_close_df({"AAPL": 150.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL", "MSFT"])
         assert "AAPL" in result
@@ -512,14 +520,12 @@ class TestExchangeCalendarName:
 
 
 class TestFetchExtendedPricesSkipsEmptySeries:
-    @patch(_OPEN, return_value=True)
+    @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
     def test_skips_symbol_with_all_nan_series(
-        self, mock_dl, _open, fetcher: PriceFetcher
+        self, mock_dl, _cs, fetcher: PriceFetcher
     ):
-        et = zoneinfo.ZoneInfo("America/New_York")
-        ts = datetime(2026, 3, 10, 12, 0, tzinfo=et)
-        idx = pd.DatetimeIndex([pd.Timestamp(ts)])
+        idx = pd.DatetimeIndex([pd.Timestamp(_REGULAR_TS)])
         cols = pd.MultiIndex.from_product([["Close"], ["AAPL", "NVDA"]])
         df = pd.DataFrame([[float("nan"), 900.0]], columns=cols, index=idx)
         mock_dl.return_value = df
