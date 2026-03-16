@@ -239,7 +239,7 @@ class PortfolioApp(App):
         if missing:
             fallback = fetcher.fetch_prices(missing)
             new_prices.update(fallback)
-            new_sessions.update({sym: "regular" for sym in fallback})
+            new_sessions.update({sym: fetcher.current_session(sym) for sym in fallback})
 
         # Final fallback: fetch individually for symbols still missing after
         # the batch attempt (cross-exchange DataFrame alignment can silently
@@ -249,7 +249,7 @@ class PortfolioApp(App):
             price = fetcher.fetch_price_single(sym)
             if price is not None:
                 new_prices[sym] = price
-                new_sessions[sym] = "regular"
+                new_sessions[sym] = fetcher.current_session(sym)
         new_exchange_codes = fetcher.fetch_exchange_names(all_symbols)
         all_currencies = list(
             {p.currency for portfolio in self.portfolios for p in portfolio.positions}
