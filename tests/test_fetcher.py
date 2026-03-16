@@ -120,6 +120,7 @@ class TestFetchPrices:
 
 
 _OPEN = "stonks_cli.fetcher._is_exchange_open"
+_TRADING_DAY = "stonks_cli.fetcher._is_trading_day"
 
 
 class TestFetchExtendedPrices:
@@ -129,81 +130,81 @@ class TestFetchExtendedPrices:
         assert result == {}
         mock_dl.assert_not_called()
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_post_market_price(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_returns_post_market_price(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 170.0}, _POST_MARKET_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (170.0, "post")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_pre_market_price(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_returns_pre_market_price(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 155.0}, _PRE_MARKET_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (155.0, "pre")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_returns_regular_price(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_returns_regular_price(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (160.0, "regular")}
 
-    @patch(_OPEN, return_value=False)
+    @patch(_TRADING_DAY, return_value=False)
     @patch("stonks_cli.fetcher.yf.download")
     def test_returns_closed_when_exchange_closed(
-        self, mock_dl, _open, fetcher: PriceFetcher
+        self, mock_dl, _td, fetcher: PriceFetcher
     ):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["AAPL"])
         assert result == {"AAPL": (160.0, "closed")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_pre_market(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_eu_pre_market(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_PRE_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "pre")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_regular(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_eu_regular(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "regular")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_post_market(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_eu_post_market(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_POST_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "post")}
 
-    @patch(_OPEN, return_value=False)
+    @patch(_TRADING_DAY, return_value=False)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_eu_closed(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_eu_closed(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"ASML.AS": 800.0}, _AMS_REGULAR_TS)
         result = fetcher.fetch_extended_prices(["ASML.AS"])
         assert result == {"ASML.AS": (800.0, "closed")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_pre_market(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_asia_pre_market(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_PRE_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "pre")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_regular(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_asia_regular(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_REGULAR_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "regular")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_asia_post_market(self, mock_dl, _open, fetcher: PriceFetcher):
+    def test_asia_post_market(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"7203.T": 2000.0}, _TYO_POST_TS)
         result = fetcher.fetch_extended_prices(["7203.T"])
         assert result == {"7203.T": (2000.0, "post")}
@@ -220,11 +221,9 @@ class TestFetchExtendedPrices:
         result = fetcher.fetch_extended_prices(["FOO.XX"])
         assert result == {"FOO.XX": (100.0, "regular")}
 
-    @patch(_OPEN, return_value=True)
+    @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.yf.download")
-    def test_normalises_symbols_to_uppercase(
-        self, mock_dl, _open, fetcher: PriceFetcher
-    ):
+    def test_normalises_symbols_to_uppercase(self, mock_dl, _td, fetcher: PriceFetcher):
         mock_dl.return_value = _extended_close_df({"AAPL": 160.0}, _REGULAR_TS)
         result = fetcher.fetch_extended_prices(["aapl"])
         assert "AAPL" in result

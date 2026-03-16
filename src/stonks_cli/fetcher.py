@@ -300,6 +300,29 @@ def _is_exchange_open(
     return open_time <= now_local.time() < close_time
 
 
+def _is_trading_day(
+    tz_name: str,
+    calendar_name: str | None = None,
+) -> bool:
+    """Return True if today is a trading day for this exchange.
+
+    Unlike :func:`_is_exchange_open`, this ignores the time of day and only
+    answers the question "does this exchange have a session today?".  This
+    allows session labels (pre/regular/post) to be derived from the bar
+    timestamp even when the current clock time is outside regular hours.
+    """
+    if calendar_name:
+        try:
+            cal = _load_calendar(calendar_name)
+            today = pd.Timestamp.now(tz="UTC").normalize()
+            return bool(cal.is_session(today))
+        except (AttributeError, LookupError, ValueError):
+            pass  # fall through to weekend check
+
+    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
+    return now_local.weekday() < 5
+
+
 def _exchange_calendar_name(symbol: str) -> str | None:
     """Return the exchange-calendars MIC for *symbol*'s exchange, or None."""
     if "-" in symbol:
@@ -442,8 +465,8 @@ class PriceFetcher:
             hours = _exchange_hours(symbol)
             if hours is None:
                 session = "regular"
-            elif not _is_exchange_open(
-                *hours, calendar_name=_exchange_calendar_name(symbol)
+            elif not _is_trading_day(
+                hours[0], calendar_name=_exchange_calendar_name(symbol)
             ):
                 session = "closed"
             else:
