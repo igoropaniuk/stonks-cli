@@ -13,6 +13,7 @@ from stonks_cli.fetcher import (
     _exchange_calendar_name,
     _finite,
     _is_exchange_open,
+    _is_trading_day,
     _market_session,
     exchange_label,
 )
@@ -539,3 +540,98 @@ class TestFetchForexRatesEmptySeries:
         rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
         assert "EUR" not in rates
         assert rates["GBP"] == pytest.approx(1.27)
+
+
+class TestIsTradingDay:
+    _TZ = "America/New_York"
+
+    def test_returns_true_when_calendar_says_session(self):
+        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+            mock_cal.return_value.is_session.return_value = True
+            assert _is_trading_day(self._TZ, calendar_name="XNYS") is True
+
+    def test_returns_false_when_calendar_says_no_session(self):
+        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+            mock_cal.return_value.is_session.return_value = False
+            assert _is_trading_day(self._TZ, calendar_name="XNYS") is False
+
+    def test_calendar_exception_falls_through_to_weekday_check(self):
+        with patch("stonks_cli.fetcher._load_calendar", side_effect=LookupError):
+            with patch("stonks_cli.fetcher.datetime") as mock_dt:
+                mock_dt.now.return_value.weekday.return_value = 1  # Tuesday
+                assert _is_trading_day(self._TZ, calendar_name="XNYS") is True
+
+    def test_weekend_returns_false_without_calendar(self):
+        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            mock_dt.now.return_value.weekday.return_value = 6  # Sunday
+            assert _is_trading_day(self._TZ) is False
+
+    def test_weekday_returns_true_without_calendar(self):
+        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            mock_dt.now.return_value.weekday.return_value = 2  # Wednesday
+            assert _is_trading_day(self._TZ) is True
+
+
+class TestFetchPricesRuntimeError:
+    @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
+    def test_returns_empty_dict_on_runtime_error(self, _mock, fetcher: PriceFetcher):
+        assert fetcher.fetch_prices(["AAPL"]) == {}
+
+
+class TestFetchExtendedPricesRuntimeError:
+    @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
+    def test_returns_empty_dict_on_runtime_error(self, _mock, fetcher: PriceFetcher):
+        assert fetcher.fetch_extended_prices(["AAPL"]) == {}
+
+
+class TestFetchForexRatesRuntimeError:
+    @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
+    def test_returns_base_rate_on_runtime_error(self, _mock, fetcher: PriceFetcher):
+        rates = fetcher.fetch_forex_rates(["EUR"], base="USD")
+        assert rates == {"USD": 1.0}
+
+
+class TestCurrentSession:
+    def test_crypto_always_regular(self, fetcher: PriceFetcher):
+        assert fetcher.current_session("BTC-USD") == "regular"
+
+    @patch(_TRADING_DAY, return_value=False)
+    def test_non_trading_day_returns_closed(self, _td, fetcher: PriceFetcher):
+        assert fetcher.current_session("AAPL") == "closed"
+
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher._market_session", return_value="pre")
+    def test_trading_day_delegates_to_market_session(
+        self, mock_ms, _td, fetcher: PriceFetcher
+    ):
+        result = fetcher.current_session("AAPL")
+        assert result == "pre"
+        assert mock_ms.called
+
+
+class TestFetchPriceSingle:
+    def test_returns_price_on_success(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value.fast_info.last_price = 175.5
+            assert fetcher.fetch_price_single("AAPL") == pytest.approx(175.5)
+            mock_ticker.assert_called_once_with("AAPL")
+
+    def test_returns_none_for_nan_price(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value.fast_info.last_price = float("nan")
+            assert fetcher.fetch_price_single("AAPL") is None
+
+    def test_returns_none_for_none_price(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value.fast_info.last_price = None
+            assert fetcher.fetch_price_single("AAPL") is None
+
+    def test_returns_none_on_exception(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker", side_effect=KeyError("no data")):
+            assert fetcher.fetch_price_single("AAPL") is None
+
+    def test_uppercases_symbol(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value.fast_info.last_price = 100.0
+            fetcher.fetch_price_single("aapl")
+            mock_ticker.assert_called_once_with("AAPL")
