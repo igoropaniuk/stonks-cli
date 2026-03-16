@@ -626,8 +626,14 @@ class TestFetchPriceSingle:
             mock_ticker.return_value.fast_info.last_price = None
             assert fetcher.fetch_price_single("AAPL") is None
 
-    def test_returns_none_on_exception(self, fetcher: PriceFetcher):
+    def test_returns_none_on_key_error(self, fetcher: PriceFetcher):
         with patch("stonks_cli.fetcher.yf.Ticker", side_effect=KeyError("no data")):
+            assert fetcher.fetch_price_single("AAPL") is None
+
+    def test_returns_none_on_type_error(self, fetcher: PriceFetcher):
+        # yfinance raises TypeError("'NoneType' object is not subscriptable") when
+        # the HTTP response is None (e.g. network failure for illiquid tickers)
+        with patch("stonks_cli.fetcher.yf.Ticker", side_effect=TypeError("NoneType")):
             assert fetcher.fetch_price_single("AAPL") is None
 
     def test_uppercases_symbol(self, fetcher: PriceFetcher):
