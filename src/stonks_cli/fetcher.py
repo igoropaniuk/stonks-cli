@@ -463,7 +463,7 @@ class PriceFetcher:
                 auto_adjust=True,
                 progress=False,
             )
-        except RuntimeError:
+        except Exception:  # noqa: BLE001
             return {}
 
         if data.empty:
