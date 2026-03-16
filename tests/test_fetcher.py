@@ -626,6 +626,17 @@ class TestCurrentSession:
         assert result == "pre"
         assert mock_ms.called
 
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher._market_session", return_value="pre")
+    def test_non_us_pre_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
+        # Non-US exchanges have no extended hours; "pre" should map to "closed"
+        assert fetcher.current_session("6758.T") == "closed"
+
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher._market_session", return_value="post")
+    def test_non_us_post_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
+        assert fetcher.current_session("IWDA.AS") == "closed"
+
 
 class TestFetchPriceSingle:
     def test_returns_price_on_success(self, fetcher: PriceFetcher):
