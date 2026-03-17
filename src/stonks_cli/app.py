@@ -50,6 +50,9 @@ class PortfolioApp(App):
         self.sessions = sessions or {}
         self.exchange_codes: dict[str, str] = {}
         self.refresh_interval = refresh_interval
+        # Sort state keyed by table widget id ("" for the single-portfolio table).
+        self._sort_column: dict[str, int] = {}
+        self._sort_reverse: dict[str, bool] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -84,6 +87,20 @@ class PortfolioApp(App):
         self._populate_tables()
         self._refresh_prices()
         self.set_interval(self.refresh_interval, self._refresh_prices)
+
+    # ------------------------------------------------------------------
+    # Column sorting
+    # ------------------------------------------------------------------
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        tid = event.data_table.id or ""
+        col = event.column_index
+        if self._sort_column.get(tid) == col:
+            self._sort_reverse[tid] = not self._sort_reverse.get(tid, False)
+        else:
+            self._sort_column[tid] = col
+            self._sort_reverse[tid] = False
+        self._populate_tables()
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -125,9 +142,17 @@ class PortfolioApp(App):
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
         saved_cursor = table.cursor_coordinate
         table.clear()
+        tid = table.id or ""
         rates = self.forex_rates.get(portfolio.base_currency, {})
+
+        # Build (sort_key, display_cells) pairs for every row.
+        rows: list[tuple[tuple, tuple]] = []
+
         for pos in portfolio.positions:
+            label = exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol))
             last = self.prices.get(pos.symbol)
+            sort_key: tuple[object, ...]
+            display: tuple[object, ...]
             if last is not None:
                 mkt_value = pos.market_value(last)
                 pnl = pos.unrealized_pnl(last)
@@ -146,9 +171,18 @@ class PortfolioApp(App):
                     price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
                 else:
                     price_cell = f"{last:.2f}"
-                table.add_row(
+                sort_key = (
                     pos.symbol,
-                    exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol)),
+                    label,
+                    pos.quantity,
+                    pos.avg_cost,
+                    last,
+                    mkt_value,
+                    pnl,
+                )
+                display = (
+                    pos.symbol,
+                    label,
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     price_cell,
@@ -156,15 +190,26 @@ class PortfolioApp(App):
                     pnl_text,
                 )
             else:
-                table.add_row(
+                sort_key = (
                     pos.symbol,
-                    exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol)),
+                    label,
+                    pos.quantity,
+                    pos.avg_cost,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+                display = (
+                    pos.symbol,
+                    label,
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     "N/A",
                     "N/A",
                     "N/A",
                 )
+            rows.append((sort_key, display))
+
         for cash_pos in portfolio.cash:
             rate = rates.get(cash_pos.currency)
             if rate is not None:
@@ -174,7 +219,16 @@ class PortfolioApp(App):
                     if cash_pos.currency != portfolio.base_currency
                     else "1.0000"
                 )
-                table.add_row(
+                sort_key = (
+                    cash_pos.currency,
+                    "Cash",
+                    cash_pos.amount,
+                    1.0,
+                    rate,
+                    mkt_value,
+                    0.0,
+                )
+                display = (
                     cash_pos.currency,
                     "Cash",
                     f"{cash_pos.amount:,.2f}",
@@ -184,7 +238,16 @@ class PortfolioApp(App):
                     "--",
                 )
             else:
-                table.add_row(
+                sort_key = (
+                    cash_pos.currency,
+                    "Cash",
+                    cash_pos.amount,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+                display = (
                     cash_pos.currency,
                     "Cash",
                     f"{cash_pos.amount:,.2f}",
@@ -193,6 +256,16 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
+            rows.append((sort_key, display))
+
+        if tid in self._sort_column:
+            col = self._sort_column[tid]
+            rows.sort(
+                key=lambda r: r[0][col], reverse=self._sort_reverse.get(tid, False)
+            )
+
+        for _, cells in rows:
+            table.add_row(*cells)
         table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
