@@ -123,6 +123,7 @@ class PortfolioApp(App):
         self._update_total_widget(total_widget, portfolio)
 
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
+        saved_cursor = table.cursor_coordinate
         table.clear()
         rates = self.forex_rates.get(portfolio.base_currency, {})
         for pos in portfolio.positions:
@@ -192,6 +193,7 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
+        table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
         rates = self.forex_rates.get(portfolio.base_currency, {})
