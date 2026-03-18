@@ -3,10 +3,18 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from textual.app import App
+from textual.binding import Binding
 from textual.css.query import NoMatches
-from textual.widgets import DataTable, Static
+from textual.widgets import Button, DataTable, Input, Label, Static
 
-from stonks_cli.app import PortfolioApp
+from stonks_cli.app import (
+    PortfolioApp,
+    _CashFormScreen,
+    _ConfirmScreen,
+    _EquityFormScreen,
+    _TypeSelectScreen,
+)
 from stonks_cli.models import CashPosition, Portfolio, Position
 
 # Capture before autouse fixture in conftest.py replaces it with a lambda
@@ -597,3 +605,1115 @@ async def test_populate_for_no_matches_returns_early() -> None:
         await pilot.pause()
         with patch.object(app, "query_one", side_effect=NoMatches):
             app._populate_for(0, p1)  # must not raise
+
+
+# ------------------------------------------------------------------
+# Helper method tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pname_with_named_portfolio() -> None:
+    """_pname returns the portfolio name when set."""
+    p = Portfolio(
+        name="Work", positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)]
+    )
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app._pname(0) == "Work"
+
+
+@pytest.mark.asyncio
+async def test_pname_unnamed_portfolio() -> None:
+    """_pname returns 'Portfolio N' when name is empty."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app._pname(0) == "Portfolio 1"
+
+
+@pytest.mark.asyncio
+async def test_table_to_portfolio_index_single() -> None:
+    """Single portfolio always returns index 0."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={"AAPL": 100.0}, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert app._table_to_portfolio_index(table) == 0
+
+
+@pytest.mark.asyncio
+async def test_table_to_portfolio_index_multi() -> None:
+    """Multi-portfolio maps table id to correct index."""
+    p1 = Portfolio(
+        name="A", positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)]
+    )
+    p2 = Portfolio(
+        name="B", positions=[Position(symbol="NVDA", quantity=1, avg_cost=100.0)]
+    )
+    app = PortfolioApp(
+        portfolios=[p1, p2],
+        prices={"AAPL": 100.0, "NVDA": 100.0},
+        forex_rates=USD_RATES,
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        t1 = app.query_one("#table-1", DataTable)
+        assert app._table_to_portfolio_index(t1) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_active_table_and_index_returns_focused(portfolio: Portfolio) -> None:
+    """Returns the focused DataTable and its index."""
+    prices = {"AAPL": 100.0, "NVDA": 100.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+        result = app._get_active_table_and_index()
+        assert result is not None
+        assert result[0] is table
+        assert result[1] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_active_table_and_index_fallback(portfolio: Portfolio) -> None:
+    """Falls back to the single DataTable when nothing is focused."""
+    prices = {"AAPL": 100.0, "NVDA": 100.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Clear focus so focused is None (not a DataTable)
+        app.set_focus(None)
+        await pilot.pause()
+        result = app._get_active_table_and_index()
+        assert result is not None
+        assert result[1] == 0
+
+
+@pytest.mark.asyncio
+async def test_save_calls_store() -> None:
+    """_save delegates to the PortfolioStore."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    mock_store = MagicMock()
+    app = PortfolioApp(
+        portfolios=[p], prices={}, forex_rates=USD_RATES, stores=[mock_store]
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._save(0)
+        mock_store.save.assert_called_once_with(p)
+
+
+@pytest.mark.asyncio
+async def test_save_no_store_does_not_raise() -> None:
+    """_save with no stores is a no-op."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._save(0)  # must not raise
+
+
+# ------------------------------------------------------------------
+# Modal screen tests
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_type_select_screen_equity() -> None:
+    """TypeSelectScreen dismisses with 'equity' when equity button is pressed."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: str | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        btn = app.screen.query_one("#equity", Button)
+        btn.press()
+        await pilot.pause()
+    assert result == "equity"
+
+
+@pytest.mark.asyncio
+async def test_type_select_screen_cash() -> None:
+    """TypeSelectScreen dismisses with 'cash' when cash button is pressed."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: str | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        btn = app.screen.query_one("#cash", Button)
+        btn.press()
+        await pilot.pause()
+    assert result == "cash"
+
+
+@pytest.mark.asyncio
+async def test_type_select_screen_cancel() -> None:
+    """TypeSelectScreen dismisses with None when cancel is pressed."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: str | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        btn = app.screen.query_one("#cancel", Button)
+        btn.press()
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_type_select_screen_escape() -> None:
+    """TypeSelectScreen dismisses with None on escape."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: str | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_TypeSelectScreen(), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_equity_form_submit() -> None:
+    """EquityFormScreen returns dict with validated fields on submit."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(
+                _EquityFormScreen(
+                    title="Add", symbol="AAPL", qty="10", avg_cost="150.00"
+                ),
+                on_dismiss,
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+    assert result == {"symbol": "AAPL", "qty": 10, "avg_cost": 150.0, "currency": "USD"}
+
+
+@pytest.mark.asyncio
+async def test_equity_form_cancel() -> None:
+    """EquityFormScreen returns None on cancel."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_EquityFormScreen(title="Add"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_equity_form_validation_empty_symbol() -> None:
+    """EquityFormScreen shows error when symbol is empty."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _EquityFormScreen(title="Add", symbol="", qty="10", avg_cost="100"),
+                lambda _: self.exit(),
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Symbol" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_equity_form_validation_bad_qty() -> None:
+    """EquityFormScreen shows error for non-integer quantity."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _EquityFormScreen(
+                    title="Add", symbol="AAPL", qty="abc", avg_cost="100"
+                ),
+                lambda _: self.exit(),
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Quantity" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_equity_form_validation_bad_avg_cost() -> None:
+    """EquityFormScreen shows error for non-numeric avg cost."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="xyz"),
+                lambda _: self.exit(),
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "cost" in str(err.content).lower()
+
+
+@pytest.mark.asyncio
+async def test_equity_form_escape() -> None:
+    """EquityFormScreen returns None on escape."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_EquityFormScreen(title="Add"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_cash_form_submit() -> None:
+    """CashFormScreen returns dict with validated fields on submit."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(
+                _CashFormScreen(title="Add", currency="EUR", amount="5000"),
+                on_dismiss,
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+    assert result == {"currency": "EUR", "amount": 5000.0}
+
+
+@pytest.mark.asyncio
+async def test_cash_form_cancel() -> None:
+    """CashFormScreen returns None on cancel."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_CashFormScreen(title="Add"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_cash_form_validation_empty_currency() -> None:
+    """CashFormScreen shows error when currency is empty."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _CashFormScreen(title="Add", currency="", amount="100"),
+                lambda _: self.exit(),
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Currency" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_cash_form_validation_bad_amount() -> None:
+    """CashFormScreen shows error for non-numeric amount."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _CashFormScreen(title="Add", currency="USD", amount="abc"),
+                lambda _: self.exit(),
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Amount" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_cash_form_escape() -> None:
+    """CashFormScreen returns None on escape."""
+    result = "sentinel"
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: dict | None) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_CashFormScreen(title="Add"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_confirm_screen_yes() -> None:
+    """ConfirmScreen returns True when Remove is pressed."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: bool) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#yes", Button).press()
+        await pilot.pause()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_confirm_screen_no() -> None:
+    """ConfirmScreen returns False when Cancel is pressed."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: bool) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#no", Button).press()
+        await pilot.pause()
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_screen_escape() -> None:
+    """ConfirmScreen returns False on escape."""
+    result = None
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            def on_dismiss(value: bool) -> None:
+                nonlocal result
+                result = value
+                self.exit()
+
+            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+    assert result is False
+
+
+# ------------------------------------------------------------------
+# Action integration tests (add / edit / remove)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_action_add_equity_new_position() -> None:
+    """Pressing 'a' → equity → filling form adds a new position."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    mock_store = MagicMock()
+    app = PortfolioApp(
+        portfolios=[p], prices=prices, forex_rates=USD_RATES, stores=[mock_store]
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        # Trigger add action
+        await pilot.press("a")
+        await pilot.pause()
+
+        # Type selector visible — press equity
+        app.screen.query_one("#equity", Button).press()
+        await pilot.pause()
+
+        # Fill the equity form
+        symbol_input = app.screen.query_one("#symbol", Input)
+        symbol_input.value = "NVDA"
+        app.screen.query_one("#qty", Input).value = "5"
+        app.screen.query_one("#avg_cost", Input).value = "800.00"
+        app.screen.query_one("#currency", Input).value = "USD"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert p.get_position("NVDA") is not None
+    assert p.get_position("NVDA").quantity == 5
+    mock_store.save.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_action_add_equity_existing_position_weighted_avg() -> None:
+    """Adding shares to an existing position computes weighted avg cost."""
+    p = Portfolio(
+        name="Test",
+        positions=[
+            Position(symbol="AAPL", quantity=10, avg_cost=100.0, currency="EUR")
+        ],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#equity", Button).press()
+        await pilot.pause()
+
+        app.screen.query_one("#symbol", Input).value = "AAPL"
+        app.screen.query_one("#qty", Input).value = "10"
+        app.screen.query_one("#avg_cost", Input).value = "200.00"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    pos = p.get_position("AAPL")
+    assert pos is not None
+    assert pos.quantity == 20
+    assert pos.avg_cost == pytest.approx(150.0)
+    # Currency must NOT be overwritten to USD
+    assert pos.currency == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_action_add_cash() -> None:
+    """Pressing 'a' → cash → filling form adds a cash position."""
+    p = Portfolio(
+        name="Test", positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)]
+    )
+    prices = {"AAPL": 100.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#cash", Button).press()
+        await pilot.pause()
+
+        app.screen.query_one("#currency", Input).value = "EUR"
+        app.screen.query_one("#amount", Input).value = "5000"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert p.get_cash("EUR") is not None
+    assert p.get_cash("EUR").amount == pytest.approx(5000.0)
+
+
+@pytest.mark.asyncio
+async def test_action_edit_equity() -> None:
+    """Pressing 'e' on an equity row opens pre-filled form and applies changes."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        # Form should be pre-filled; update qty
+        app.screen.query_one("#qty", Input).value = "20"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert p.positions[0].quantity == 20
+
+
+@pytest.mark.asyncio
+async def test_action_edit_cash() -> None:
+    """Pressing 'e' on a cash row opens pre-filled form and applies changes."""
+    p = Portfolio(
+        name="Test",
+        positions=[],
+        cash=[CashPosition(currency="EUR", amount=1000.0)],
+    )
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        app.screen.query_one("#amount", Input).value = "2000"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert p.get_cash("EUR") is not None
+    assert p.get_cash("EUR").amount == pytest.approx(2000.0)
+
+
+@pytest.mark.asyncio
+async def test_action_remove_equity() -> None:
+    """Pressing 'r' then confirming removes the equity position."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    mock_store = MagicMock()
+    app = PortfolioApp(
+        portfolios=[p], prices=prices, forex_rates=USD_RATES, stores=[mock_store]
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("r")
+        await pilot.pause()
+
+        # Confirm removal
+        app.screen.query_one("#yes", Button).press()
+        await pilot.pause()
+
+    assert len(p.positions) == 0
+    mock_store.save.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_action_remove_cancel() -> None:
+    """Pressing 'r' then cancelling preserves the position."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("r")
+        await pilot.pause()
+
+        # Cancel removal
+        app.screen.query_one("#no", Button).press()
+        await pilot.pause()
+
+    assert len(p.positions) == 1
+
+
+@pytest.mark.asyncio
+async def test_action_remove_cash() -> None:
+    """Pressing 'r' on a cash row and confirming removes it."""
+    p = Portfolio(
+        name="Test",
+        positions=[],
+        cash=[CashPosition(currency="EUR", amount=1000.0)],
+    )
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    mock_store = MagicMock()
+    app = PortfolioApp(
+        portfolios=[p], prices={}, forex_rates=forex_rates, stores=[mock_store]
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("r")
+        await pilot.pause()
+
+        app.screen.query_one("#yes", Button).press()
+        await pilot.pause()
+
+    assert len(p.cash) == 0
+    mock_store.save.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_bindings_include_tab() -> None:
+    """Tab binding is declared with show=True so it appears in the footer."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+    tab_binding = None
+    for b in app.BINDINGS:
+        if isinstance(b, Binding) and b.key == "tab":
+            tab_binding = b
+            break
+    assert tab_binding is not None
+    assert tab_binding.show is True
+
+
+@pytest.mark.asyncio
+async def test_equity_form_validation_zero_qty() -> None:
+    """EquityFormScreen rejects qty <= 0."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _EquityFormScreen(title="Add", symbol="AAPL", qty="0", avg_cost="100"),
+                lambda _: None,
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Quantity" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_equity_form_validation_zero_avg_cost() -> None:
+    """EquityFormScreen rejects avg_cost <= 0."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="0"),
+                lambda _: None,
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "cost" in str(err.content).lower()
+
+
+@pytest.mark.asyncio
+async def test_cash_form_validation_zero_amount() -> None:
+    """CashFormScreen rejects amount <= 0."""
+
+    class TestApp(App):
+        def on_mount(self) -> None:
+            self.push_screen(
+                _CashFormScreen(title="Add", currency="USD", amount="0"),
+                lambda _: None,
+            )
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+        err = app.screen.query_one("#error", Label)
+        assert "Amount" in str(err.content)
+
+
+@pytest.mark.asyncio
+async def test_get_active_table_returns_none_when_no_tables() -> None:
+    """_get_active_table_and_index returns None when all widgets are gone."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "query_one", side_effect=NoMatches):
+            with patch.object(
+                type(app), "focused", new_callable=lambda: property(lambda self: None)
+            ):
+                assert app._get_active_table_and_index() is None
+
+
+@pytest.mark.asyncio
+async def test_action_add_cancel_type_select() -> None:
+    """Pressing 'a' then cancelling the type selector does nothing."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        # Cancel the type selector
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    # Portfolio unchanged
+    assert len(p.positions) == 1
+    assert p.get_position("AAPL") is not None
+
+
+@pytest.mark.asyncio
+async def test_action_add_equity_cancel_form() -> None:
+    """Pressing 'a' → equity → cancel does nothing."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#equity", Button).press()
+        await pilot.pause()
+
+        # Cancel the form
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert len(p.positions) == 1
+
+
+@pytest.mark.asyncio
+async def test_action_add_cash_cancel_form() -> None:
+    """Pressing 'a' → cash → cancel does nothing."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#cash", Button).press()
+        await pilot.pause()
+
+        # Cancel the form
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert len(p.cash) == 0
+
+
+@pytest.mark.asyncio
+async def test_action_edit_equity_cancel() -> None:
+    """Pressing 'e' then cancelling preserves the position."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert p.positions[0].quantity == 10
+
+
+@pytest.mark.asyncio
+async def test_action_edit_cash_cancel() -> None:
+    """Pressing 'e' on cash row then cancelling preserves the cash position."""
+    p = Portfolio(
+        name="Test",
+        positions=[],
+        cash=[CashPosition(currency="EUR", amount=1000.0)],
+    )
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert p.cash[0].amount == pytest.approx(1000.0)
+
+
+@pytest.mark.asyncio
+async def test_action_edit_equity_rename_symbol() -> None:
+    """Editing a position to a new unused symbol renames it."""
+    p = Portfolio(
+        name="Test",
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        app.screen.query_one("#symbol", Input).value = "MSFT"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert p.positions[0].symbol == "MSFT"
+    assert p.get_position("AAPL") is None
+
+
+@pytest.mark.asyncio
+async def test_action_edit_equity_rename_to_existing_blocked() -> None:
+    """Editing a position symbol to one that already exists is a no-op."""
+    p = Portfolio(
+        name="Test",
+        positions=[
+            Position(symbol="AAPL", quantity=10, avg_cost=150.0),
+            Position(symbol="NVDA", quantity=5, avg_cost=800.0),
+        ],
+    )
+    prices = {"AAPL": 160.0, "NVDA": 850.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        # Try to rename AAPL → NVDA (already exists)
+        app.screen.query_one("#symbol", Input).value = "NVDA"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    # AAPL should still exist unchanged
+    assert p.positions[0].symbol == "AAPL"
+    assert p.positions[0].quantity == 10
+    assert len(p.positions) == 2
+
+
+@pytest.mark.asyncio
+async def test_action_edit_cash_currency_merge() -> None:
+    """Editing cash currency to an existing one merges amounts via add_cash."""
+    p = Portfolio(
+        name="Test",
+        positions=[],
+        cash=[
+            CashPosition(currency="EUR", amount=1000.0),
+            CashPosition(currency="USD", amount=500.0),
+        ],
+    )
+    forex_rates = {"USD": {"USD": 1.0, "EUR": 1.1}}
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=forex_rates)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        # Cursor should be on EUR (first row)
+        await pilot.press("e")
+        await pilot.pause()
+
+        # Change currency from EUR to USD (which already exists)
+        app.screen.query_one("#currency", Input).value = "USD"
+        app.screen.query_one("#amount", Input).value = "1000"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    # EUR removed, USD should have merged amount (500 + 1000 = 1500)
+    assert p.get_cash("EUR") is None
+    usd = p.get_cash("USD")
+    assert usd is not None
+    assert usd.amount == pytest.approx(1500.0)
