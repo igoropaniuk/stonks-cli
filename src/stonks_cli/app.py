@@ -346,12 +346,14 @@ class PortfolioApp(App):
                     if result is None:
                         return
                     portfolio = self.portfolios[idx]
+                    is_new = portfolio.get_position(result["symbol"]) is None
                     portfolio.add_position(
                         result["symbol"], result["qty"], result["avg_cost"]
                     )
-                    pos = portfolio.get_position(result["symbol"])
-                    if pos:
-                        pos.currency = result["currency"]
+                    if is_new:
+                        pos = portfolio.get_position(result["symbol"])
+                        if pos:
+                            pos.currency = result["currency"]
                     self._save(idx)
                     self._populate_tables()
 
