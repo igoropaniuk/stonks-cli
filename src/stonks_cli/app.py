@@ -3,6 +3,7 @@
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
@@ -219,6 +220,7 @@ class PortfolioApp(App):
     TITLE = "Stonks"
     BINDINGS = [
         ("q", "quit", "Quit"),
+        Binding("tab", "focus_next", "Next", show=True, priority=True),
         ("a", "add", "Add"),
         ("e", "edit", "Edit"),
         ("r", "remove", "Remove"),
