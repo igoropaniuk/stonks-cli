@@ -517,6 +517,72 @@ async def test_refresh_prices_tier3_none_price_skipped(portfolio: Portfolio) -> 
 
 
 @pytest.mark.asyncio
+async def test_sort_by_column_header(portfolio: Portfolio) -> None:
+    """Clicking a column header sorts the table by that column."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        # Default order: AAPL, NVDA
+        assert str(table.get_cell_at((0, 0))) == "AAPL"
+
+        col_keys = list(table.columns.keys())
+        col0_key = col_keys[0]
+        col0_label = table.columns[col0_key].label
+
+        # Sort by Instrument column (index 0) — ascending
+        table.post_message(
+            DataTable.HeaderSelected(table, col0_key, 0, label=col0_label)
+        )
+        await pilot.pause()
+        assert str(table.get_cell_at((0, 0))) == "AAPL"
+        assert str(table.get_cell_at((1, 0))) == "NVDA"
+
+        # Click same column again — reverse to descending
+        table.post_message(
+            DataTable.HeaderSelected(table, col0_key, 0, label=col0_label)
+        )
+        await pilot.pause()
+        assert str(table.get_cell_at((0, 0))) == "NVDA"
+        assert str(table.get_cell_at((1, 0))) == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_sort_by_different_column(portfolio: Portfolio) -> None:
+    """Switching sort to a different column resets direction to ascending."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        col_keys = list(table.columns.keys())
+
+        # Sort by Mkt Value column (index 5) — ascending
+        # AAPL: 100*160=16000, NVDA: 200*90=18000
+        mkt_key = col_keys[_COL_MKT]
+        table.post_message(
+            DataTable.HeaderSelected(
+                table, mkt_key, _COL_MKT, label=table.columns[mkt_key].label
+            )
+        )
+        await pilot.pause()
+        assert str(table.get_cell_at((0, 0))) == "AAPL"  # 16000 < 18000
+
+        # Now switch to Instrument column (index 0) — should reset to ascending
+        col0_key = col_keys[0]
+        table.post_message(
+            DataTable.HeaderSelected(
+                table, col0_key, 0, label=table.columns[col0_key].label
+            )
+        )
+        await pilot.pause()
+        assert str(table.get_cell_at((0, 0))) == "AAPL"
+
+
+@pytest.mark.asyncio
 async def test_populate_for_no_matches_returns_early() -> None:
     """_populate_for returns without error when widgets are gone."""
     p1 = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
