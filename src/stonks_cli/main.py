@@ -117,6 +117,7 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
         prices={},
         forex_rates={},
         refresh_interval=refresh,
+        stores=stores,
     ).run()
 
 
