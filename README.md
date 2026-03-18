@@ -267,7 +267,17 @@ The TUI displays a table with the following columns:
 A **Total (USD)** line at the bottom converts all positions to USD using live
 forex rates and sums them up.
 
-Press `q` to quit.
+### Keyboard shortcuts
+
+| Key       | Action                                              |
+| --------- | --------------------------------------------------- |
+| `Tab`     | Switch focus between portfolio tables / buttons     |
+| `a`       | Add a new position (equity/crypto/ETF or cash)      |
+| `e`       | Edit the currently selected position                |
+| `r`       | Remove the currently selected position              |
+| `q`       | Quit                                                |
+
+Column headers are clickable — click once to sort ascending, again to sort descending.
 
 ---
 
