@@ -3,19 +3,226 @@
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
-from textual.widgets import DataTable, Footer, Header, Label, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
 from stonks_cli.fetcher import PriceFetcher, exchange_label
 from stonks_cli.models import Portfolio
+from stonks_cli.storage import PortfolioStore
+
+# ---------------------------------------------------------------------------
+# Modal screens
+# ---------------------------------------------------------------------------
+
+_MODAL_CSS = """
+{cls} {{ align: center middle; }}
+{cls} > Vertical {{
+    width: 52;
+    height: auto;
+    border: solid $accent;
+    padding: 1 2;
+    background: $surface;
+}}
+{cls} .field-label {{ margin-top: 1; }}
+{cls} .buttons {{ height: auto; margin-top: 1; }}
+{cls} Button {{ width: 1fr; }}
+{cls} .error {{ color: $error; height: 1; }}
+"""
+
+
+class _TypeSelectScreen(ModalScreen[str | None]):
+    """Ask whether the new position is equity or cash."""
+
+    CSS = _MODAL_CSS.format(cls="_TypeSelectScreen")
+
+    def __init__(self, portfolio_name: str = "") -> None:
+        super().__init__()
+        self._portfolio_name = portfolio_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            if self._portfolio_name:
+                yield Label(f"Portfolio: {self._portfolio_name}")
+            yield Label("What type of position?")
+            yield Button("Equity/Crypto/ETF", id="equity")
+            yield Button("Cash", id="cash")
+            yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None if event.button.id == "cancel" else event.button.id)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+
+class _EquityFormScreen(ModalScreen[dict | None]):
+    """Form for adding or editing an equity position."""
+
+    CSS = _MODAL_CSS.format(cls="_EquityFormScreen")
+
+    def __init__(
+        self,
+        title: str = "Add Equity Position",
+        symbol: str = "",
+        qty: str = "",
+        avg_cost: str = "",
+        currency: str = "USD",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._symbol = symbol
+        self._qty = qty
+        self._avg_cost = avg_cost
+        self._currency = currency
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(self._title)
+            yield Label("Symbol", classes="field-label")
+            yield Input(value=self._symbol, placeholder="e.g. AAPL", id="symbol")
+            yield Label("Quantity (integer)", classes="field-label")
+            yield Input(value=self._qty, placeholder="e.g. 10", id="qty")
+            yield Label("Avg Cost", classes="field-label")
+            yield Input(value=self._avg_cost, placeholder="e.g. 150.00", id="avg_cost")
+            yield Label("Currency", classes="field-label")
+            yield Input(value=self._currency, placeholder="USD", id="currency")
+            yield Label("", id="error", classes="error")
+            with Horizontal(classes="buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        else:
+            self._submit()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+    def _submit(self) -> None:
+        symbol = self.query_one("#symbol", Input).value.strip().upper()
+        qty_str = self.query_one("#qty", Input).value.strip()
+        avg_cost_str = self.query_one("#avg_cost", Input).value.strip()
+        currency = self.query_one("#currency", Input).value.strip().upper() or "USD"
+        err = self.query_one("#error", Label)
+        if not symbol:
+            err.update("Symbol is required")
+            return
+        try:
+            qty = int(qty_str)
+            if qty <= 0:
+                raise ValueError
+        except ValueError:
+            err.update("Quantity must be a positive integer")
+            return
+        try:
+            avg_cost = float(avg_cost_str)
+            if avg_cost <= 0:
+                raise ValueError
+        except ValueError:
+            err.update("Avg cost must be a positive number")
+            return
+        self.dismiss(
+            {"symbol": symbol, "qty": qty, "avg_cost": avg_cost, "currency": currency}
+        )
+
+
+class _CashFormScreen(ModalScreen[dict | None]):
+    """Form for adding or editing a cash position."""
+
+    CSS = _MODAL_CSS.format(cls="_CashFormScreen")
+
+    def __init__(
+        self,
+        title: str = "Add Cash Position",
+        currency: str = "",
+        amount: str = "",
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._currency = currency
+        self._amount = amount
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(self._title)
+            yield Label("Currency", classes="field-label")
+            yield Input(value=self._currency, placeholder="e.g. EUR", id="currency")
+            yield Label("Amount", classes="field-label")
+            yield Input(value=self._amount, placeholder="e.g. 1000.00", id="amount")
+            yield Label("", id="error", classes="error")
+            with Horizontal(classes="buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        else:
+            self._submit()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+    def _submit(self) -> None:
+        currency = self.query_one("#currency", Input).value.strip().upper()
+        amount_str = self.query_one("#amount", Input).value.strip()
+        err = self.query_one("#error", Label)
+        if not currency:
+            err.update("Currency is required")
+            return
+        try:
+            amount = float(amount_str)
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            err.update("Amount must be a positive number")
+            return
+        self.dismiss({"currency": currency, "amount": amount})
+
+
+class _ConfirmScreen(ModalScreen[bool]):
+    """Simple yes/no confirmation dialog."""
+
+    CSS = _MODAL_CSS.format(cls="_ConfirmScreen").replace(
+        "border: solid $accent", "border: solid $error"
+    )
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self._message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(self._message)
+            with Horizontal(classes="buttons"):
+                yield Button("Remove", variant="error", id="yes")
+                yield Button("Cancel", id="no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "yes")
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(False)
 
 
 class PortfolioApp(App):
     """Full-screen portfolio table with periodic price refresh."""
 
     TITLE = "Stonks"
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("a", "add", "Add"),
+        ("e", "edit", "Edit"),
+        ("r", "remove", "Remove"),
+    ]
 
     CSS = """
     DataTable { height: auto; }
@@ -42,6 +249,7 @@ class PortfolioApp(App):
         forex_rates: dict[str, dict[str, float]],
         sessions: dict[str, str] | None = None,
         refresh_interval: float = 5.0,
+        stores: list[PortfolioStore] | None = None,
     ) -> None:
         super().__init__()
         self.portfolios = portfolios
@@ -50,6 +258,7 @@ class PortfolioApp(App):
         self.sessions = sessions or {}
         self.exchange_codes: dict[str, str] = {}
         self.refresh_interval = refresh_interval
+        self.stores = stores or []
         # Sort state keyed by table widget id ("" for the single-portfolio table).
         self._sort_column: dict[str, int] = {}
         self._sort_reverse: dict[str, bool] = {}
@@ -87,6 +296,188 @@ class PortfolioApp(App):
         self._populate_tables()
         self._refresh_prices()
         self.set_interval(self.refresh_interval, self._refresh_prices)
+
+    # ------------------------------------------------------------------
+    # Portfolio editing helpers
+    # ------------------------------------------------------------------
+
+    def _get_active_table_and_index(self) -> tuple[DataTable, int] | None:
+        """Return the focused DataTable and its portfolio index, or None."""
+        focused = self.focused
+        if isinstance(focused, DataTable):
+            return focused, self._table_to_portfolio_index(focused)
+        try:
+            table = self.query_one(DataTable)
+            return table, 0
+        except NoMatches:
+            return None
+
+    def _table_to_portfolio_index(self, table: DataTable) -> int:
+        if len(self.portfolios) == 1:
+            return 0
+        tid = table.id or ""
+        if tid.startswith("table-"):
+            try:
+                return int(tid[6:])
+            except ValueError:
+                pass
+        return 0
+
+    def _save(self, idx: int) -> None:
+        if idx < len(self.stores):
+            self.stores[idx].save(self.portfolios[idx])
+
+    def _pname(self, idx: int) -> str:
+        """Return a display name for portfolio *idx*."""
+        p = self.portfolios[idx]
+        return p.name or f"Portfolio {idx + 1}"
+
+    def action_add(self) -> None:
+        active = self._get_active_table_and_index()
+        if active is None:
+            return
+        _, idx = active
+        pname = self._pname(idx)
+
+        def on_type(pos_type: str | None) -> None:
+            if pos_type == "equity":
+
+                def on_equity(result: dict | None) -> None:
+                    if result is None:
+                        return
+                    portfolio = self.portfolios[idx]
+                    portfolio.add_position(
+                        result["symbol"], result["qty"], result["avg_cost"]
+                    )
+                    pos = portfolio.get_position(result["symbol"])
+                    if pos:
+                        pos.currency = result["currency"]
+                    self._save(idx)
+                    self._populate_tables()
+
+                self.push_screen(
+                    _EquityFormScreen(title=f"[{pname}] Add Equity Position"),
+                    on_equity,
+                )
+            elif pos_type == "cash":
+
+                def on_cash(result: dict | None) -> None:
+                    if result is None:
+                        return
+                    try:
+                        self.portfolios[idx].add_cash(
+                            result["currency"], result["amount"]
+                        )
+                    except ValueError:
+                        return
+                    self._save(idx)
+                    self._populate_tables()
+
+                self.push_screen(
+                    _CashFormScreen(title=f"[{pname}] Add Cash Position"),
+                    on_cash,
+                )
+
+        self.push_screen(_TypeSelectScreen(portfolio_name=pname), on_type)
+
+    def action_edit(self) -> None:
+        active = self._get_active_table_and_index()
+        if active is None:
+            return
+        table, idx = active
+        portfolio = self.portfolios[idx]
+        pname = self._pname(idx)
+        row = table.get_row_at(table.cursor_row)
+        if not row:
+            return
+        identifier = str(row[0])
+        is_cash = str(row[1]) == "Cash"
+
+        if is_cash:
+            cash_pos = portfolio.get_cash(identifier)
+            if cash_pos is None:
+                return
+
+            def on_cash_edit(result: dict | None) -> None:
+                if result is None:
+                    return
+                portfolio.cash.remove(cash_pos)
+                try:
+                    portfolio.add_cash(result["currency"], result["amount"])
+                except ValueError:
+                    portfolio.cash.append(cash_pos)
+                    return
+                self._save(idx)
+                self._populate_tables()
+
+            self.push_screen(
+                _CashFormScreen(
+                    title=f"[{pname}] Edit Cash Position",
+                    currency=cash_pos.currency,
+                    amount=str(cash_pos.amount),
+                ),
+                on_cash_edit,
+            )
+        else:
+            pos = portfolio.get_position(identifier)
+            if pos is None:
+                return
+
+            def on_equity_edit(result: dict | None) -> None:
+                if result is None:
+                    return
+                new_symbol = result["symbol"]
+                if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
+                    return
+                pos.symbol = new_symbol
+                pos.quantity = result["qty"]
+                pos.avg_cost = result["avg_cost"]
+                pos.currency = result["currency"]
+                self._save(idx)
+                self._populate_tables()
+
+            self.push_screen(
+                _EquityFormScreen(
+                    title=f"[{pname}] Edit Equity Position",
+                    symbol=pos.symbol,
+                    qty=str(pos.quantity),
+                    avg_cost=str(pos.avg_cost),
+                    currency=pos.currency,
+                ),
+                on_equity_edit,
+            )
+
+    def action_remove(self) -> None:
+        active = self._get_active_table_and_index()
+        if active is None:
+            return
+        table, idx = active
+        portfolio = self.portfolios[idx]
+        pname = self._pname(idx)
+        row = table.get_row_at(table.cursor_row)
+        if not row:
+            return
+        identifier = str(row[0])
+        is_cash = str(row[1]) == "Cash"
+        kind = "cash" if is_cash else "position"
+
+        def on_confirm(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            if is_cash:
+                cash_pos = portfolio.get_cash(identifier)
+                if cash_pos:
+                    portfolio.cash.remove(cash_pos)
+            else:
+                pos = portfolio.get_position(identifier)
+                if pos:
+                    portfolio.positions.remove(pos)
+            self._save(idx)
+            self._populate_tables()
+
+        self.push_screen(
+            _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
+        )
 
     # ------------------------------------------------------------------
     # Column sorting
