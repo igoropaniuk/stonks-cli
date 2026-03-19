@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 import stonks_cli.storage as storage_module
-from stonks_cli.models import CashPosition, Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 from stonks_cli.storage import PortfolioStore, seed_sample_portfolio
 
 
@@ -265,3 +265,50 @@ class TestName:
         store = make_store(tmp_path)
         store.save(Portfolio(name=""))
         assert store.load().name == ""
+
+
+class TestWatchlist:
+    def test_loads_watchlist_from_yaml(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {
+                "portfolio": {
+                    "positions": [],
+                    "watchlist": [{"symbol": "TSLA"}, {"symbol": "NVDA"}],
+                }
+            },
+        )
+        portfolio = store.load()
+        assert len(portfolio.watchlist) == 2
+        assert portfolio.watchlist[0].symbol == "TSLA"
+        assert portfolio.watchlist[1].symbol == "NVDA"
+
+    def test_default_empty_watchlist_when_missing(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(store.path, {"portfolio": {"positions": []}})
+        assert store.load().watchlist == []
+
+    def test_saves_watchlist(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = Portfolio(watchlist=[WatchlistItem("AAPL"), WatchlistItem("GOOGL")])
+        store.save(portfolio)
+        data = yaml.safe_load(store.path.read_text())
+        wl = data["portfolio"]["watchlist"]
+        assert len(wl) == 2
+        assert wl[0] == {"symbol": "AAPL"}
+        assert wl[1] == {"symbol": "GOOGL"}
+
+    def test_watchlist_round_trip(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        original = Portfolio(watchlist=[WatchlistItem("TSLA"), WatchlistItem("META")])
+        store.save(original)
+        loaded = store.load()
+        assert len(loaded.watchlist) == 2
+        assert loaded.watchlist[0].symbol == "TSLA"
+        assert loaded.watchlist[1].symbol == "META"
+
+    def test_empty_watchlist_round_trip(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(watchlist=[]))
+        assert store.load().watchlist == []
