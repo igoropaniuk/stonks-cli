@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from stonks_cli.models import CashPosition, Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
@@ -79,11 +79,18 @@ class PortfolioStore:
             CashPosition(currency=c["currency"], amount=c["amount"]) for c in raw_cash
         ]
 
+        raw_watchlist = section.get("watchlist") or []
+        watchlist = [WatchlistItem(symbol=w["symbol"]) for w in raw_watchlist]
+
         base_currency = section.get("base_currency", "USD")
         name = section.get("name", "")
 
         return Portfolio(
-            positions=positions, cash=cash, base_currency=base_currency, name=name
+            positions=positions,
+            cash=cash,
+            watchlist=watchlist,
+            base_currency=base_currency,
+            name=name,
         )
 
     def save(self, portfolio: Portfolio) -> None:
@@ -112,6 +119,7 @@ class PortfolioStore:
                     }
                     for c in portfolio.cash
                 ],
+                "watchlist": [{"symbol": w.symbol} for w in portfolio.watchlist],
             }
         }
         with self.path.open("w") as fh:
