@@ -58,6 +58,22 @@ class Position:
 
 
 @dataclass
+class WatchlistItem:
+    """A ticker tracked for price only (no holdings).
+
+    Attributes:
+        symbol: The stock ticker (e.g. 'TSLA').
+    """
+
+    symbol: str
+
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("Symbol cannot be empty")
+        self.symbol = self.symbol.upper()
+
+
+@dataclass
 class Portfolio:
     """A collection of positions and cash holdings.
 
@@ -70,6 +86,7 @@ class Portfolio:
 
     positions: list[Position] = field(default_factory=list)
     cash: list[CashPosition] = field(default_factory=list)
+    watchlist: list[WatchlistItem] = field(default_factory=list)
     base_currency: str = "USD"
     name: str = ""
 
@@ -78,6 +95,9 @@ class Portfolio:
         symbols = [p.symbol for p in self.positions]
         if len(symbols) != len(set(symbols)):
             raise ValueError("Duplicate symbols in portfolio")
+        watch_symbols = [w.symbol for w in self.watchlist]
+        if len(watch_symbols) != len(set(watch_symbols)):
+            raise ValueError("Duplicate symbols in watchlist")
         currencies = [c.currency for c in self.cash]
         if len(currencies) != len(set(currencies)):
             raise ValueError("Duplicate currencies in cash positions")
