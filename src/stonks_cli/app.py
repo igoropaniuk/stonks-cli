@@ -9,6 +9,7 @@ from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
+from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import PriceFetcher, exchange_label
 from stonks_cli.models import Portfolio
 from stonks_cli.storage import PortfolioStore
@@ -268,14 +269,16 @@ class PortfolioApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         if len(self.portfolios) == 1:
-            yield DataTable(zebra_stripes=True)
+            yield DataTable(zebra_stripes=True, cursor_type="row")
             yield Static("", id="total", classes="total")
         else:
             with VerticalScroll():
                 for i, portfolio in enumerate(self.portfolios):
                     label = portfolio.name or f"Portfolio {i + 1}"
                     yield Label(label, id=f"header-{i}", classes="portfolio-header")
-                    yield DataTable(zebra_stripes=True, id=f"table-{i}")
+                    yield DataTable(
+                        zebra_stripes=True, cursor_type="row", id=f"table-{i}"
+                    )
                     yield Static("", id=f"total-{i}", classes="total")
         yield Static("", id="status")
         yield Footer()
@@ -482,6 +485,16 @@ class PortfolioApp(App):
         self.push_screen(
             _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
         )
+
+    # ------------------------------------------------------------------
+    # Detail view
+    # ------------------------------------------------------------------
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        row = event.data_table.get_row(event.row_key)
+        if not row or str(row[1]) == "Cash":
+            return
+        self.push_screen(StockDetailScreen(str(row[0])))
 
     # ------------------------------------------------------------------
     # Column sorting
