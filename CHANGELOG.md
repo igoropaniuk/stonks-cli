@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-19
+
+### Added
+
+- **Stock detail screen**: press Enter on an equity row to open a full-screen
+  detail view for the selected ticker, showing:
+  - Performance overview (YTD, 1Y, 3Y, 5Y trailing returns vs S&P 500)
+  - Price charts for multiple periods (1 Day, 1 Month, 1 Year, 5 Years)
+  - Financial summary (Previous Close, Open, Bid/Ask, Day's Range, 52-Week
+    Range, Volume, Market Cap, P/E, EPS, Earnings Date, Dividend, etc.)
+  - Earnings trends: EPS actual vs estimate bar chart with next-quarter
+    estimate, and Revenue vs Net Income quarterly chart
+  - Analyst insights: price targets, recommendation key, and stacked bar chart
+    of analyst recommendations by month
+  - Statistics: valuation measures and financial highlights
+- Full company/fund name displayed below the detail screen header.
+- `textual-plotext` dependency for terminal-native line and bar charts.
+- **Watchlist support**: new `watchlist` section in the portfolio YAML for
+  tracking tickers without holdings. Watchlist rows appear in the dashboard
+  with dimmed styling, show live prices only, and are excluded from the
+  portfolio total.
+- Add/edit/remove watchlist items via `a`/`e`/`r` keyboard shortcuts with a
+  symbol-only form dialog.
+
+### Fixed
+
+- Cursor position preserved after table refresh.
+- Currency preserved when adding shares to an existing position.
+- **macOS "Too many open files" crash**: `yf.download()` internally spawns
+  thread-pool workers that leak `curl_cffi` HTTP sessions. All download calls
+  now pass `threads=False` to reuse a single session, a non-blocking lock
+  prevents overlapping refresh cycles, and the exchange-name worker pool is
+  reduced from 8 to 2.
+
+### Changed
+
+- Column headers are now clickable to sort rows.
+- Add/edit/remove positions via keyboard shortcuts (a/e/r).
+- Tab shortcut shown in the footer status bar.
+
 ## [0.2.1] - 2026-03-16
 
 ### Fixed
@@ -105,6 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[0.3.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/igoropaniuk/stonks-cli/releases/tag/v0.1.0
