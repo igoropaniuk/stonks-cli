@@ -1,5 +1,7 @@
 """Textual TUI for portfolio display."""
 
+import threading
+
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -305,6 +307,7 @@ class PortfolioApp(App):
         # Sort state keyed by table widget id ("" for the single-portfolio table).
         self._sort_column: dict[str, int] = {}
         self._sort_reverse: dict[str, bool] = {}
+        self._refresh_lock = threading.Lock()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -831,6 +834,14 @@ class PortfolioApp(App):
 
     @work(thread=True)
     def _refresh_prices(self) -> None:
+        if not self._refresh_lock.acquire(blocking=False):
+            return
+        try:
+            self._do_refresh_prices()
+        finally:
+            self._refresh_lock.release()
+
+    def _do_refresh_prices(self) -> None:
         fetcher = PriceFetcher()
         all_symbols = list(
             {p.symbol for portfolio in self.portfolios for p in portfolio.positions}

@@ -12,7 +12,10 @@ import exchange_calendars as xcals  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
-_MAX_EXCHANGE_FETCH_WORKERS = 8
+# Keep this small: each worker thread opens its own peewee/SQLite connection
+# to yfinance's timezone cache (3 fds in WAL mode), so a large pool exhausts
+# macOS's default 256-fd limit quickly.
+_MAX_EXCHANGE_FETCH_WORKERS = 2
 
 
 @dataclass(frozen=True)
@@ -543,6 +546,7 @@ class PriceFetcher:
                 period="1d",
                 auto_adjust=True,
                 progress=False,
+                threads=False,
             )
         except RuntimeError:
             return {}
@@ -636,6 +640,7 @@ class PriceFetcher:
                 prepost=True,
                 auto_adjust=True,
                 progress=False,
+                threads=False,
             )
         except Exception:  # noqa: BLE001
             return {}
@@ -724,6 +729,7 @@ class PriceFetcher:
                 period="1d",
                 auto_adjust=False,
                 progress=False,
+                threads=False,
             )
         except RuntimeError:
             return rates
