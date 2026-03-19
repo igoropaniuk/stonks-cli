@@ -15,7 +15,7 @@ from stonks_cli.app import (
     _EquityFormScreen,
     _TypeSelectScreen,
 )
-from stonks_cli.models import CashPosition, Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 # Capture before autouse fixture in conftest.py replaces it with a lambda
 _REAL_REFRESH_PRICES = PortfolioApp.__dict__["_refresh_prices"]
@@ -1717,3 +1717,77 @@ async def test_action_edit_cash_currency_merge() -> None:
     usd = p.get_cash("USD")
     assert usd is not None
     assert usd.amount == pytest.approx(1500.0)
+
+
+# ---------------------------------------------------------------------------
+# Watchlist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_watchlist_rows_appear_in_table() -> None:
+    """Watchlist items appear as rows in the table."""
+    portfolio = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+        watchlist=[WatchlistItem("TSLA"), WatchlistItem("NVDA")],
+    )
+    prices = {"AAPL": 160.0, "TSLA": 250.0, "NVDA": 130.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        # 1 equity + 2 watchlist = 3 rows
+        assert table.row_count == 3
+
+
+@pytest.mark.asyncio
+async def test_watchlist_rows_have_dim_style() -> None:
+    """Watchlist rows render with dim style."""
+    portfolio = Portfolio(
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    prices = {"TSLA": 250.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        symbol_cell = table.get_cell_at((0, 0))
+        assert "dim" in symbol_cell.style
+
+
+@pytest.mark.asyncio
+async def test_watchlist_rows_show_dashes_for_qty_and_cost() -> None:
+    """Watchlist rows show '--' for Qty and Avg Cost columns."""
+    portfolio = Portfolio(
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    prices = {"TSLA": 250.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert str(table.get_cell_at((0, 2))) == "--"  # Qty
+        assert str(table.get_cell_at((0, 3))) == "--"  # Avg Cost
+        assert str(table.get_cell_at((0, 5))) == "--"  # Mkt Value
+        assert str(table.get_cell_at((0, 6))) == "--"  # P&L
+
+
+@pytest.mark.asyncio
+async def test_watchlist_excluded_from_total() -> None:
+    """Watchlist items are not included in the portfolio total."""
+    portfolio = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=100, avg_cost=150.0)],
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    # AAPL: 100 * 160 = 16000
+    prices = {"AAPL": 160.0, "TSLA": 250.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        label = app.query_one("#total", Static)
+        # Total should be 16,000 (AAPL only), not including TSLA
+        assert "16,000.00" in str(label.content)

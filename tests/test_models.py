@@ -2,7 +2,7 @@
 
 import pytest
 
-from stonks_cli.models import CashPosition, Portfolio, Position
+from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 
 class TestCashPosition:
@@ -70,6 +70,20 @@ class TestPosition:
     def test_unrealized_pnl_loss(self):
         pos = Position(symbol="AAPL", quantity=100, avg_cost=150.0)
         assert pos.unrealized_pnl(140.0) == -1000.0
+
+
+class TestWatchlistItem:
+    def test_valid_creation(self):
+        item = WatchlistItem(symbol="TSLA")
+        assert item.symbol == "TSLA"
+
+    def test_symbol_uppercase(self):
+        item = WatchlistItem(symbol="tsla")
+        assert item.symbol == "TSLA"
+
+    def test_empty_symbol_raises(self):
+        with pytest.raises(ValueError, match="Symbol cannot be empty"):
+            WatchlistItem(symbol="")
 
 
 class TestPortfolio:
@@ -220,3 +234,19 @@ class TestPortfolio:
     def test_duplicate_cash_currencies_raises(self):
         with pytest.raises(ValueError, match="Duplicate currencies"):
             Portfolio(cash=[CashPosition("USD", 100.0), CashPosition("USD", 200.0)])
+
+    # --- watchlist ---
+
+    def test_watchlist_default_empty(self):
+        assert Portfolio().watchlist == []
+
+    def test_watchlist_preserved(self):
+        items = [WatchlistItem("TSLA"), WatchlistItem("NVDA")]
+        p = Portfolio(watchlist=items)
+        assert len(p.watchlist) == 2
+        assert p.watchlist[0].symbol == "TSLA"
+
+    def test_duplicate_watchlist_raises(self):
+        items = [WatchlistItem("TSLA"), WatchlistItem("TSLA")]
+        with pytest.raises(ValueError, match="Duplicate symbols in watchlist"):
+            Portfolio(watchlist=items)
