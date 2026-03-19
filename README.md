@@ -220,15 +220,33 @@ Options:
   --help                                  Show this message and exit.
 
 Commands:
-  add          Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
-  remove       Remove QUANTITY shares of SYMBOL from the portfolio.
-  add-cash     Add AMOUNT of CURRENCY cash to the portfolio.
-  remove-cash  Remove AMOUNT of CURRENCY cash from the portfolio.
-  dashboard    Display the current portfolio with live prices and P&L.
-  list         List all portfolios in ~/.config/stonks/.
+  add         Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
+  remove      Remove QUANTITY shares of SYMBOL from the portfolio.
+  add-cash    Add AMOUNT of CURRENCY cash to the portfolio.
+  remove-cash Remove AMOUNT of CURRENCY cash from the portfolio.
+  show        Print a snapshot of portfolio positions with current prices to stdout.
+  dashboard   Display the current portfolio with live prices and P&L.
+  list        List all portfolios in ~/.config/stonks/.
 ```
 
-### Launch the dashboard
+### Quick snapshot (stdout)
+
+Print the current portfolio state with live prices to stdout and exit:
+
+```bash
+# One-shot table output (no TUI)
+stonks show
+
+# With a specific portfolio
+stonks -p work show
+```
+
+The output includes the same columns as the dashboard (Instrument, Exchange,
+Qty, Avg Cost, Last Price, Daily chg, Mkt Value, Unrealized P&L) plus a Total line.
+Session badges (PRE/AH/CLS) are appended to the last price when applicable.
+If a price cannot be fetched, `N/A` is shown instead.
+
+### Interactive dashboard (TUI)
 
 Running `stonks` without a subcommand launches the dashboard automatically.
 Prices refresh every **60 seconds** by default.
