@@ -666,6 +666,42 @@ class PortfolioApp(App):
                 )
             rows.append((sort_key, display))
 
+        for watch in portfolio.watchlist:
+            label = exchange_label(watch.symbol, self.exchange_codes.get(watch.symbol))
+            last = self.prices.get(watch.symbol)
+            if last is not None:
+                session = self.sessions.get(watch.symbol, "regular")
+                if session == "pre":
+                    price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
+                elif session == "post":
+                    price_cell = Text(f"{last:.2f} ").append("AH", style="bold cyan")
+                elif session == "closed":
+                    price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
+                else:
+                    price_cell = f"{last:.2f}"
+                sort_key = (watch.symbol, label, 0, 0.0, last, 0.0, 0.0)
+                display = (
+                    Text(watch.symbol, style="dim"),
+                    Text(label, style="dim"),
+                    Text("--", style="dim"),
+                    Text("--", style="dim"),
+                    price_cell,
+                    Text("--", style="dim"),
+                    Text("--", style="dim"),
+                )
+            else:
+                sort_key = (watch.symbol, label, 0, 0.0, 0.0, 0.0, 0.0)
+                display = (
+                    Text(watch.symbol, style="dim"),
+                    Text(label, style="dim"),
+                    Text("--", style="dim"),
+                    Text("--", style="dim"),
+                    Text("N/A", style="dim"),
+                    Text("--", style="dim"),
+                    Text("--", style="dim"),
+                )
+            rows.append((sort_key, display))
+
         if tid in self._sort_column:
             col = self._sort_column[tid]
             rows.sort(
@@ -712,6 +748,7 @@ class PortfolioApp(App):
         fetcher = PriceFetcher()
         all_symbols = list(
             {p.symbol for portfolio in self.portfolios for p in portfolio.positions}
+            | {w.symbol for portfolio in self.portfolios for w in portfolio.watchlist}
         )
         extended = fetcher.fetch_extended_prices(all_symbols)
         new_prices = {sym: price for sym, (price, _) in extended.items()}

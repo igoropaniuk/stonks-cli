@@ -96,3 +96,8 @@ portfolio:
 
     - currency: GBP
       amount: 850.00
+
+  watchlist:
+    - symbol: TSLA
+    - symbol: NVDA
+    - symbol: AAPL
