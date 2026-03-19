@@ -13,10 +13,11 @@ def fetch_portfolio_data(
     dict[str, str],
     dict[str, str],
     dict[str, dict[str, float]],
+    dict[str, float],
 ]:
-    """Fetch prices, sessions, exchange codes, and forex rates once.
+    """Fetch prices, sessions, exchange codes, forex rates, and previous closes.
 
-    Returns a tuple of (prices, sessions, exchange_codes, forex_rates).
+    Returns a tuple of (prices, sessions, exchange_codes, forex_rates, prev_closes).
     """
     fetcher = PriceFetcher()
     all_symbols = list(
@@ -51,7 +52,18 @@ def fetch_portfolio_data(
     for base in {p.base_currency for p in portfolios}:
         forex_rates[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
 
-    return prices, sessions, exchange_codes, forex_rates
+    prev_closes = fetcher.fetch_previous_closes(all_symbols)
+
+    return prices, sessions, exchange_codes, forex_rates, prev_closes
+
+
+def _daily_chg_str(last: float, prev: float | None, session: str) -> str:
+    """Return a plain-text daily change string for the given price and session."""
+    if prev is None or prev == 0 or session == "closed":
+        return "--"
+    pct = (last - prev) / prev * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.2f}%"
 
 
 def format_show_table(
@@ -60,14 +72,19 @@ def format_show_table(
     sessions: dict[str, str],
     exchange_codes: dict[str, str],
     forex_rates: dict[str, dict[str, float]],
+    prev_closes: dict[str, float] | None = None,
 ) -> str:
     """Build a plain-text table for a single portfolio."""
+    if prev_closes is None:
+        prev_closes = {}
+
     headers = (
         "Instrument",
         "Exchange",
         "Qty",
         "Avg Cost",
         "Last Price",
+        "Daily chg",
         "Mkt Value",
         "Unrealized P&L",
     )
@@ -80,43 +97,48 @@ def format_show_table(
         qty = str(pos.quantity)
         avg_cost = f"{pos.avg_cost:.2f}"
         last_price = prices.get(symbol)
-        if last_price is None:
-            last_price_str = "N/A"
-            mkt_value_str = "N/A"
-            pnl_str = "N/A"
-        else:
-            last_price_str = f"{last_price:.2f}"
-            mkt_value = last_price * pos.quantity
-            mkt_value_str = f"{mkt_value:,.2f}"
-            pnl = (last_price - pos.avg_cost) * pos.quantity
-            pnl_str = f"{pnl:+,.2f}" if pnl >= 0 else f"{pnl:,.2f}"
         session = sessions.get(symbol, "regular")
         badge = _SESSION_BADGES.get(session, "")
         instrument = f"{symbol}{badge}"
-        rows.append(
-            (
-                instrument,
-                exchange,
-                qty,
-                avg_cost,
-                last_price_str,
-                mkt_value_str,
-                pnl_str,
+        if last_price is None:
+            rows.append(
+                (instrument, exchange, qty, avg_cost, "N/A", "--", "N/A", "N/A")
             )
-        )
+        else:
+            last_price_str = f"{last_price:.2f}"
+            daily_chg_str = _daily_chg_str(last_price, prev_closes.get(symbol), session)
+            mkt_value_str = f"{last_price * pos.quantity:,.2f}"
+            pnl = (last_price - pos.avg_cost) * pos.quantity
+            pnl_str = f"{pnl:+,.2f}"
+            rows.append(
+                (
+                    instrument,
+                    exchange,
+                    qty,
+                    avg_cost,
+                    last_price_str,
+                    daily_chg_str,
+                    mkt_value_str,
+                    pnl_str,
+                )
+            )
 
     for item in portfolio.watchlist:
         symbol = item.symbol
         exchange = exchange_label(symbol, exchange_codes.get(symbol))
         last_price = prices.get(symbol)
-        if last_price is None:
-            last_price_str = "N/A"
-        else:
-            last_price_str = f"{last_price:.2f}"
         session = sessions.get(symbol, "regular")
         badge = _SESSION_BADGES.get(session, "")
         instrument = f"{symbol}{badge}"
-        rows.append((instrument, exchange, "-", "-", last_price_str, "-", "-"))
+        if last_price is None:
+            daily_chg_str = "--"
+            last_price_str = "N/A"
+        else:
+            last_price_str = f"{last_price:.2f}"
+            daily_chg_str = _daily_chg_str(last_price, prev_closes.get(symbol), session)
+        rows.append(
+            (instrument, exchange, "-", "-", last_price_str, daily_chg_str, "-", "-")
+        )
 
     for cash_pos in portfolio.cash:
         currency = cash_pos.currency
@@ -131,6 +153,7 @@ def format_show_table(
                 f"{amount:,.2f}",
                 "1.00",
                 f"{rate:.4f}",
+                "--",
                 f"{converted:,.2f}",
                 "-",
             )
@@ -140,16 +163,12 @@ def format_show_table(
     for row in rows:
         for i, cell in enumerate(row):
             col_widths[i] = max(col_widths[i], len(cell))
-    lines = []
+
     header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
-    lines.append(header_line)
-    lines.append("-" * len(header_line))
+    lines = [header_line, "-" * len(header_line)]
 
     for row in rows:
-        line = "  ".join(cell.ljust(w) for cell, w in zip(row, col_widths))
-        lines.append(line)
-
-    widths = col_widths
+        lines.append("  ".join(cell.ljust(w) for cell, w in zip(row, col_widths)))
 
     rates = forex_rates.get(portfolio.base_currency, {})
     missing_price = any(prices.get(pos.symbol) is None for pos in portfolio.positions)
