@@ -75,6 +75,10 @@ portfolio:
 
     - currency: EUR
       amount: 2100.00
+
+  watchlist:
+    - symbol: TSLA
+    - symbol: NVDA
 ```
 
 **Positions** fields:
@@ -92,6 +96,17 @@ portfolio:
 | ---------- | ------ | -------- | -------------------------------- |
 | `currency` | string | yes      | ISO 4217 code (e.g. `USD`, `EUR`) |
 | `amount`   | float  | yes      | Cash held (positive)             |
+
+**Watchlist** fields:
+
+| Field    | Type   | Required | Description                             |
+| -------- | ------ | -------- | --------------------------------------- |
+| `symbol` | string | yes      | Yahoo Finance ticker (case-insensitive) |
+
+Watchlist items are displayed in the dashboard with a dimmed style and only
+show the live price — they have no quantity, cost, or market value and are
+**not included** in the portfolio total. Press Enter on a watchlist row to
+open the detail screen.
 
 > The file is created and updated automatically when you use the `add`,
 > `remove`, `add-cash`, and `remove-cash` commands, so you only need to
