@@ -8,6 +8,7 @@ import click
 from stonks_cli import __version__
 from stonks_cli.app import PortfolioApp
 from stonks_cli.log import setup_logging
+from stonks_cli.show import fetch_portfolio_data, format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
     PortfolioStore,
@@ -160,6 +161,34 @@ def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
         raise click.ClickException(str(exc)) from exc
     store.save(portfolio)
     click.echo(f"Removed {amount:.2f} {currency.upper()}")
+
+
+@main.command()
+@click.pass_context
+def show(ctx: click.Context) -> None:
+    """Print portfolio holdings with live prices to stdout (one-shot)."""
+    stores: list[PortfolioStore] = ctx.obj["stores"]
+    portfolios = [store.load() for store in stores]
+
+    if all(not p.positions and not p.cash and not p.watchlist for p in portfolios):
+        click.echo("Portfolio is empty.")
+        return
+
+    prices, sessions, exchange_codes, forex_rates = fetch_portfolio_data(
+        portfolios,
+    )
+
+    for i, portfolio in enumerate(portfolios):
+        if len(portfolios) > 1:
+            label = portfolio.name or f"Portfolio {i + 1}"
+            click.echo(f"\n{label} ({portfolio.base_currency})")
+            click.echo("=" * len(f"{label} ({portfolio.base_currency})"))
+        table = format_show_table(
+            portfolio, prices, sessions, exchange_codes, forex_rates
+        )
+        click.echo(table)
+        if i < len(portfolios) - 1:
+            click.echo()
 
 
 @main.command("list")
