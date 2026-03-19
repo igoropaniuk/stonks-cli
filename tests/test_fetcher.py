@@ -93,6 +93,7 @@ class TestFetchPrices:
             period="1d",
             auto_adjust=True,
             progress=False,
+            threads=False,
         )
 
     @patch("stonks_cli.fetcher.yf.download")
@@ -286,6 +287,7 @@ class TestFetchForexRates:
             period="1d",
             auto_adjust=False,
             progress=False,
+            threads=False,
         )
 
     @patch("stonks_cli.fetcher.yf.download")
