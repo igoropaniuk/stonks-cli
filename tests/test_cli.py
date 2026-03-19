@@ -7,7 +7,8 @@ import pytest
 from click.testing import CliRunner
 
 from stonks_cli import __version__
-from stonks_cli.main import _resolve_portfolio_path, main
+from stonks_cli.main import _format_show_table, _resolve_portfolio_path, main
+from stonks_cli.models import CashPosition, Portfolio, Position
 from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
 
 
@@ -335,3 +336,236 @@ class TestDashboardMultiplePortfolios:
         all_symbols = [p.symbol for port in portfolios for p in port.positions]
         assert "AAPL" in all_symbols
         assert "NVDA" in all_symbols
+
+
+# ---------------------------------------------------------------------------
+# show
+# ---------------------------------------------------------------------------
+
+
+def _mock_fetch(prices, sessions=None, exchange_codes=None, forex_rates=None):
+    """Return a mock replacement for _fetch_portfolio_data."""
+    return (
+        prices or {},
+        sessions or {},
+        exchange_codes or {},
+        forex_rates or {},
+    )
+
+
+class TestShow:
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_shows_positions_with_prices(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 175.0},
+            sessions={"AAPL": "regular"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert result.exit_code == 0
+        assert "AAPL" in result.output
+        assert "175.00" in result.output
+        assert "17,500.00" in result.output  # market value
+        assert "+2,500.00" in result.output  # unrealized P&L
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_empty_portfolio_message(self, mock_fetch, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "show")
+
+        assert result.exit_code == 0
+        assert "empty" in result.output.lower()
+        mock_fetch.assert_not_called()
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_missing_price_shows_na(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "50", "100.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert result.exit_code == 0
+        assert "N/A" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_cash_only_portfolio(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add-cash", "USD", "5000")
+        mock_fetch.return_value = _mock_fetch(
+            prices={},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert result.exit_code == 0
+        assert "USD" in result.output
+        assert "Cash" in result.output
+        assert "5,000.00" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_negative_pnl(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "200.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 150.0},
+            sessions={"AAPL": "regular"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert result.exit_code == 0
+        assert "-500.00" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_session_badge_pre(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 155.0},
+            sessions={"AAPL": "pre"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert "PRE" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_session_badge_post(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 155.0},
+            sessions={"AAPL": "post"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert "AH" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_session_badge_closed(self, mock_fetch, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 155.0},
+            sessions={"AAPL": "closed"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        assert "CLS" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_multi_portfolio(self, mock_fetch, runner, tmp_path):
+        p1 = tmp_path / "p1.yaml"
+        p2 = tmp_path / "p2.yaml"
+        runner.invoke(main, ["--portfolio", str(p1), "add", "AAPL", "10", "150"])
+        runner.invoke(main, ["--portfolio", str(p2), "add", "NVDA", "5", "800"])
+        mock_fetch.return_value = _mock_fetch(
+            prices={"AAPL": 175.0, "NVDA": 950.0},
+            sessions={"AAPL": "regular", "NVDA": "regular"},
+            exchange_codes={"AAPL": "NMS", "NVDA": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = runner.invoke(
+            main, ["--portfolio", str(p1), "--portfolio", str(p2), "show"]
+        )
+
+        assert result.exit_code == 0
+        assert "Portfolio 1" in result.output
+        assert "Portfolio 2" in result.output
+        assert "AAPL" in result.output
+        assert "NVDA" in result.output
+
+    @patch("stonks_cli.main._fetch_portfolio_data")
+    def test_total_shows_na_when_price_missing(
+        self, mock_fetch, runner, portfolio_file
+    ):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
+        mock_fetch.return_value = _mock_fetch(
+            prices={},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+
+        result = invoke(runner, portfolio_file, "show")
+
+        # Total line should contain N/A.
+        lines = result.output.strip().split("\n")
+        total_line = [ln for ln in lines if "Total" in ln]
+        assert total_line
+        assert "N/A" in total_line[0]
+
+
+# ---------------------------------------------------------------------------
+# _format_show_table unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestFormatShowTable:
+    def test_columns_are_aligned(self):
+        portfolio = Portfolio(
+            positions=[Position("AAPL", 100, 150.0)],
+            base_currency="USD",
+        )
+        table = _format_show_table(
+            portfolio,
+            prices={"AAPL": 175.0},
+            sessions={"AAPL": "regular"},
+            exchange_codes={"AAPL": "NMS"},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+        lines = table.split("\n")
+        # All data lines should have the same length (padded).
+        header_len = len(lines[0])
+        for line in lines[1:]:
+            if line.startswith("-"):
+                assert len(line) == header_len
+                continue
+            if line.startswith("Total"):
+                break
+            assert len(line) == header_len
+
+    def test_total_computed_correctly(self):
+        portfolio = Portfolio(
+            positions=[
+                Position("AAPL", 10, 100.0),
+                Position("NVDA", 5, 200.0),
+            ],
+            cash=[CashPosition("USD", 1000.0)],
+            base_currency="USD",
+        )
+        table = _format_show_table(
+            portfolio,
+            prices={"AAPL": 150.0, "NVDA": 300.0},
+            sessions={},
+            exchange_codes={},
+            forex_rates={"USD": {"USD": 1.0}},
+        )
+        # AAPL: 10*150=1500, NVDA: 5*300=1500, cash: 1000 -> total: 4000
+        assert "4,000.00" in table
+
+    def test_cash_row_pnl_is_dashes(self):
+        portfolio = Portfolio(
+            cash=[CashPosition("EUR", 2000.0)],
+            base_currency="USD",
+        )
+        table = _format_show_table(
+            portfolio,
+            prices={},
+            sessions={},
+            exchange_codes={},
+            forex_rates={"USD": {"EUR": 1.08}},
+        )
+        assert "--" in table
+        assert "Cash" in table
