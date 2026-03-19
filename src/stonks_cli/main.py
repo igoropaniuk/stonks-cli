@@ -166,7 +166,7 @@ def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
 @main.command()
 @click.pass_context
 def show(ctx: click.Context) -> None:
-    """Print portfolio holdings with live prices to stdout (one-shot)."""
+    """Print a snapshot of portfolio positions with current prices to stdout."""
     stores: list[PortfolioStore] = ctx.obj["stores"]
     portfolios = [store.load() for store in stores]
 
@@ -174,7 +174,7 @@ def show(ctx: click.Context) -> None:
         click.echo("Portfolio is empty.")
         return
 
-    prices, sessions, exchange_codes, forex_rates = fetch_portfolio_data(
+    prices, sessions, exchange_codes, forex_rates, prev_closes = fetch_portfolio_data(
         portfolios,
     )
 
@@ -184,7 +184,7 @@ def show(ctx: click.Context) -> None:
             click.echo(f"\n{label} ({portfolio.base_currency})")
             click.echo("=" * len(f"{label} ({portfolio.base_currency})"))
         table = format_show_table(
-            portfolio, prices, sessions, exchange_codes, forex_rates
+            portfolio, prices, sessions, exchange_codes, forex_rates, prev_closes
         )
         click.echo(table)
         if i < len(portfolios) - 1:
