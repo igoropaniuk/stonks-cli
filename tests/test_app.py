@@ -14,6 +14,7 @@ from stonks_cli.app import (
     _ConfirmScreen,
     _EquityFormScreen,
     _TypeSelectScreen,
+    _WatchFormScreen,
 )
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
@@ -1791,3 +1792,110 @@ async def test_watchlist_excluded_from_total() -> None:
         label = app.query_one("#total", Static)
         # Total should be 16,000 (AAPL only), not including TSLA
         assert "16,000.00" in str(label.content)
+
+
+@pytest.mark.asyncio
+async def test_add_watch_item_via_hotkey() -> None:
+    """Pressing 'a' then selecting Watch adds a watchlist item."""
+    p = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        # Click "Watch" button in type selector
+        app.screen.query_one("#watch", Button).press()
+        await pilot.pause()
+
+        # Fill in the symbol
+        app.screen.query_one("#symbol", Input).value = "TSLA"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert len(p.watchlist) == 1
+    assert p.watchlist[0].symbol == "TSLA"
+
+
+@pytest.mark.asyncio
+async def test_edit_watch_item_via_hotkey() -> None:
+    """Pressing 'e' on a watchlist row opens the watch form with one input."""
+    p = Portfolio(
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    prices = {"TSLA": 250.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        # Should be a _WatchFormScreen with only a symbol input
+        screen = app.screen
+        assert isinstance(screen, _WatchFormScreen)
+        screen.query_one("#symbol", Input).value = "NVDA"
+        screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+    assert len(p.watchlist) == 1
+    assert p.watchlist[0].symbol == "NVDA"
+
+
+@pytest.mark.asyncio
+async def test_remove_watch_item_via_hotkey() -> None:
+    """Pressing 'r' on a watchlist row removes it after confirmation."""
+    p = Portfolio(
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    prices = {"TSLA": 250.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("r")
+        await pilot.pause()
+
+        # Confirm removal
+        app.screen.query_one("#yes", Button).press()
+        await pilot.pause()
+
+    assert len(p.watchlist) == 0
+
+
+@pytest.mark.asyncio
+async def test_type_selector_shows_watch_option() -> None:
+    """The type selector includes a Watch button."""
+    p = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        buttons = [b.id for b in app.screen.query(Button)]
+        assert "watch" in buttons
