@@ -11,7 +11,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import PriceFetcher, exchange_label
-from stonks_cli.models import Portfolio
+from stonks_cli.models import Portfolio, WatchlistItem
 from stonks_cli.storage import PortfolioStore
 
 # ---------------------------------------------------------------------------
@@ -50,6 +50,7 @@ class _TypeSelectScreen(ModalScreen[str | None]):
             yield Label("What type of position?")
             yield Button("Equity/Crypto/ETF", id="equity")
             yield Button("Cash", id="cash")
+            yield Button("Watch", id="watch")
             yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -187,6 +188,45 @@ class _CashFormScreen(ModalScreen[dict | None]):
             err.update("Amount must be a positive number")
             return
         self.dismiss({"currency": currency, "amount": amount})
+
+
+class _WatchFormScreen(ModalScreen[str | None]):
+    """Form for adding or editing a watchlist item (symbol only)."""
+
+    CSS = _MODAL_CSS.format(cls="_WatchFormScreen")
+
+    def __init__(self, title: str = "Add Watch Item", symbol: str = "") -> None:
+        super().__init__()
+        self._title = title
+        self._symbol = symbol
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(self._title)
+            yield Label("Symbol", classes="field-label")
+            yield Input(value=self._symbol, placeholder="e.g. TSLA", id="symbol")
+            yield Label("", id="error", classes="error")
+            with Horizontal(classes="buttons"):
+                yield Button("OK", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        else:
+            self._submit()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+    def _submit(self) -> None:
+        symbol = self.query_one("#symbol", Input).value.strip().upper()
+        err = self.query_one("#error", Label)
+        if not symbol:
+            err.update("Symbol is required")
+            return
+        self.dismiss(symbol)
 
 
 class _ConfirmScreen(ModalScreen[bool]):
@@ -384,6 +424,22 @@ class PortfolioApp(App):
                     _CashFormScreen(title=f"[{pname}] Add Cash Position"),
                     on_cash,
                 )
+            elif pos_type == "watch":
+
+                def on_watch(symbol: str | None) -> None:
+                    if symbol is None:
+                        return
+                    portfolio = self.portfolios[idx]
+                    if any(w.symbol == symbol for w in portfolio.watchlist):
+                        return
+                    portfolio.watchlist.append(WatchlistItem(symbol))
+                    self._save(idx)
+                    self._populate_tables()
+
+                self.push_screen(
+                    _WatchFormScreen(title=f"[{pname}] Add Watch Item"),
+                    on_watch,
+                )
 
         self.push_screen(_TypeSelectScreen(portfolio_name=pname), on_type)
 
@@ -399,6 +455,8 @@ class PortfolioApp(App):
             return
         identifier = str(row[0])
         is_cash = str(row[1]) == "Cash"
+
+        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
 
         if is_cash:
             cash_pos = portfolio.get_cash(identifier)
@@ -424,6 +482,27 @@ class PortfolioApp(App):
                     amount=str(cash_pos.amount),
                 ),
                 on_cash_edit,
+            )
+        elif is_watch:
+            old_item = next(w for w in portfolio.watchlist if w.symbol == identifier)
+
+            def on_watch_edit(symbol: str | None) -> None:
+                if symbol is None:
+                    return
+                if symbol != old_item.symbol and any(
+                    w.symbol == symbol for w in portfolio.watchlist
+                ):
+                    return
+                old_item.symbol = symbol
+                self._save(idx)
+                self._populate_tables()
+
+            self.push_screen(
+                _WatchFormScreen(
+                    title=f"[{pname}] Edit Watch Item",
+                    symbol=old_item.symbol,
+                ),
+                on_watch_edit,
             )
         else:
             pos = portfolio.get_position(identifier)
@@ -466,7 +545,8 @@ class PortfolioApp(App):
             return
         identifier = str(row[0])
         is_cash = str(row[1]) == "Cash"
-        kind = "cash" if is_cash else "position"
+        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
+        kind = "cash" if is_cash else ("watch" if is_watch else "position")
 
         def on_confirm(confirmed: bool | None) -> None:
             if not confirmed:
@@ -475,6 +555,12 @@ class PortfolioApp(App):
                 cash_pos = portfolio.get_cash(identifier)
                 if cash_pos:
                     portfolio.cash.remove(cash_pos)
+            elif is_watch:
+                item = next(
+                    (w for w in portfolio.watchlist if w.symbol == identifier), None
+                )
+                if item:
+                    portfolio.watchlist.remove(item)
             else:
                 pos = portfolio.get_position(identifier)
                 if pos:
