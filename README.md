@@ -206,10 +206,28 @@ Commands:
   remove      Remove QUANTITY shares of SYMBOL from the portfolio.
   add-cash    Add AMOUNT of CURRENCY cash to the portfolio.
   remove-cash Remove AMOUNT of CURRENCY cash from the portfolio.
+  show        Print portfolio holdings with live prices to stdout (one-shot).
   dashboard   Display the current portfolio with live prices and P&L.
 ```
 
-### Show the portfolio
+### Quick snapshot (stdout)
+
+Print the current portfolio state with live prices to stdout and exit:
+
+```bash
+# One-shot table output (no TUI)
+stonks show
+
+# With a specific portfolio
+stonks -p work show
+```
+
+The output includes the same columns as the dashboard (Instrument, Exchange,
+Qty, Avg Cost, Last Price, Mkt Value, Unrealized P&L) plus a Total line.
+Session badges (PRE/AH/CLS) are appended to the last price when applicable.
+If a price cannot be fetched, `N/A` is shown instead.
+
+### Interactive dashboard (TUI)
 
 Running `stonks` without a subcommand launches the dashboard automatically:
 
