@@ -71,6 +71,36 @@ class TestPosition:
         pos = Position(symbol="AAPL", quantity=100, avg_cost=150.0)
         assert pos.unrealized_pnl(140.0) == -1000.0
 
+    def test_exchange_suffix_none_by_default(self):
+        pos = Position(symbol="AAPL", quantity=100, avg_cost=150.0)
+        assert pos.exchange_suffix is None
+
+    def test_exchange_suffix_preserved(self):
+        pos = Position(
+            symbol="ASML", quantity=50, avg_cost=700.0, exchange_suffix=".AS"
+        )
+        assert pos.exchange_suffix == ".AS"
+
+    def test_exchange_suffix_uppercase(self):
+        pos = Position(
+            symbol="ASML", quantity=50, avg_cost=700.0, exchange_suffix=".as"
+        )
+        assert pos.exchange_suffix == ".AS"
+
+    def test_exchange_suffix_without_dot_normalized(self):
+        pos = Position(symbol="ASML", quantity=50, avg_cost=700.0, exchange_suffix="AS")
+        assert pos.exchange_suffix == ".AS"
+
+    def test_full_symbol_without_suffix(self):
+        pos = Position(symbol="AAPL", quantity=100, avg_cost=150.0)
+        assert pos.full_symbol() == "AAPL"
+
+    def test_full_symbol_with_suffix(self):
+        pos = Position(
+            symbol="ASML", quantity=50, avg_cost=700.0, exchange_suffix=".AS"
+        )
+        assert pos.full_symbol() == "ASML.AS"
+
 
 class TestWatchlistItem:
     def test_valid_creation(self):
@@ -84,6 +114,30 @@ class TestWatchlistItem:
     def test_empty_symbol_raises(self):
         with pytest.raises(ValueError, match="Symbol cannot be empty"):
             WatchlistItem(symbol="")
+
+    def test_exchange_suffix_none_by_default(self):
+        item = WatchlistItem(symbol="TSLA")
+        assert item.exchange_suffix is None
+
+    def test_exchange_suffix_preserved(self):
+        item = WatchlistItem(symbol="ASML", exchange_suffix=".AS")
+        assert item.exchange_suffix == ".AS"
+
+    def test_exchange_suffix_uppercase(self):
+        item = WatchlistItem(symbol="ASML", exchange_suffix=".as")
+        assert item.exchange_suffix == ".AS"
+
+    def test_exchange_suffix_without_dot_normalized(self):
+        item = WatchlistItem(symbol="ASML", exchange_suffix="AS")
+        assert item.exchange_suffix == ".AS"
+
+    def test_full_symbol_without_suffix(self):
+        item = WatchlistItem(symbol="TSLA")
+        assert item.full_symbol() == "TSLA"
+
+    def test_full_symbol_with_suffix(self):
+        item = WatchlistItem(symbol="ASML", exchange_suffix=".AS")
+        assert item.full_symbol() == "ASML.AS"
 
 
 class TestPortfolio:
@@ -121,6 +175,35 @@ class TestPortfolio:
         with pytest.raises(ValueError, match="Duplicate symbols in portfolio"):
             Portfolio(positions=positions)
 
+    def test_same_symbol_different_exchanges_allowed(self):
+        positions = [
+            Position(symbol="AAPL", quantity=100, avg_cost=150.0),
+            Position(symbol="AAPL", quantity=50, avg_cost=160.0, exchange_suffix=".AS"),
+        ]
+        portfolio = Portfolio(positions=positions)
+        assert len(portfolio.positions) == 2
+
+    def test_get_position_by_full_symbol(self):
+        positions = [
+            Position(
+                symbol="ASML", quantity=100, avg_cost=700.0, exchange_suffix=".AS"
+            ),
+            Position(symbol="ASML", quantity=50, avg_cost=750.0, exchange_suffix=".OQ"),
+        ]
+        portfolio = Portfolio(positions=positions)
+        assert portfolio.get_position_by_full_symbol("ASML.AS") is not None
+        assert portfolio.get_position_by_full_symbol("ASML.OQ") is not None
+        assert portfolio.get_position_by_full_symbol("ASML") is None
+
+    def test_get_position_by_full_symbol_case_insensitive(self):
+        positions = [
+            Position(
+                symbol="ASML", quantity=100, avg_cost=700.0, exchange_suffix=".AS"
+            ),
+        ]
+        portfolio = Portfolio(positions=positions)
+        assert portfolio.get_position_by_full_symbol("asml.as") is not None
+
     def test_get_position_existing(self, sample_positions):
         pos = Portfolio(positions=sample_positions).get_position("AAPL")
         assert pos is not None
@@ -157,6 +240,38 @@ class TestPortfolio:
         assert pos is not None
         assert pos.quantity == 200
         assert pos.avg_cost == pytest.approx(150.0)
+
+    def test_add_position_with_exchange_suffix(self):
+        p = Portfolio()
+        p.add_position("ASML", 50, 700.0, exchange_suffix=".AS")
+        pos = p.get_position("ASML")
+        assert pos is not None
+        assert pos.exchange_suffix == ".AS"
+        assert pos.full_symbol() == "ASML.AS"
+
+    def test_add_position_same_symbol_different_exchanges_creates_separate(self):
+        p = Portfolio()
+        p.add_position("ASML", 50, 700.0, exchange_suffix=".AS")
+        p.add_position("ASML", 25, 850.0, exchange_suffix=".OQ")
+        assert len(p.positions) == 2
+        nasdaq = p.get_position_by_full_symbol("ASML.OQ")
+        assert nasdaq is not None
+        assert nasdaq.quantity == 25
+        assert nasdaq.avg_cost == 850.0
+        ams = p.get_position_by_full_symbol("ASML.AS")
+        assert ams is not None
+        assert ams.quantity == 50
+        assert ams.avg_cost == 700.0
+
+    def test_add_position_same_exchange_merges(self):
+        p = Portfolio()
+        p.add_position("ASML", 50, 700.0, exchange_suffix=".AS")
+        p.add_position("ASML", 25, 850.0, exchange_suffix=".AS")
+        assert len(p.positions) == 1
+        pos = p.get_position_by_full_symbol("ASML.AS")
+        assert pos is not None
+        assert pos.quantity == 75
+        assert pos.avg_cost == pytest.approx(750.0)
 
     # --- remove_position ---
 
