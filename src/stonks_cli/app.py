@@ -13,7 +13,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import PriceFetcher, exchange_label
-from stonks_cli.models import Portfolio, WatchlistItem
+from stonks_cli.models import Portfolio, Position, WatchlistItem
 from stonks_cli.storage import PortfolioStore
 
 # ---------------------------------------------------------------------------
@@ -75,6 +75,7 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         qty: str = "",
         avg_cost: str = "",
         currency: str = "USD",
+        exchange_suffix: str = "",
     ) -> None:
         super().__init__()
         self._title = title
@@ -82,18 +83,25 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         self._qty = qty
         self._avg_cost = avg_cost
         self._currency = currency
+        self._exchange_suffix = exchange_suffix
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label(self._title)
             yield Label("Symbol", classes="field-label")
             yield Input(value=self._symbol, placeholder="e.g. AAPL", id="symbol")
+            yield Label("Exchange (optional, e.g. .AS, .L, .T)", classes="field-label")
+            yield Input(
+                value=self._exchange_suffix,
+                placeholder="e.g. .AS for Amsterdam",
+                id="exchange_suffix",
+            )
             yield Label("Quantity (integer)", classes="field-label")
             yield Input(value=self._qty, placeholder="e.g. 10", id="qty")
             yield Label("Avg Cost", classes="field-label")
             yield Input(value=self._avg_cost, placeholder="e.g. 150.00", id="avg_cost")
             yield Label("Currency", classes="field-label")
-            yield Input(value=self._currency, placeholder="USD", id="currency")
+            yield Input(value=self._currency, placeholder="e.g. USD", id="currency")
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
@@ -111,6 +119,8 @@ class _EquityFormScreen(ModalScreen[dict | None]):
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
+        exchange_input = self.query_one("#exchange_suffix", Input).value.strip()
+        exchange_suffix = exchange_input or None
         qty_str = self.query_one("#qty", Input).value.strip()
         avg_cost_str = self.query_one("#avg_cost", Input).value.strip()
         currency = self.query_one("#currency", Input).value.strip().upper() or "USD"
@@ -133,7 +143,13 @@ class _EquityFormScreen(ModalScreen[dict | None]):
             err.update("Avg cost must be a positive number")
             return
         self.dismiss(
-            {"symbol": symbol, "qty": qty, "avg_cost": avg_cost, "currency": currency}
+            {
+                "symbol": symbol,
+                "qty": qty,
+                "avg_cost": avg_cost,
+                "currency": currency,
+                "exchange_suffix": exchange_suffix,
+            }
         )
 
 
@@ -192,21 +208,30 @@ class _CashFormScreen(ModalScreen[dict | None]):
         self.dismiss({"currency": currency, "amount": amount})
 
 
-class _WatchFormScreen(ModalScreen[str | None]):
+class _WatchFormScreen(ModalScreen[dict | None]):
     """Form for adding or editing a watchlist item (symbol only)."""
 
     CSS = _MODAL_CSS.format(cls="_WatchFormScreen")
 
-    def __init__(self, title: str = "Add Watch Item", symbol: str = "") -> None:
+    def __init__(
+        self, title: str = "Add Watch Item", symbol: str = "", exchange_suffix: str = ""
+    ) -> None:
         super().__init__()
         self._title = title
         self._symbol = symbol
+        self._exchange_suffix = exchange_suffix
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label(self._title)
             yield Label("Symbol", classes="field-label")
             yield Input(value=self._symbol, placeholder="e.g. TSLA", id="symbol")
+            yield Label("Exchange (optional, e.g. .AS, .L)", classes="field-label")
+            yield Input(
+                value=self._exchange_suffix,
+                placeholder="e.g. .AS for Amsterdam",
+                id="exchange_suffix",
+            )
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
@@ -224,11 +249,13 @@ class _WatchFormScreen(ModalScreen[str | None]):
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
+        exchange_input = self.query_one("#exchange_suffix", Input).value.strip()
+        exchange_suffix = exchange_input or None
         err = self.query_one("#error", Label)
         if not symbol:
             err.update("Symbol is required")
             return
-        self.dismiss(symbol)
+        self.dismiss({"symbol": symbol, "exchange_suffix": exchange_suffix})
 
 
 class _ConfirmScreen(ModalScreen[bool]):
@@ -396,7 +423,10 @@ class PortfolioApp(App):
                     portfolio = self.portfolios[idx]
                     is_new = portfolio.get_position(result["symbol"]) is None
                     portfolio.add_position(
-                        result["symbol"], result["qty"], result["avg_cost"]
+                        result["symbol"],
+                        result["qty"],
+                        result["avg_cost"],
+                        exchange_suffix=result.get("exchange_suffix"),
                     )
                     if is_new:
                         pos = portfolio.get_position(result["symbol"])
@@ -429,13 +459,25 @@ class PortfolioApp(App):
                 )
             elif pos_type == "watch":
 
-                def on_watch(symbol: str | None) -> None:
-                    if symbol is None:
+                def on_watch(result: dict | None) -> None:
+                    if result is None:
                         return
                     portfolio = self.portfolios[idx]
-                    if any(w.symbol == symbol for w in portfolio.watchlist):
+                    new_item = WatchlistItem(
+                        symbol=result["symbol"],
+                        exchange_suffix=result.get("exchange_suffix"),
+                    )
+                    if any(
+                        w.full_symbol() == new_item.full_symbol()
+                        for w in portfolio.watchlist
+                    ):
                         return
-                    portfolio.watchlist.append(WatchlistItem(symbol))
+                    portfolio.watchlist.append(
+                        WatchlistItem(
+                            symbol=result["symbol"],
+                            exchange_suffix=result.get("exchange_suffix"),
+                        )
+                    )
                     self._save(idx)
                     self._populate_tables()
 
@@ -456,13 +498,13 @@ class PortfolioApp(App):
         row = table.get_row_at(table.cursor_row)
         if not row:
             return
-        identifier = str(row[0])
-        is_cash = str(row[1]) == "Cash"
 
-        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
+        row_key = table._row_locations.get_key(table.cursor_row)
+        key_value = str(row_key.value) if row_key else None
 
-        if is_cash:
-            cash_pos = portfolio.get_cash(identifier)
+        if key_value and key_value.startswith("cash:"):
+            currency = key_value[5:]
+            cash_pos = portfolio.get_cash(currency)
             if cash_pos is None:
                 return
 
@@ -486,17 +528,34 @@ class PortfolioApp(App):
                 ),
                 on_cash_edit,
             )
-        elif is_watch:
-            old_item = next(w for w in portfolio.watchlist if w.symbol == identifier)
+        elif key_value and key_value.startswith("watch:"):
+            full_sym = key_value[6:]
+            old_item = portfolio.watchlist[
+                next(
+                    (
+                        i
+                        for i, w in enumerate(portfolio.watchlist)
+                        if w.full_symbol() == full_sym
+                    ),
+                    -1,
+                )
+            ]
 
-            def on_watch_edit(symbol: str | None) -> None:
-                if symbol is None:
+            def on_watch_edit(result: dict | None) -> None:
+                if result is None:
                     return
-                if symbol != old_item.symbol and any(
-                    w.symbol == symbol for w in portfolio.watchlist
+                new_item = WatchlistItem(
+                    symbol=result["symbol"],
+                    exchange_suffix=result.get("exchange_suffix"),
+                )
+                new_full = new_item.full_symbol()
+                old_full = old_item.full_symbol()
+                if new_full != old_full and any(
+                    w.full_symbol() == new_full for w in portfolio.watchlist
                 ):
                     return
-                old_item.symbol = symbol
+                old_item.symbol = result["symbol"]
+                old_item.exchange_suffix = result.get("exchange_suffix")
                 self._save(idx)
                 self._populate_tables()
 
@@ -504,24 +563,37 @@ class PortfolioApp(App):
                 _WatchFormScreen(
                     title=f"[{pname}] Edit Watch Item",
                     symbol=old_item.symbol,
+                    exchange_suffix=old_item.exchange_suffix or "",
                 ),
                 on_watch_edit,
             )
-        else:
-            pos = portfolio.get_position(identifier)
+        elif key_value and key_value.startswith("position:"):
+            full_sym = key_value[9:]
+            pos = portfolio.get_position_by_full_symbol(full_sym)
             if pos is None:
                 return
 
             def on_equity_edit(result: dict | None) -> None:
                 if result is None:
                     return
-                new_symbol = result["symbol"]
-                if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
+                new_pos = Position(
+                    symbol=result["symbol"],
+                    exchange_suffix=result.get("exchange_suffix"),
+                    quantity=1,
+                    avg_cost=1.0,
+                    currency="USD",
+                )
+                new_full = new_pos.full_symbol()
+                old_full = pos.full_symbol()
+                if new_full != old_full and portfolio.get_position_by_full_symbol(
+                    new_full
+                ):
                     return
-                pos.symbol = new_symbol
+                pos.symbol = result["symbol"]
                 pos.quantity = result["qty"]
                 pos.avg_cost = result["avg_cost"]
                 pos.currency = result["currency"]
+                pos.exchange_suffix = result.get("exchange_suffix")
                 self._save(idx)
                 self._populate_tables()
 
@@ -532,6 +604,7 @@ class PortfolioApp(App):
                     qty=str(pos.quantity),
                     avg_cost=str(pos.avg_cost),
                     currency=pos.currency,
+                    exchange_suffix=pos.exchange_suffix or "",
                 ),
                 on_equity_edit,
             )
@@ -546,34 +619,62 @@ class PortfolioApp(App):
         row = table.get_row_at(table.cursor_row)
         if not row:
             return
-        identifier = str(row[0])
-        is_cash = str(row[1]) == "Cash"
-        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
-        kind = "cash" if is_cash else ("watch" if is_watch else "position")
 
-        def on_confirm(confirmed: bool | None) -> None:
-            if not confirmed:
-                return
-            if is_cash:
-                cash_pos = portfolio.get_cash(identifier)
+        row_key = table._row_locations.get_key(table.cursor_row)
+        key_value = str(row_key.value) if row_key else None
+        identifier = str(row[0])
+
+        if key_value and key_value.startswith("cash:"):
+            currency = key_value[5:]
+            cash_pos = portfolio.get_cash(currency)
+            kind = "cash"
+
+            def on_confirm(confirmed: bool | None) -> None:
+                if not confirmed:
+                    return
                 if cash_pos:
                     portfolio.cash.remove(cash_pos)
-            elif is_watch:
+                self._save(idx)
+                self._populate_tables()
+
+            self.push_screen(
+                _ConfirmScreen(f"[{pname}] Remove cash: {currency}?"), on_confirm
+            )
+        elif key_value and key_value.startswith("watch:"):
+            full_sym = key_value[6:]
+            kind = "watch"
+
+            def on_confirm(confirmed: bool | None) -> None:
+                if not confirmed:
+                    return
                 item = next(
-                    (w for w in portfolio.watchlist if w.symbol == identifier), None
+                    (w for w in portfolio.watchlist if w.full_symbol() == full_sym),
+                    None,
                 )
                 if item:
                     portfolio.watchlist.remove(item)
-            else:
-                pos = portfolio.get_position(identifier)
+                self._save(idx)
+                self._populate_tables()
+
+            self.push_screen(
+                _ConfirmScreen(f"[{pname}] Remove watch: {full_sym}?"), on_confirm
+            )
+        elif key_value and key_value.startswith("position:"):
+            full_sym = key_value[9:]
+            pos = portfolio.get_position_by_full_symbol(full_sym)
+            kind = "position"
+
+            def on_confirm(confirmed: bool | None) -> None:
+                if not confirmed:
+                    return
                 if pos:
                     portfolio.positions.remove(pos)
-            self._save(idx)
-            self._populate_tables()
+                self._save(idx)
+                self._populate_tables()
 
-        self.push_screen(
-            _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
-        )
+            self.push_screen(
+                _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
+            )
 
     # ------------------------------------------------------------------
     # Detail view
@@ -583,7 +684,15 @@ class PortfolioApp(App):
         row = event.data_table.get_row(event.row_key)
         if not row or str(row[1]) == "Cash":
             return
-        self.push_screen(StockDetailScreen(str(row[0])))
+
+        # Extract full symbol from row key for multi-exchange support
+        row_key_str = str(event.row_key.value)
+        if row_key_str.startswith("position:"):
+            full_symbol = row_key_str[9:]  # Remove "position:" prefix
+            self.push_screen(StockDetailScreen(full_symbol))
+        elif row_key_str.startswith("watch:"):
+            full_symbol = row_key_str[6:]  # Remove "watch:" prefix
+            self.push_screen(StockDetailScreen(full_symbol))
 
     # ------------------------------------------------------------------
     # Column sorting
@@ -642,12 +751,12 @@ class PortfolioApp(App):
         tid = table.id or ""
         rates = self.forex_rates.get(portfolio.base_currency, {})
 
-        # Build (sort_key, display_cells) pairs for every row.
-        rows: list[tuple[tuple, tuple]] = []
+        rows: list[tuple[str | None, tuple, tuple]] = []
 
         for pos in portfolio.positions:
-            label = exchange_label(pos.symbol, self.exchange_codes.get(pos.symbol))
-            last = self.prices.get(pos.symbol)
+            full_sym = pos.full_symbol()
+            label = exchange_label(full_sym, self.exchange_codes.get(full_sym))
+            last = self.prices.get(full_sym)
             sort_key: tuple[object, ...]
             display: tuple[object, ...]
             if last is not None:
@@ -658,7 +767,7 @@ class PortfolioApp(App):
                     f"{sign}{pnl:,.2f}",
                     style="bold green" if pnl >= 0 else "bold red",
                 )
-                session = self.sessions.get(pos.symbol, "regular")
+                session = self.sessions.get(full_sym, "regular")
                 price_cell: Text | str
                 if session == "pre":
                     price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
@@ -705,7 +814,7 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
-            rows.append((sort_key, display))
+            rows.append(("position:" + full_sym, sort_key, display))
 
         for cash_pos in portfolio.cash:
             rate = rates.get(cash_pos.currency)
@@ -753,13 +862,14 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
-            rows.append((sort_key, display))
+            rows.append(("cash:" + cash_pos.currency, sort_key, display))
 
         for watch in portfolio.watchlist:
-            label = exchange_label(watch.symbol, self.exchange_codes.get(watch.symbol))
-            last = self.prices.get(watch.symbol)
+            full_sym = watch.full_symbol()
+            label = exchange_label(full_sym, self.exchange_codes.get(full_sym))
+            last = self.prices.get(full_sym)
             if last is not None:
-                session = self.sessions.get(watch.symbol, "regular")
+                session = self.sessions.get(full_sym, "regular")
                 if session == "pre":
                     price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
                 elif session == "post":
@@ -789,22 +899,25 @@ class PortfolioApp(App):
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                 )
-            rows.append((sort_key, display))
+            rows.append(("watch:" + full_sym, sort_key, display))
 
         if tid in self._sort_column:
             col = self._sort_column[tid]
             rows.sort(
-                key=lambda r: r[0][col], reverse=self._sort_reverse.get(tid, False)
+                key=lambda r: r[1][col], reverse=self._sort_reverse.get(tid, False)
             )
 
-        for _, cells in rows:
-            table.add_row(*cells)
+        for key, _, cells in rows:
+            if key:
+                table.add_row(*cells, key=key)
+            else:
+                table.add_row(*cells)
         table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
         rates = self.forex_rates.get(portfolio.base_currency, {})
         missing_price = any(
-            self.prices.get(pos.symbol) is None for pos in portfolio.positions
+            self.prices.get(pos.full_symbol()) is None for pos in portfolio.positions
         )
         missing_rate = any(
             rates.get(p.currency) is None for p in portfolio.positions
@@ -815,7 +928,7 @@ class PortfolioApp(App):
             )
             return
         stock_total = sum(
-            pos.market_value(self.prices[pos.symbol]) * rates[pos.currency]
+            pos.market_value(self.prices[pos.full_symbol()]) * rates[pos.currency]
             for pos in portfolio.positions
         )
         cash_total = sum(
@@ -843,10 +956,16 @@ class PortfolioApp(App):
 
     def _do_refresh_prices(self) -> None:
         fetcher = PriceFetcher()
-        all_symbols = list(
-            {p.symbol for portfolio in self.portfolios for p in portfolio.positions}
-            | {w.symbol for portfolio in self.portfolios for w in portfolio.watchlist}
-        )
+        all_full_symbols = [
+            pos.full_symbol()
+            for portfolio in self.portfolios
+            for pos in portfolio.positions
+        ] + [
+            watch.full_symbol()
+            for portfolio in self.portfolios
+            for watch in portfolio.watchlist
+        ]
+        all_symbols = list(set(all_full_symbols))
         extended = fetcher.fetch_extended_prices(all_symbols)
         new_prices = {sym: price for sym, (price, _) in extended.items()}
         new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
