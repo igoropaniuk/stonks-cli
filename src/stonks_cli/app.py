@@ -93,7 +93,7 @@ class _EquityFormScreen(ModalScreen[dict | None]):
             yield Label("Avg Cost", classes="field-label")
             yield Input(value=self._avg_cost, placeholder="e.g. 150.00", id="avg_cost")
             yield Label("Currency", classes="field-label")
-            yield Input(value=self._currency, placeholder="USD", id="currency")
+            yield Input(value=self._currency, placeholder="e.g. USD", id="currency")
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
