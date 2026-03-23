@@ -15,6 +15,7 @@ textual = "^8.1.0"
 rich = "^14.0"
 exchange-calendars = "^4.13.2"
 textual-plotext = "^1.0.0"
+platformdirs = "^4.9.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

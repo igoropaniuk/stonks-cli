@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from stonks_cli import __version__
+from stonks_cli.log import setup_logging
 from stonks_cli.app import PortfolioApp
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
@@ -45,6 +46,7 @@ def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
 @click.pass_context
 def main(ctx: click.Context, portfolio: tuple[str, ...]) -> None:
     """CLI tool for tracking an investment portfolio."""
+    setup_logging()
     ctx.ensure_object(dict)
     if not portfolio:
         if seed_sample_portfolio():
