@@ -853,7 +853,14 @@ async def test_equity_form_submit() -> None:
         await pilot.pause()
         app.screen.query_one("#ok", Button).press()
         await pilot.pause()
-    assert result == {"symbol": "AAPL", "qty": 10, "avg_cost": 150.0, "currency": "USD"}
+    assert result == {
+        "symbol": "AAPL",
+        "qty": 10.0,
+        "avg_cost": 150.0,
+        "currency": "USD",
+        "asset_type": None,
+        "external_id": None,
+    }
 
 
 @pytest.mark.asyncio
