@@ -5,10 +5,12 @@ from datetime import datetime
 from datetime import time as dtime
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pandas as pd
 import pytest
 
 from stonks_cli.fetcher import (
+    CryptoFetcher,
     PriceFetcher,
     _exchange_calendar_name,
     _finite,
@@ -402,6 +404,11 @@ class TestExchangeLabel:
     def test_crypto_returns_crypto(self):
         assert exchange_label("BTC-USD") == "Crypto"
         assert exchange_label("ETH-EUR") == "Crypto"
+
+    def test_crypto_asset_type_returns_crypto_without_dash(self):
+        # CoinGecko IDs have no '-'; asset_type tells us it's crypto.
+        assert exchange_label("bitcoin", asset_type="crypto") == "Crypto"
+        assert exchange_label("AAPL", asset_type="crypto") == "Crypto"
 
     def test_us_with_known_code(self):
         assert exchange_label("AAPL", "NMS") == "NASDAQ"
@@ -798,3 +805,165 @@ class TestFetchPriceSingle:
             mock_ticker.return_value.fast_info.last_price = 100.0
             fetcher.fetch_price_single("aapl")
             mock_ticker.assert_called_once_with("AAPL")
+
+
+def _make_http_response(data: dict, status_code: int = 200) -> MagicMock:
+    """Return a mock httpx.Response that returns *data* from .json()."""
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = status_code
+    resp.json.return_value = data
+    if status_code >= 400:
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            f"HTTP {status_code}", request=MagicMock(), response=resp
+        )
+    else:
+        resp.raise_for_status.return_value = None
+    return resp
+
+
+class TestCryptoFetcherResolveIds:
+    def _reset(self):
+        import stonks_cli.fetcher as fm
+
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+        return fm
+
+    def test_symbol_resolved_via_bundled_coin_list(self):
+        fm = self._reset()
+        fm._cg_symbol_to_id["SOL"] = "solana"
+        fm._cg_coin_list_loaded = True
+        cf = CryptoFetcher()
+        assert cf._resolve_ids(["SOL-USD"]) == {"SOL-USD": "solana"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_ambiguous_symbol_resolved_via_search(self):
+        fm = self._reset()
+        fm._cg_coin_list_loaded = True
+        cf = CryptoFetcher()
+        cf._http = MagicMock()
+        cf._http.get.return_value = _make_http_response(
+            {"coins": [{"symbol": "BTC", "id": "bitcoin"}]}
+        )
+        mapping = cf._resolve_ids(["BTC-USD"])
+        assert mapping == {"BTC-USD": "bitcoin"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_external_id_takes_priority(self):
+        fm = self._reset()
+        cf = CryptoFetcher()
+        mapping = cf._resolve_ids(["BTC-USD"], external_ids={"BTC-USD": "bitcoin"})
+        assert mapping == {"BTC-USD": "bitcoin"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_unknown_symbol_uses_heuristic(self):
+        fm = self._reset()
+        fm._cg_coin_list_loaded = True
+        cf = CryptoFetcher()
+        cf._http = MagicMock()
+        cf._http.get.return_value = _make_http_response({"coins": []})
+        mapping = cf._resolve_ids(["FOO-USD"])
+        assert mapping == {"FOO-USD": "foo"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_empty_list(self):
+        cf = CryptoFetcher()
+        assert cf._resolve_ids([]) == {}
+
+    def test_bare_symbol_resolves_same_as_with_suffix(self):
+        """'BTC' resolves identically to 'BTC-USD' (USD implied)."""
+        fm = self._reset()
+        fm._cg_symbol_to_id["BTC"] = "bitcoin"
+        fm._cg_coin_list_loaded = True
+        cf = CryptoFetcher()
+        assert cf._resolve_ids(["BTC"]) == {"BTC": "bitcoin"}
+        assert cf._resolve_ids(["BTC-USD"]) == {"BTC-USD": "bitcoin"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_original_symbol_case_preserved_in_result(self):
+        """Prices are keyed by the original symbol, not an uppercased copy."""
+        fm = self._reset()
+        fm._cg_symbol_to_id["BTC"] = "bitcoin"
+        fm._cg_coin_list_loaded = True
+        cf = CryptoFetcher()
+        mapping = cf._resolve_ids(["btc-usd"])
+        assert "btc-usd" in mapping
+        assert "BTC-USD" not in mapping
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_external_id_lookup_is_case_insensitive(self):
+        """external_ids key 'btc-usd' matches symbol 'BTC-USD' and vice-versa."""
+        fm = self._reset()
+        cf = CryptoFetcher()
+        mapping = cf._resolve_ids(["BTC-USD"], external_ids={"btc-usd": "bitcoin"})
+        assert mapping == {"BTC-USD": "bitcoin"}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+
+class TestCryptoFetcherPricesAndChanges:
+    @staticmethod
+    def _seed_cache():
+        """Pre-populate the module cache so _resolve_ids skips API calls."""
+        import stonks_cli.fetcher as fm
+
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = True
+        fm._cg_symbol_to_id.update({"BTC": "bitcoin", "ETH": "ethereum"})
+        return fm
+
+    def test_returns_prices_and_prev_closes(self):
+        fm = self._seed_cache()
+        cf = CryptoFetcher()
+        cf._http = MagicMock()
+        cf._http.get.return_value = _make_http_response(
+            {
+                "bitcoin": {"usd": 68000.0, "usd_24h_change": -2.0},
+                "ethereum": {"usd": 2000.0, "usd_24h_change": 5.0},
+            }
+        )
+        prices, prev = cf.fetch_prices_and_changes(["BTC-USD", "ETH-USD"])
+        assert prices == {
+            "BTC-USD": pytest.approx(68000.0),
+            "ETH-USD": pytest.approx(2000.0),
+        }
+        assert prev["BTC-USD"] == pytest.approx(68000.0 / 0.98)
+        assert prev["ETH-USD"] == pytest.approx(2000.0 / 1.05)
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_empty_symbols_returns_empty(self):
+        cf = CryptoFetcher()
+        prices, prev = cf.fetch_prices_and_changes([])
+        assert prices == {}
+        assert prev == {}
+
+    def test_api_error_returns_empty(self):
+        fm = self._seed_cache()
+        cf = CryptoFetcher()
+        cf._http = MagicMock()
+        cf._http.get.return_value = _make_http_response({}, status_code=429)
+        prices, prev = cf.fetch_prices_and_changes(["BTC-USD"])
+        assert prices == {}
+        assert prev == {}
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
+
+    def test_missing_change_omits_prev_close(self):
+        fm = self._seed_cache()
+        cf = CryptoFetcher()
+        cf._http = MagicMock()
+        cf._http.get.return_value = _make_http_response(
+            {"bitcoin": {"usd": 68000.0, "usd_24h_change": None}}
+        )
+        prices, prev = cf.fetch_prices_and_changes(["BTC-USD"])
+        assert prices == {"BTC-USD": pytest.approx(68000.0)}
+        assert "BTC-USD" not in prev
+        fm._cg_symbol_to_id.clear()
+        fm._cg_coin_list_loaded = False
