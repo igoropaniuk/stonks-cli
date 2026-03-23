@@ -71,6 +71,27 @@ class TestPosition:
         pos = Position(symbol="AAPL", quantity=100, avg_cost=150.0)
         assert pos.unrealized_pnl(140.0) == -1000.0
 
+    def test_asset_type_default_none(self):
+        pos = Position(symbol="AAPL", quantity=10, avg_cost=150.0)
+        assert pos.asset_type is None
+
+    def test_asset_type_crypto(self):
+        pos = Position(
+            symbol="BTC-USD", quantity=0.25, avg_cost=50000.0, asset_type="crypto"
+        )
+        assert pos.asset_type == "crypto"
+
+    def test_asset_type_lowercased(self):
+        pos = Position(
+            symbol="BTC-USD", quantity=1, avg_cost=100.0, asset_type="CRYPTO"
+        )
+        assert pos.asset_type == "crypto"
+
+    def test_fractional_quantity(self):
+        pos = Position(symbol="BTC-USD", quantity=0.25, avg_cost=50000.0)
+        assert pos.quantity == 0.25
+        assert pos.market_value(60000.0) == pytest.approx(15000.0)
+
 
 class TestWatchlistItem:
     def test_valid_creation(self):
@@ -84,6 +105,17 @@ class TestWatchlistItem:
     def test_empty_symbol_raises(self):
         with pytest.raises(ValueError, match="Symbol cannot be empty"):
             WatchlistItem(symbol="")
+
+    def test_asset_type_default_none(self):
+        assert WatchlistItem(symbol="TSLA").asset_type is None
+
+    def test_asset_type_crypto(self):
+        item = WatchlistItem(symbol="BTC-USD", asset_type="crypto")
+        assert item.asset_type == "crypto"
+
+    def test_asset_type_lowercased(self):
+        item = WatchlistItem(symbol="BTC-USD", asset_type="CRYPTO")
+        assert item.asset_type == "crypto"
 
 
 class TestPortfolio:
