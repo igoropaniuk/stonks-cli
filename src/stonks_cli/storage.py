@@ -74,6 +74,8 @@ class PortfolioStore:
                 quantity=p["quantity"],
                 avg_cost=p["avg_cost"],
                 currency=p.get("currency", "USD"),
+                asset_type=p.get("asset_type"),
+                external_id=p.get("external_id"),
             )
             for p in raw_positions
         ]
@@ -84,7 +86,14 @@ class PortfolioStore:
         ]
 
         raw_watchlist = section.get("watchlist") or []
-        watchlist = [WatchlistItem(symbol=w["symbol"]) for w in raw_watchlist]
+        watchlist = [
+            WatchlistItem(
+                symbol=w["symbol"],
+                asset_type=w.get("asset_type"),
+                external_id=w.get("external_id"),
+            )
+            for w in raw_watchlist
+        ]
 
         base_currency = section.get("base_currency", "USD")
         name = section.get("name", "")
@@ -113,6 +122,8 @@ class PortfolioStore:
                         "quantity": p.quantity,
                         "avg_cost": round(p.avg_cost, 6),
                         "currency": p.currency,
+                        **({"asset_type": p.asset_type} if p.asset_type else {}),
+                        **({"external_id": p.external_id} if p.external_id else {}),
                     }
                     for p in portfolio.positions
                 ],
@@ -123,7 +134,14 @@ class PortfolioStore:
                     }
                     for c in portfolio.cash
                 ],
-                "watchlist": [{"symbol": w.symbol} for w in portfolio.watchlist],
+                "watchlist": [
+                    {
+                        "symbol": w.symbol,
+                        **({"asset_type": w.asset_type} if w.asset_type else {}),
+                        **({"external_id": w.external_id} if w.external_id else {}),
+                    }
+                    for w in portfolio.watchlist
+                ],
             }
         }
         with self.path.open("w") as fh:
