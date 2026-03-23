@@ -1,5 +1,7 @@
 """Stock detail screen with charts and financial data."""
 
+import logging
+
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -9,6 +11,8 @@ from textual.widgets import Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
 from stonks_cli.fetcher import PriceFetcher, StockDetail
+
+logger = logging.getLogger(__name__)
 
 # Recommendation chart colors (RGB)
 _COLOR_STRONG_BUY = (0, 100, 0)
@@ -118,6 +122,7 @@ class StockDetailScreen(Screen):
             detail = PriceFetcher().fetch_stock_detail(self._symbol)
             self.app.call_from_thread(self._apply_detail, detail)
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Unhandled error fetching detail for %s", self._symbol)
             self.app.call_from_thread(self._show_error, str(exc))
 
     def _show_error(self, msg: str) -> None:
