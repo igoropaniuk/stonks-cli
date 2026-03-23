@@ -102,7 +102,7 @@ class StockDetailScreen(Screen):
         self._symbol = symbol
 
     def compose(self) -> ComposeResult:
-        yield Label(f"  {self._symbol} — Details", classes="section-title")
+        yield Label(f"  {self._symbol} -- Details", classes="section-title")
         yield Label("", id="company-name")
         yield LoadingIndicator(id="loading")
         yield Label("", id="error-msg")

@@ -541,7 +541,7 @@ async def test_sort_by_column_header(portfolio: Portfolio) -> None:
         col0_key = col_keys[0]
         col0_label = table.columns[col0_key].label
 
-        # Sort by Instrument column (index 0) — ascending
+        # Sort by Instrument column (index 0) -- ascending
         table.post_message(
             DataTable.HeaderSelected(table, col0_key, 0, label=col0_label)
         )
@@ -549,7 +549,7 @@ async def test_sort_by_column_header(portfolio: Portfolio) -> None:
         assert str(table.get_cell_at((0, 0))) == "AAPL"
         assert str(table.get_cell_at((1, 0))) == "NVDA"
 
-        # Click same column again — reverse to descending
+        # Click same column again -- reverse to descending
         table.post_message(
             DataTable.HeaderSelected(table, col0_key, 0, label=col0_label)
         )
@@ -569,7 +569,7 @@ async def test_sort_by_different_column(portfolio: Portfolio) -> None:
         table = app.query_one(DataTable)
         col_keys = list(table.columns.keys())
 
-        # Sort by Mkt Value column (index 5) — ascending
+        # Sort by Mkt Value column (index 5) -- ascending
         # AAPL: 100*160=16000, NVDA: 200*90=18000
         mkt_key = col_keys[_COL_MKT]
         table.post_message(
@@ -580,7 +580,7 @@ async def test_sort_by_different_column(portfolio: Portfolio) -> None:
         await pilot.pause()
         assert str(table.get_cell_at((0, 0))) == "AAPL"  # 16000 < 18000
 
-        # Now switch to Instrument column (index 0) — should reset to ascending
+        # Now switch to Instrument column (index 0) -- should reset to ascending
         col0_key = col_keys[0]
         table.post_message(
             DataTable.HeaderSelected(
@@ -1150,7 +1150,7 @@ async def test_confirm_screen_escape() -> None:
 
 @pytest.mark.asyncio
 async def test_action_add_equity_new_position() -> None:
-    """Pressing 'a' → equity → filling form adds a new position."""
+    """Pressing 'a' -> equity -> filling form adds a new position."""
     p = Portfolio(
         name="Test",
         positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
@@ -1171,7 +1171,7 @@ async def test_action_add_equity_new_position() -> None:
         await pilot.press("a")
         await pilot.pause()
 
-        # Type selector visible — press equity
+        # Type selector visible -- press equity
         app.screen.query_one("#equity", Button).press()
         await pilot.pause()
 
@@ -1228,7 +1228,7 @@ async def test_action_add_equity_existing_position_weighted_avg() -> None:
 
 @pytest.mark.asyncio
 async def test_action_add_cash() -> None:
-    """Pressing 'a' → cash → filling form adds a cash position."""
+    """Pressing 'a' -> cash -> filling form adds a cash position."""
     p = Portfolio(
         name="Test", positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)]
     )
@@ -1518,7 +1518,7 @@ async def test_action_add_cancel_type_select() -> None:
 
 @pytest.mark.asyncio
 async def test_action_add_equity_cancel_form() -> None:
-    """Pressing 'a' → equity → cancel does nothing."""
+    """Pressing 'a' -> equity -> cancel does nothing."""
     p = Portfolio(
         name="Test",
         positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
@@ -1546,7 +1546,7 @@ async def test_action_add_equity_cancel_form() -> None:
 
 @pytest.mark.asyncio
 async def test_action_add_cash_cancel_form() -> None:
-    """Pressing 'a' → cash → cancel does nothing."""
+    """Pressing 'a' -> cash -> cancel does nothing."""
     p = Portfolio(
         name="Test",
         positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
@@ -1672,7 +1672,7 @@ async def test_action_edit_equity_rename_to_existing_blocked() -> None:
         await pilot.press("e")
         await pilot.pause()
 
-        # Try to rename AAPL → NVDA (already exists)
+        # Try to rename AAPL -> NVDA (already exists)
         app.screen.query_one("#symbol", Input).value = "NVDA"
         app.screen.query_one("#ok", Button).press()
         await pilot.pause()
