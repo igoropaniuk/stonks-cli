@@ -76,11 +76,43 @@ portfolio:
       quantity: 0.25
       avg_cost: 52000.00
       currency: USD
+      asset_type: crypto
+      external_id: bitcoin
 
     - symbol: ETH-USD
       quantity: 2.5
       avg_cost: 2800.00
       currency: USD
+      asset_type: crypto
+      external_id: ethereum
+
+    - symbol: SOL-USD
+      quantity: 10.0
+      avg_cost: 120.00
+      currency: USD
+      asset_type: crypto
+      external_id: solana
+
+    - symbol: ADA-USD
+      quantity: 500.0
+      avg_cost: 0.55
+      currency: USD
+      asset_type: crypto
+      external_id: cardano
+
+    - symbol: DOGE-USD
+      quantity: 2000.0
+      avg_cost: 0.12
+      currency: USD
+      asset_type: crypto
+      external_id: dogecoin
+
+    - symbol: MATIC-USD
+      quantity: 300.0
+      avg_cost: 0.95
+      currency: USD
+      asset_type: crypto
+      external_id: matic-network
 
     - symbol: 6758.T
       quantity: 20
@@ -101,3 +133,9 @@ portfolio:
     - symbol: TSLA
     - symbol: NVDA
     - symbol: AAPL
+    - symbol: LINK-USD
+      asset_type: crypto
+      external_id: chainlink
+    - symbol: UNI-USD
+      asset_type: crypto
+      external_id: uniswap
