@@ -131,7 +131,7 @@ async def test_default_refresh_interval(portfolio: Portfolio) -> None:
     app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
     async with app.run_test() as pilot:
         await pilot.pause()
-        assert app.refresh_interval == 5.0
+        assert app.refresh_interval == 60.0
 
 
 @pytest.mark.asyncio

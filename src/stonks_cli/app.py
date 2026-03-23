@@ -293,7 +293,7 @@ class PortfolioApp(App):
         prices: dict[str, float],
         forex_rates: dict[str, dict[str, float]],
         sessions: dict[str, str] | None = None,
-        refresh_interval: float = 5.0,
+        refresh_interval: float = 60.0,
         stores: list[PortfolioStore] | None = None,
     ) -> None:
         super().__init__()

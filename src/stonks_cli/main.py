@@ -97,7 +97,7 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
 @main.command()
 @click.option(
     "--refresh",
-    default=5.0,
+    default=60.0,
     show_default=True,
     type=float,
     help="Price refresh interval in seconds.",
