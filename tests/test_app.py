@@ -1939,6 +1939,26 @@ async def test_closed_session_shows_cls_and_no_daily_chg() -> None:
 
 
 @pytest.mark.asyncio
+async def test_daily_chg_zero_is_green(portfolio: Portfolio) -> None:
+    """Daily change cell is green and shows +0.00% for an unchanged price."""
+    prices = {"AAPL": 150.0, "NVDA": 90.0}
+    prev_closes = {"AAPL": 150.0, "NVDA": 85.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        forex_rates=USD_RATES,
+        prev_closes=prev_closes,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        chg_cell = table.get_cell_at((0, _COL_CHG))
+        assert "green" in chg_cell.style
+        assert str(chg_cell) == "+0.00%"
+
+
+@pytest.mark.asyncio
 async def test_daily_chg_positive_shown_green(portfolio: Portfolio) -> None:
     """Daily change cell is green for a positive percentage."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}
