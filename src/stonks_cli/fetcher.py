@@ -568,6 +568,59 @@ class PriceFetcher:
 
         return result
 
+    def fetch_previous_closes(self, symbols: list[str]) -> dict[str, float]:
+        """Return the previous trading day's closing price for each symbol.
+
+        Uses a 5-day window to account for weekends and holidays.
+        Symbols with fewer than 2 data points are omitted.
+
+        Args:
+            symbols: List of ticker symbols (e.g. ['AAPL', 'NVDA']).
+
+        Returns:
+            Mapping of uppercase symbol -> previous closing price.
+        """
+        if not symbols:
+            return {}
+
+        normalized = [s.upper() for s in symbols]
+
+        try:
+            data = yf.download(
+                tickers=normalized,
+                period="5d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+            )
+        except (RuntimeError, ValueError, TypeError):
+            return {}
+
+        if data.empty:
+            return {}
+
+        close = data["Close"]
+        if isinstance(close, pd.Series):
+            # yfinance returns a Series (not a DataFrame) when a single ticker
+            # is requested and the result is a flat (non-MultiIndex) DataFrame.
+            # Normalise to a one-column DataFrame keyed by the requested symbol.
+            close = close.to_frame(name=normalized[0])
+
+        today = pd.Timestamp.now().normalize()
+        result: dict[str, float] = {}
+        for symbol in normalized:
+            if symbol not in close.columns:
+                continue
+            series = close[symbol].dropna()
+            # Keep only rows strictly before today so we always get the
+            # last *completed* trading day's close, regardless of whether
+            # yfinance already includes a partial row for today.
+            before_today = series[series.index.normalize() < today]
+            if not before_today.empty:
+                result[symbol] = float(before_today.iloc[-1])
+
+        return result
+
     def current_session(self, symbol: str) -> str:
         """Return the current market session label for *symbol*.
 

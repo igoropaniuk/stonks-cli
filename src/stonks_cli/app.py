@@ -293,6 +293,7 @@ class PortfolioApp(App):
         prices: dict[str, float],
         forex_rates: dict[str, dict[str, float]],
         sessions: dict[str, str] | None = None,
+        prev_closes: dict[str, float] | None = None,
         refresh_interval: float = 60.0,
         stores: list[PortfolioStore] | None = None,
     ) -> None:
@@ -301,6 +302,7 @@ class PortfolioApp(App):
         self.prices = prices
         self.forex_rates = forex_rates
         self.sessions = sessions or {}
+        self.prev_closes: dict[str, float] = prev_closes or {}
         self.exchange_codes: dict[str, str] = {}
         self.refresh_interval = refresh_interval
         self.stores = stores or []
@@ -333,6 +335,7 @@ class PortfolioApp(App):
             "Qty",
             "Avg Cost",
             "Last Price",
+            "Daily Chg",
             "Mkt Value",
             "Unrealized P&L",
         )
@@ -636,6 +639,21 @@ class PortfolioApp(App):
         self._render_rows(table, portfolio)
         self._update_total_widget(total_widget, portfolio)
 
+    @staticmethod
+    def _daily_chg_cell(
+        last: float, prev: float | None, dim: bool = False
+    ) -> tuple[Text | str, float]:
+        """Return (display_cell, sort_value) for the daily change column."""
+        if prev is None or prev == 0:
+            cell: Text | str = Text("--", style="dim") if dim else "--"
+            return cell, 0.0
+        pct = (last - prev) / prev * 100
+        sign = "+" if pct >= 0 else ""
+        label = f"{sign}{pct:.2f}%"
+        color = "green" if pct >= 0 else "red"
+        style = f"dim {color}" if dim else color
+        return Text(label, style=style), pct
+
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
         saved_cursor = table.cursor_coordinate
         table.clear()
@@ -668,12 +686,16 @@ class PortfolioApp(App):
                     price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
                 else:
                     price_cell = f"{last:.2f}"
+                chg_cell, chg_val = self._daily_chg_cell(
+                    last, self.prev_closes.get(pos.symbol)
+                )
                 sort_key = (
                     pos.symbol,
                     label,
                     pos.quantity,
                     pos.avg_cost,
                     last,
+                    chg_val,
                     mkt_value,
                     pnl,
                 )
@@ -683,6 +705,7 @@ class PortfolioApp(App):
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     price_cell,
+                    chg_cell,
                     f"{mkt_value:,.2f}",
                     pnl_text,
                 )
@@ -695,6 +718,7 @@ class PortfolioApp(App):
                     0.0,
                     0.0,
                     0.0,
+                    0.0,
                 )
                 display = (
                     pos.symbol,
@@ -702,6 +726,7 @@ class PortfolioApp(App):
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
                     "N/A",
+                    "--",
                     "N/A",
                     "N/A",
                 )
@@ -722,6 +747,7 @@ class PortfolioApp(App):
                     cash_pos.amount,
                     1.0,
                     rate,
+                    0.0,
                     mkt_value,
                     0.0,
                 )
@@ -731,6 +757,7 @@ class PortfolioApp(App):
                     f"{cash_pos.amount:,.2f}",
                     "1.00",
                     price_cell,
+                    "--",
                     f"{mkt_value:,.2f}",
                     "--",
                 )
@@ -743,6 +770,7 @@ class PortfolioApp(App):
                     0.0,
                     0.0,
                     0.0,
+                    0.0,
                 )
                 display = (
                     cash_pos.currency,
@@ -750,6 +778,7 @@ class PortfolioApp(App):
                     f"{cash_pos.amount:,.2f}",
                     "1.00",
                     "N/A",
+                    "--",
                     "N/A",
                     "--",
                 )
@@ -768,24 +797,29 @@ class PortfolioApp(App):
                     price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
                 else:
                     price_cell = f"{last:.2f}"
-                sort_key = (watch.symbol, label, 0, 0.0, last, 0.0, 0.0)
+                chg_cell, chg_val = self._daily_chg_cell(
+                    last, self.prev_closes.get(watch.symbol), dim=True
+                )
+                sort_key = (watch.symbol, label, 0, 0.0, last, chg_val, 0.0, 0.0)
                 display = (
                     Text(watch.symbol, style="dim"),
                     Text(label, style="dim"),
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                     price_cell,
+                    chg_cell,
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                 )
             else:
-                sort_key = (watch.symbol, label, 0, 0.0, 0.0, 0.0, 0.0)
+                sort_key = (watch.symbol, label, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
                 display = (
                     Text(watch.symbol, style="dim"),
                     Text(label, style="dim"),
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                     Text("N/A", style="dim"),
+                    Text("--", style="dim"),
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                 )
@@ -868,6 +902,7 @@ class PortfolioApp(App):
                 new_prices[sym] = price
                 new_sessions[sym] = fetcher.current_session(sym)
         new_exchange_codes = fetcher.fetch_exchange_names(all_symbols)
+        new_prev_closes = fetcher.fetch_previous_closes(all_symbols)
         all_currencies = list(
             {p.currency for portfolio in self.portfolios for p in portfolio.positions}
             | {c.currency for portfolio in self.portfolios for c in portfolio.cash}
@@ -876,7 +911,12 @@ class PortfolioApp(App):
         for base in {p.base_currency for p in self.portfolios}:
             new_forex[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
         self.call_from_thread(
-            self._apply_prices, new_prices, new_forex, new_sessions, new_exchange_codes
+            self._apply_prices,
+            new_prices,
+            new_forex,
+            new_sessions,
+            new_exchange_codes,
+            new_prev_closes,
         )
 
     def _apply_prices(
@@ -885,6 +925,7 @@ class PortfolioApp(App):
         forex_rates: dict[str, dict[str, float]] | None = None,
         sessions: dict[str, str] | None = None,
         exchange_codes: dict[str, str] | None = None,
+        prev_closes: dict[str, float] | None = None,
     ) -> None:
         self.prices = prices
         if forex_rates is not None:
@@ -893,4 +934,6 @@ class PortfolioApp(App):
             self.sessions = sessions
         if exchange_codes is not None:
             self.exchange_codes = exchange_codes
+        if prev_closes is not None:
+            self.prev_closes = prev_closes
         self._populate_tables()

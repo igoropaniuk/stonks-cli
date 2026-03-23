@@ -29,10 +29,12 @@ _COLS = (
     "Qty",
     "Avg Cost",
     "Last Price",
+    "Daily Chg",
     "Mkt Value",
     "Unrealized P&L",
 )
 _COL_LAST = _COLS.index("Last Price")
+_COL_CHG = _COLS.index("Daily Chg")
 _COL_MKT = _COLS.index("Mkt Value")
 _COL_PNL = _COLS.index("Unrealized P&L")
 
@@ -415,6 +417,7 @@ async def test_refresh_prices_calls_fetcher_and_applies(portfolio: Portfolio) ->
         "NVDA": (90.0, "regular"),
     }
     mock_fetcher.fetch_exchange_names.return_value = {"AAPL": "NMS", "NVDA": "NMS"}
+    mock_fetcher.fetch_previous_closes.return_value = {"AAPL": 155.0, "NVDA": 85.0}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
 
     with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
@@ -429,6 +432,7 @@ async def test_refresh_prices_calls_fetcher_and_applies(portfolio: Portfolio) ->
     assert app.prices == {"AAPL": 160.0, "NVDA": 90.0}
     assert app.sessions == {"AAPL": "regular", "NVDA": "regular"}
     assert app.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
+    assert app.prev_closes == {"AAPL": 155.0, "NVDA": 85.0}
 
 
 @pytest.mark.asyncio
@@ -441,6 +445,7 @@ async def test_refresh_prices_tier2_fallback(portfolio: Portfolio) -> None:
     mock_fetcher.fetch_price_single.return_value = None
     mock_fetcher.current_session.return_value = "regular"
     mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_previous_closes.return_value = {}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
 
     with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
@@ -466,6 +471,7 @@ async def test_refresh_prices_tier3_fallback(portfolio: Portfolio) -> None:
     mock_fetcher.fetch_price_single.return_value = 88.0
     mock_fetcher.current_session.return_value = "pre"
     mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_previous_closes.return_value = {}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
 
     with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
@@ -512,6 +518,7 @@ async def test_refresh_prices_tier3_none_price_skipped(portfolio: Portfolio) -> 
     mock_fetcher.fetch_prices.return_value = {}
     mock_fetcher.fetch_price_single.return_value = None  # NVDA unreachable
     mock_fetcher.fetch_exchange_names.return_value = {}
+    mock_fetcher.fetch_previous_closes.return_value = {}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
 
     with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
@@ -1772,8 +1779,8 @@ async def test_watchlist_rows_show_dashes_for_qty_and_cost() -> None:
         table = app.query_one(DataTable)
         assert str(table.get_cell_at((0, 2))) == "--"  # Qty
         assert str(table.get_cell_at((0, 3))) == "--"  # Avg Cost
-        assert str(table.get_cell_at((0, 5))) == "--"  # Mkt Value
-        assert str(table.get_cell_at((0, 6))) == "--"  # P&L
+        assert str(table.get_cell_at((0, _COL_MKT))) == "--"  # Mkt Value
+        assert str(table.get_cell_at((0, _COL_PNL))) == "--"  # P&L
 
 
 @pytest.mark.asyncio
@@ -1899,3 +1906,87 @@ async def test_type_selector_shows_watch_option() -> None:
 
         buttons = [b.id for b in app.screen.query(Button)]
         assert "watch" in buttons
+
+
+# ---------------------------------------------------------------------------
+# Daily Change
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daily_chg_positive_shown_green(portfolio: Portfolio) -> None:
+    """Daily change cell is green for a positive percentage."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    prev_closes = {"AAPL": 150.0, "NVDA": 85.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        forex_rates=USD_RATES,
+        prev_closes=prev_closes,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        chg_cell = table.get_cell_at((0, _COL_CHG))
+        assert "green" in chg_cell.style
+        assert "+" in str(chg_cell)
+        assert "%" in str(chg_cell)
+
+
+@pytest.mark.asyncio
+async def test_daily_chg_negative_shown_red(portfolio: Portfolio) -> None:
+    """Daily change cell is red for a negative percentage."""
+    prices = {"AAPL": 140.0, "NVDA": 90.0}
+    prev_closes = {"AAPL": 150.0, "NVDA": 100.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        forex_rates=USD_RATES,
+        prev_closes=prev_closes,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        chg_cell = table.get_cell_at((0, _COL_CHG))
+        assert "red" in chg_cell.style
+        assert "-" in str(chg_cell)
+
+
+@pytest.mark.asyncio
+async def test_daily_chg_missing_prev_close_shows_dash() -> None:
+    """Daily change shows '--' when previous close is unavailable."""
+    portfolio = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(
+        portfolios=[portfolio], prices=prices, forex_rates=USD_RATES, prev_closes={}
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert str(table.get_cell_at((0, _COL_CHG))) == "--"
+
+
+@pytest.mark.asyncio
+async def test_daily_chg_watchlist_dim_style() -> None:
+    """Watchlist daily change cell uses dim style."""
+    portfolio = Portfolio(watchlist=[WatchlistItem("TSLA")])
+    prices = {"TSLA": 260.0}
+    prev_closes = {"TSLA": 250.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        forex_rates=USD_RATES,
+        prev_closes=prev_closes,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        chg_cell = table.get_cell_at((0, _COL_CHG))
+        assert "dim" in chg_cell.style
+        assert "%" in str(chg_cell)

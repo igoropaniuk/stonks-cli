@@ -580,6 +580,97 @@ class TestIsTradingDay:
             assert _is_trading_day(self._TZ) is True
 
 
+def _multi_day_close_df(
+    prices: dict[str, list[float]],
+    dates: list[str] | None = None,
+) -> pd.DataFrame:
+    """Build a multi-row yfinance-style DataFrame for previous close tests."""
+    first_sym = next(iter(prices))
+    n = len(prices[first_sym])
+    if dates is None:
+        dates = (
+            pd.date_range(start="2026-03-10", periods=n, freq="D")
+            .strftime("%Y-%m-%d")
+            .tolist()
+        )
+    idx = pd.to_datetime(dates)
+    cols = pd.MultiIndex.from_product([["Close"], list(prices.keys())])
+    data = [[prices[sym][i] for sym in prices] for i in range(n)]
+    return pd.DataFrame(data, columns=cols, index=idx)
+
+
+class TestFetchPreviousCloses:
+    def test_empty_symbols_skips_download(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.download") as mock_dl:
+            result = fetcher.fetch_previous_closes([])
+        assert result == {}
+        mock_dl.assert_not_called()
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_returns_last_close_before_today(self, mock_dl, fetcher: PriceFetcher):
+        # All dates are before today -> last row is the previous close
+        mock_dl.return_value = _multi_day_close_df(
+            {"AAPL": [148.0, 150.0, 155.0]},
+            dates=["2026-03-18", "2026-03-19", "2026-03-20"],
+        )
+        result = fetcher.fetch_previous_closes(["AAPL"])
+        assert result == {"AAPL": 155.0}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_excludes_today_row(self, mock_dl, fetcher: PriceFetcher):
+        # Last row is today -> should be excluded, return the one before it
+        today = pd.Timestamp.now().strftime("%Y-%m-%d")
+        mock_dl.return_value = _multi_day_close_df(
+            {"AAPL": [148.0, 150.0, 155.0]},
+            dates=["2026-03-18", "2026-03-19", today],
+        )
+        result = fetcher.fetch_previous_closes(["AAPL"])
+        assert result == {"AAPL": 150.0}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_skips_symbol_with_no_data_before_today(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        # Only today's row -> nothing before today
+        today = pd.Timestamp.now().strftime("%Y-%m-%d")
+        mock_dl.return_value = _multi_day_close_df({"AAPL": [150.0]}, dates=[today])
+        assert fetcher.fetch_previous_closes(["AAPL"]) == {}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_returns_empty_on_empty_download(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = pd.DataFrame()
+        assert fetcher.fetch_previous_closes(["AAPL"]) == {}
+
+    @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
+    def test_returns_empty_on_runtime_error(self, _mock, fetcher: PriceFetcher):
+        assert fetcher.fetch_previous_closes(["AAPL"]) == {}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_single_symbol_returns_series_not_dataframe(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        # yfinance returns a Series (not DataFrame) for data["Close"] when
+        # only one ticker is requested. Regression test for AttributeError on
+        # close.columns.
+        idx = pd.to_datetime(["2026-03-18", "2026-03-19", "2026-03-20"])
+        close_series = pd.Series([148.0, 150.0, 155.0], index=idx, name="AAPL")
+        mock_dl.return_value = pd.DataFrame({"Close": close_series})
+        result = fetcher.fetch_previous_closes(["AAPL"])
+        assert result == {"AAPL": 155.0}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_multi_symbol_missing_ticker_skipped(self, mock_dl, fetcher: PriceFetcher):
+        # Multi-ticker requests return a MultiIndex DataFrame; tickers with no
+        # data simply won't appear in close.columns and are skipped in the loop.
+        mock_dl.return_value = _multi_day_close_df(
+            {"AAPL": [148.0, 150.0, 155.0]},
+            dates=["2026-03-18", "2026-03-19", "2026-03-20"],
+        )
+        result = fetcher.fetch_previous_closes(["AAPL", "MISSING"])
+        assert result == {"AAPL": 155.0}
+        assert "MISSING" not in result
+
+
 class TestFetchPricesRuntimeError:
     @patch("stonks_cli.fetcher.yf.download", side_effect=RuntimeError("race"))
     def test_returns_empty_dict_on_runtime_error(self, _mock, fetcher: PriceFetcher):
