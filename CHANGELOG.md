@@ -104,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interval.
 - European and illiquid tickers (e.g. `VUAA.L`, `IWDA.AS`, `CHIP.PA`) showing
   `N/A` in the dashboard. A three-tier price fetch pipeline was introduced:
-  1-minute extended-hours batch → daily batch fallback → individual
+  1-minute extended-hours batch -> daily batch fallback -> individual
   `yf.Ticker.fast_info` lookup, which bypasses cross-exchange DataFrame
   alignment issues entirely.
 - Stocks outside regular trading hours (e.g. IBM pre-market) incorrectly showing

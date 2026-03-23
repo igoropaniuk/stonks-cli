@@ -104,7 +104,7 @@ portfolio:
 | `symbol` | string | yes      | Yahoo Finance ticker (case-insensitive) |
 
 Watchlist items are displayed in the dashboard with a dimmed style and only
-show the live price — they have no quantity, cost, or market value and are
+show the live price -- they have no quantity, cost, or market value and are
 **not included** in the portfolio total. Press Enter on a watchlist row to
 open the detail screen.
 
@@ -292,7 +292,7 @@ forex rates and sums them up.
 | `r`       | Remove the currently selected position              |
 | `q`       | Quit                                                |
 
-Column headers are clickable — click once to sort ascending, again to sort descending.
+Column headers are clickable -- click once to sort ascending, again to sort descending.
 
 ---
 
