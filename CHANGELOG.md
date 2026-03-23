@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-23
+
+### Fixed
+
+- Dashboard can now open successfully for portfolios that contain only
+  watchlist items and no held positions.
+- Default dashboard refresh interval increased to 60 seconds to reduce
+  unnecessary polling and lower the risk of hitting upstream rate limits.
+- Non-ASCII typographic symbols introduced by editors or copied rich text were
+  replaced with ASCII-safe equivalents across repository text and UI strings.
+
+### Changed
+
+- CI and pre-commit now run a Unicode normalization check that flags common
+  LLM-style non-ASCII symbols and invisible whitespace before changes are
+  accepted.
+
 ## [0.3.0] - 2026-03-19
 
 ### Added
@@ -145,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[0.3.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.1.0...v0.2.0
