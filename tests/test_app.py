@@ -443,7 +443,6 @@ async def test_refresh_prices_tier2_fallback(portfolio: Portfolio) -> None:
     mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
     mock_fetcher.fetch_prices.return_value = {"NVDA": 90.0}
     mock_fetcher.fetch_price_single.return_value = None
-    mock_fetcher.current_session.return_value = "regular"
     mock_fetcher.fetch_exchange_names.return_value = {}
     mock_fetcher.fetch_previous_closes.return_value = {}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
@@ -458,7 +457,8 @@ async def test_refresh_prices_tier2_fallback(portfolio: Portfolio) -> None:
 
     assert mock_fetcher.fetch_prices.called
     assert app.prices.get("NVDA") == pytest.approx(90.0)
-    assert app.sessions.get("NVDA") == "regular"
+    # No intraday data -> marked as closed
+    assert app.sessions.get("NVDA") == "closed"
 
 
 @pytest.mark.asyncio
@@ -469,7 +469,6 @@ async def test_refresh_prices_tier3_fallback(portfolio: Portfolio) -> None:
     mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
     mock_fetcher.fetch_prices.return_value = {}
     mock_fetcher.fetch_price_single.return_value = 88.0
-    mock_fetcher.current_session.return_value = "pre"
     mock_fetcher.fetch_exchange_names.return_value = {}
     mock_fetcher.fetch_previous_closes.return_value = {}
     mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
@@ -484,7 +483,8 @@ async def test_refresh_prices_tier3_fallback(portfolio: Portfolio) -> None:
 
     mock_fetcher.fetch_price_single.assert_called_once_with("NVDA")
     assert app.prices.get("NVDA") == pytest.approx(88.0)
-    assert app.sessions.get("NVDA") == "pre"
+    # No intraday data -> marked as closed
+    assert app.sessions.get("NVDA") == "closed"
 
 
 @pytest.mark.asyncio
@@ -1911,6 +1911,31 @@ async def test_type_selector_shows_watch_option() -> None:
 # ---------------------------------------------------------------------------
 # Daily Change
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_closed_session_shows_cls_and_no_daily_chg() -> None:
+    """Tickers with session 'closed' show CLS suffix and '--' daily change."""
+    portfolio = Portfolio(
+        positions=[Position(symbol="UI", quantity=5, avg_cost=500.0)],
+    )
+    prices = {"UI": 760.0}
+    prev_closes = {"UI": 760.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        forex_rates=USD_RATES,
+        prev_closes=prev_closes,
+        sessions={"UI": "closed"},
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        price_cell = str(table.get_cell_at((0, _COLS.index("Last Price"))))
+        assert "CLS" in price_cell
+        assert "760.00" in price_cell
+        assert str(table.get_cell_at((0, _COL_CHG))) == "--"
 
 
 @pytest.mark.asyncio

@@ -641,10 +641,13 @@ class PortfolioApp(App):
 
     @staticmethod
     def _daily_chg_cell(
-        last: float, prev: float | None, dim: bool = False
+        last: float,
+        prev: float | None,
+        dim: bool = False,
+        session: str = "regular",
     ) -> tuple[Text | str, float]:
         """Return (display_cell, sort_value) for the daily change column."""
-        if prev is None or prev == 0:
+        if prev is None or prev == 0 or session == "closed":
             cell: Text | str = Text("--", style="dim") if dim else "--"
             return cell, 0.0
         pct = (last - prev) / prev * 100
@@ -687,7 +690,7 @@ class PortfolioApp(App):
                 else:
                     price_cell = f"{last:.2f}"
                 chg_cell, chg_val = self._daily_chg_cell(
-                    last, self.prev_closes.get(pos.symbol)
+                    last, self.prev_closes.get(pos.symbol), session=session
                 )
                 sort_key = (
                     pos.symbol,
@@ -798,7 +801,10 @@ class PortfolioApp(App):
                 else:
                     price_cell = f"{last:.2f}"
                 chg_cell, chg_val = self._daily_chg_cell(
-                    last, self.prev_closes.get(watch.symbol), dim=True
+                    last,
+                    self.prev_closes.get(watch.symbol),
+                    dim=True,
+                    session=session,
                 )
                 sort_key = (watch.symbol, label, 0, 0.0, last, chg_val, 0.0, 0.0)
                 display = (
@@ -890,7 +896,8 @@ class PortfolioApp(App):
         if missing:
             fallback = fetcher.fetch_prices(missing)
             new_prices.update(fallback)
-            new_sessions.update({sym: fetcher.current_session(sym) for sym in fallback})
+            # No intraday data for today -- mark as closed.
+            new_sessions.update({sym: "closed" for sym in fallback})
 
         # Final fallback: fetch individually for symbols still missing after
         # the batch attempt (cross-exchange DataFrame alignment can silently
@@ -900,7 +907,7 @@ class PortfolioApp(App):
             price = fetcher.fetch_price_single(sym)
             if price is not None:
                 new_prices[sym] = price
-                new_sessions[sym] = fetcher.current_session(sym)
+                new_sessions[sym] = "closed"
         new_exchange_codes = fetcher.fetch_exchange_names(all_symbols)
         new_prev_closes = fetcher.fetch_previous_closes(all_symbols)
         all_currencies = list(
