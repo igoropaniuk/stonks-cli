@@ -108,7 +108,7 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
     stores: list[PortfolioStore] = ctx.obj["stores"]
     portfolios = [store.load() for store in stores]
 
-    if all(not p.positions and not p.cash for p in portfolios):
+    if not any(p.positions or p.cash or p.watchlist for p in portfolios):
         click.echo("Portfolio is empty.")
         return
 
