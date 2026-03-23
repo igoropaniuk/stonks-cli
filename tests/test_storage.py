@@ -312,3 +312,90 @@ class TestWatchlist:
         store = make_store(tmp_path)
         store.save(Portfolio(watchlist=[]))
         assert store.load().watchlist == []
+
+
+class TestAssetType:
+    def test_loads_position_asset_type_from_yaml(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {
+                "portfolio": {
+                    "positions": [
+                        {
+                            "symbol": "BTC-USD",
+                            "quantity": 0.25,
+                            "avg_cost": 50000.0,
+                            "currency": "USD",
+                            "asset_type": "crypto",
+                        }
+                    ],
+                }
+            },
+        )
+        portfolio = store.load()
+        assert portfolio.positions[0].asset_type == "crypto"
+
+    def test_default_asset_type_none_when_missing(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {
+                "portfolio": {
+                    "positions": [
+                        {"symbol": "AAPL", "quantity": 10, "avg_cost": 150.0}
+                    ],
+                }
+            },
+        )
+        assert store.load().positions[0].asset_type is None
+
+    def test_saves_asset_type_only_when_set(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = Portfolio(
+            positions=[
+                Position(symbol="AAPL", quantity=10, avg_cost=150.0),
+                Position(
+                    symbol="BTC-USD",
+                    quantity=0.25,
+                    avg_cost=50000.0,
+                    asset_type="crypto",
+                ),
+            ]
+        )
+        store.save(portfolio)
+        data = yaml.safe_load(store.path.read_text())
+        positions = data["portfolio"]["positions"]
+        assert "asset_type" not in positions[0]
+        assert positions[1]["asset_type"] == "crypto"
+
+    def test_asset_type_round_trip(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        original = Portfolio(
+            positions=[
+                Position(
+                    symbol="ETH-USD",
+                    quantity=2.5,
+                    avg_cost=2800.0,
+                    asset_type="crypto",
+                )
+            ]
+        )
+        store.save(original)
+        loaded = store.load()
+        assert loaded.positions[0].asset_type == "crypto"
+
+    def test_watchlist_asset_type_round_trip(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        original = Portfolio(
+            watchlist=[WatchlistItem(symbol="BTC-USD", asset_type="crypto")]
+        )
+        store.save(original)
+        loaded = store.load()
+        assert loaded.watchlist[0].asset_type == "crypto"
+
+    def test_watchlist_asset_type_omitted_when_none(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(Portfolio(watchlist=[WatchlistItem(symbol="TSLA")]))
+        data = yaml.safe_load(store.path.read_text())
+        assert "asset_type" not in data["portfolio"]["watchlist"][0]
