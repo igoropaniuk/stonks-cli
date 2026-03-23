@@ -162,7 +162,7 @@ class TestDashboard:
         invoke(runner, portfolio_file, "dashboard")
 
         _, kwargs = mock_app_cls.call_args
-        assert kwargs["refresh_interval"] == 5.0
+        assert kwargs["refresh_interval"] == 60.0
 
     @patch("stonks_cli.main.PortfolioApp")
     def test_dashboard_custom_refresh_interval(
