@@ -15,12 +15,26 @@ Track your investment portfolio directly from the terminal.
 
 ## Features
 
-- terminal dashboard (TUI)
-- tracks stock portfolio with **live market prices** including **extended-hours**
-  quotes
-- calculates a total portfolio value converted to USD and unrealized P&L
-- Yahoo Finance integration (**no API token required**)
-- open source (**MIT licensed**)
+- **Terminal dashboard (TUI)** -- live prices refresh automatically every
+  60 seconds (configurable)
+- **Extended-hours quotes** -- pre-market, regular, after-hours, and closed
+  session labels for US equities
+- **Daily % change** -- shows today's gain/loss vs. the previous close for
+  every position and watchlist item
+- **Stock detail screen** -- press Enter on any row to open charts, earnings
+  trends, analyst insights, and key statistics
+- **Watchlist** -- track symbols without holding a position; shown in the
+  dashboard with dimmed styling
+- **Multi-portfolio** -- open several YAML files side-by-side with multiple
+  `-p` flags
+- **Multi-currency** -- portfolio totals are converted to a base currency
+  using live forex rates
+- **50+ exchanges** -- US, Europe, Asia-Pacific, Americas, and crypto
+  (no dot-suffix for US tickers)
+- **Yahoo Finance** -- no API token required
+- **Holiday-aware sessions** -- uses exchange-calendars to detect market
+  holidays correctly
+- **Open source** -- MIT licensed
 
 ---
 
@@ -38,16 +52,16 @@ Or with [pipx](https://pipx.pypa.io/) (recommended -- keeps the tool isolated):
 pipx install stonks-cli
 ```
 
-## Preparing configuration in YAML format
+## Portfolio configuration
 
-stonks-cli stores your portfolio in a YAML file.  By default the file is read
+stonks-cli stores your portfolio in a YAML file. By default the file is read
 from `~/.config/stonks/portfolio.yaml`; you can override this with the
 `-p` / `--portfolio` option (see [Usage](#usage)).
 
 > **First run:** if `~/.config/stonks/` contains no `.yaml` files, stonks-cli
 > automatically creates a sample portfolio at
 > `~/.config/stonks/portfolio.yaml` so you can explore the dashboard right
-> away.  Replace its contents with your own positions whenever you are ready.
+> away. Replace its contents with your own positions whenever you are ready.
 
 ### File structure
 
@@ -92,10 +106,10 @@ portfolio:
 
 **Cash** fields:
 
-| Field      | Type   | Required | Description                      |
-| ---------- | ------ | -------- | -------------------------------- |
+| Field      | Type   | Required | Description |
+| ---------- | ------ | -------- | --------------------------------- |
 | `currency` | string | yes      | ISO 4217 code (e.g. `USD`, `EUR`) |
-| `amount`   | float  | yes      | Cash held (positive)             |
+| `amount`   | float  | yes      | Cash held (positive) |
 
 **Watchlist** fields:
 
@@ -104,9 +118,9 @@ portfolio:
 | `symbol` | string | yes      | Yahoo Finance ticker (case-insensitive) |
 
 Watchlist items are displayed in the dashboard with a dimmed style and only
-show the live price -- they have no quantity, cost, or market value and are
-**not included** in the portfolio total. Press Enter on a watchlist row to
-open the detail screen.
+show the live price and daily change -- they have no quantity, cost, or market
+value and are **not included** in the portfolio total. Press Enter on a
+watchlist row to open the detail screen.
 
 > The file is created and updated automatically when you use the `add`,
 > `remove`, `add-cash`, and `remove-cash` commands, so you only need to
@@ -197,21 +211,27 @@ Append the appropriate suffix to the base ticker symbol.
 stonks [OPTIONS] COMMAND [ARGS]...
 
 Options:
-  -p, --portfolio PATH  Portfolio YAML file
-                        (default: ~/.config/stonks/portfolio.yaml)
-  --help                Show this message and exit.
+  -p, --portfolio PATH                    Portfolio YAML file or name
+                                          (repeatable; default:
+                                          ~/.config/stonks/portfolio.yaml)
+  --log-level [DEBUG|INFO|WARNING|ERROR]  Log verbosity written to the log
+                                          file  [default: WARNING]
+  -V, --version                           Show the version and exit.
+  --help                                  Show this message and exit.
 
 Commands:
-  add         Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
-  remove      Remove QUANTITY shares of SYMBOL from the portfolio.
-  add-cash    Add AMOUNT of CURRENCY cash to the portfolio.
-  remove-cash Remove AMOUNT of CURRENCY cash from the portfolio.
-  dashboard   Display the current portfolio with live prices and P&L.
+  add          Add QUANTITY shares of SYMBOL at PRICE to the portfolio.
+  remove       Remove QUANTITY shares of SYMBOL from the portfolio.
+  add-cash     Add AMOUNT of CURRENCY cash to the portfolio.
+  remove-cash  Remove AMOUNT of CURRENCY cash from the portfolio.
+  dashboard    Display the current portfolio with live prices and P&L.
+  list         List all portfolios in ~/.config/stonks/.
 ```
 
-### Show the portfolio
+### Launch the dashboard
 
-Running `stonks` without a subcommand launches the dashboard automatically:
+Running `stonks` without a subcommand launches the dashboard automatically.
+Prices refresh every **60 seconds** by default.
 
 ```bash
 # Launch the TUI (dashboard is the default command)
@@ -220,8 +240,11 @@ stonks
 # Equivalent -- explicit subcommand
 stonks dashboard
 
-# Refresh prices every 30 seconds
+# Refresh prices every 30 seconds instead
 stonks dashboard --refresh 30
+
+# Open two portfolios side by side
+stonks -p personal -p work
 ```
 
 ### Add a position
@@ -233,12 +256,15 @@ stonks add AAPL 10 150.00
 # Add a non-US stock (ASML on Euronext Amsterdam)
 stonks add ASML.AS 5 680.00
 
-# Use a custom portfolio file
-stonks -p ~/my-portfolio.yaml add NVDA 2 800.00
+# Add crypto
+stonks add BTC-USD 0.5 60000.00
+
+# Use a named portfolio (resolves to ~/.config/stonks/work.yaml)
+stonks -p work add NVDA 2 800.00
 ```
 
-When a symbol is added a second time, the quantity is increased and the average
-cost is recalculated as a weighted average automatically.
+When a symbol is added a second time, the quantity is increased and the
+average cost is recalculated as a weighted average automatically.
 
 ### Remove a position
 
@@ -267,32 +293,115 @@ stonks remove-cash EUR 2000.00
 Cash is displayed in the dashboard below the stock positions and is included
 in the total portfolio value converted to the base currency.
 
-The TUI displays a table with the following columns:
+### List portfolios
 
-| Column         | Description                                                    |
-| -------------- | -------------------------------------------------------------- |
-| Instrument     | Ticker symbol                                                  |
-| Exchange       | Exchange name derived from ticker suffix (e.g. NYSE/NASDAQ)    |
-| Qty            | Number of shares held                                          |
-| Avg Cost       | Average purchase price per share                               |
-| Last Price     | Most recent price from Yahoo Finance; tagged PRE / AH / CLS    |
-| Mkt Value      | Current market value (Qty * Last Price)                        |
-| Unrealized P&L | Profit/loss vs. average cost (green/red)                       |
+```bash
+stonks list
+```
 
-A **Total (USD)** line at the bottom converts all positions to USD using live
-forex rates and sums them up.
+Lists all `.yaml` files found in `~/.config/stonks/`.
+
+---
+
+## Dashboard
+
+### Columns
+
+| Column         | Description                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| Instrument     | Ticker symbol                                                        |
+| Exchange       | Exchange name derived from ticker suffix (e.g. NYSE/NASDAQ, Crypto)  |
+| Qty            | Number of shares held                                                |
+| Avg Cost       | Average purchase price per share                                     |
+| Last Price     | Most recent price; tagged PRE, AH, or CLS for non-regular sessions   |
+| Daily Chg      | Percentage change vs. the previous close (green / red)               |
+| Mkt Value      | Current market value (Qty * Last Price)                              |
+| Unrealized P&L | Profit/loss vs. average cost (bold green / bold red)                 |
+
+A **Total** line at the bottom converts all positions and cash to the
+portfolio's base currency using live forex rates.
+
+Watchlist rows are dimmed and only show Instrument, Exchange, Last Price, and
+Daily Chg -- all other columns display `--`.
+
+### Session labels
+
+US equities on exchanges that support extended hours show a session tag next
+to the price:
+
+| Tag   | Session                   |
+| ----- | ------------------------- |
+| `PRE` | Pre-market                |
+| `AH`  | After-hours / post-market |
+| `CLS` | Market closed             |
+| *(none)* | Regular trading hours  |
+
+Non-US equities and crypto show no tag during regular hours and `CLS` when the
+market is closed (using holiday-aware calendar data).
 
 ### Keyboard shortcuts
 
-| Key       | Action                                              |
-| --------- | --------------------------------------------------- |
-| `Tab`     | Switch focus between portfolio tables / buttons     |
-| `a`       | Add a new position (equity/crypto/ETF or cash)      |
-| `e`       | Edit the currently selected position                |
-| `r`       | Remove the currently selected position              |
-| `q`       | Quit                                                |
+| Key      | Action                                            |
+| -------- | ------------------------------------------------- |
+| `a`      | Add a new position (equity, crypto, ETF, cash)    |
+| `e`      | Edit the currently selected position              |
+| `r`      | Remove the currently selected position            |
+| `Enter`  | Open the detail screen for the selected row       |
+| `Tab`    | Switch focus between portfolio tables             |
+| `q`      | Quit                                              |
 
-Column headers are clickable -- click once to sort ascending, again to sort descending.
+Column headers are clickable -- click once to sort ascending, again to sort
+descending.
+
+---
+
+## Stock detail screen
+
+Press **Enter** on any equity or watchlist row to open a full-screen detail
+view. Press **Escape** or **Q** to return to the dashboard.
+
+The detail screen displays:
+
+- **Performance** -- trailing returns (YTD, 1Y, 3Y, 5Y) compared side-by-side
+  with the S&P 500
+- **Price charts** -- interactive terminal charts for 1 Day, 1 Month, 1 Year,
+  and 5 Years
+- **Financial summary** -- previous close, open, bid/ask, day range, 52-week
+  range, volume, market cap, P/E, EPS, earnings date, dividend yield
+- **Earnings trends** -- quarterly EPS actual vs. estimate bar chart; revenue
+  vs. net income chart
+- **Analyst insights** -- price targets (low / mean / high), consensus rating,
+  and a monthly recommendations breakdown (Strong Buy to Strong Sell)
+- **Statistics** -- valuation measures and financial highlights
+
+---
+
+## Logging
+
+stonks-cli writes structured log messages to a platform-specific file:
+
+| Platform | Path                                          |
+| -------- | --------------------------------------------- |
+| Linux    | `~/.local/state/stonks/log/stonks.log`        |
+| macOS    | `~/Library/Logs/stonks/stonks.log`            |
+| Windows  | `%LOCALAPPDATA%\stonks\Logs\stonks.log`       |
+
+The default verbosity is `WARNING` (only warnings and errors are recorded).
+Use `--log-level` to capture more detail:
+
+```bash
+# Capture all debug output
+stonks --log-level DEBUG
+
+# Capture info and above
+stonks --log-level INFO dashboard --refresh 30
+```
+
+Log entries follow the format:
+
+```text
+YYYY-MM-DDTHH:MM:SS  LEVEL     logger_name  message
+```
 
 ---
 
