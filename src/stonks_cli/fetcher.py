@@ -250,17 +250,22 @@ _YF_CODE_TO_LABEL: dict[str, str] = {
 }
 
 
-def exchange_label(symbol: str, exchange_code: str | None = None) -> str:
+def exchange_label(
+    symbol: str,
+    exchange_code: str | None = None,
+    asset_type: str | None = None,
+) -> str:
     """Return a short exchange name for *symbol*.
 
     Resolution order:
-    1. Crypto (contains '-')          -> "Crypto"
-    2. *exchange_code* in lookup table -> mapped display name
-    3. Known exchange suffix           -> short name from the suffix label table
-    4. Unknown suffix                  -> the raw suffix (e.g. "XY")
-    5. Plain US ticker, no code        -> "NYSE/NASDAQ"
+    1. asset_type == 'crypto'          -> "Crypto"
+    2. Crypto (contains '-')          -> "Crypto"
+    3. *exchange_code* in lookup table -> mapped display name
+    4. Known exchange suffix           -> short name from the suffix label table
+    5. Unknown suffix                  -> the raw suffix (e.g. "XY")
+    6. Plain US ticker, no code        -> "NYSE/NASDAQ"
     """
-    if "-" in symbol:
+    if asset_type == "crypto" or "-" in symbol:
         return "Crypto"
     if exchange_code and exchange_code in _YF_CODE_TO_LABEL:
         return _YF_CODE_TO_LABEL[exchange_code]
