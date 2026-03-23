@@ -703,6 +703,7 @@ class PriceFetcher:
 
         close = data["Close"]
 
+        today = pd.Timestamp.now(tz="UTC").normalize()
         result: dict[str, tuple[float, str]] = {}
         for symbol in normalized:
             if symbol not in close.columns:
@@ -711,7 +712,13 @@ class PriceFetcher:
             if series.empty:
                 continue
             price = float(series.iloc[-1])
-            result[symbol] = (price, self.current_session(symbol))
+            # If the last bar is from a previous day, the ticker has no
+            # intraday data for today (not trading in extended hours).
+            last_bar_date = series.index[-1].tz_convert("UTC").normalize()
+            if last_bar_date < today:
+                result[symbol] = (price, "closed")
+            else:
+                result[symbol] = (price, self.current_session(symbol))
 
         return result
 
