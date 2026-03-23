@@ -11,7 +11,16 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Select,
+    Static,
+)
 
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import CryptoFetcher, PriceFetcher, exchange_label
@@ -68,6 +77,16 @@ class _TypeSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+_ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
+    ("Equity (default)", None),
+    ("Crypto", "crypto"),
+    ("ETF", "etf"),
+    ("Bond", "bond"),
+    ("Commodity", "commodity"),
+    ("Forex", "forex"),
+]
+
+
 class _EquityFormScreen(ModalScreen[dict | None]):
     """Form for adding or editing an equity position."""
 
@@ -80,6 +99,8 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         qty: str = "",
         avg_cost: str = "",
         currency: str = "USD",
+        asset_type: str | None = None,
+        external_id: str = "",
     ) -> None:
         super().__init__()
         self._title = title
@@ -87,18 +108,33 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         self._qty = qty
         self._avg_cost = avg_cost
         self._currency = currency
+        self._asset_type = asset_type
+        self._external_id = external_id
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label(self._title)
             yield Label("Symbol", classes="field-label")
             yield Input(value=self._symbol, placeholder="e.g. AAPL", id="symbol")
-            yield Label("Quantity (integer)", classes="field-label")
-            yield Input(value=self._qty, placeholder="e.g. 10", id="qty")
+            yield Label("Quantity", classes="field-label")
+            yield Input(value=self._qty, placeholder="e.g. 10 or 0.25", id="qty")
             yield Label("Avg Cost", classes="field-label")
             yield Input(value=self._avg_cost, placeholder="e.g. 150.00", id="avg_cost")
             yield Label("Currency", classes="field-label")
             yield Input(value=self._currency, placeholder="USD", id="currency")
+            yield Label("Asset Type", classes="field-label")
+            yield Select(
+                [(label, val) for label, val in _ASSET_TYPE_OPTIONS],
+                value=self._asset_type,
+                allow_blank=False,
+                id="asset_type",
+            )
+            yield Label("External ID (e.g. CoinGecko coin ID)", classes="field-label")
+            yield Input(
+                value=self._external_id,
+                placeholder="e.g. bitcoin",
+                id="external_id",
+            )
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
@@ -119,16 +155,18 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         qty_str = self.query_one("#qty", Input).value.strip()
         avg_cost_str = self.query_one("#avg_cost", Input).value.strip()
         currency = self.query_one("#currency", Input).value.strip().upper() or "USD"
+        asset_type = self.query_one("#asset_type", Select).value
+        external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
         if not symbol:
             err.update("Symbol is required")
             return
         try:
-            qty = int(qty_str)
+            qty = float(qty_str)
             if qty <= 0:
                 raise ValueError
         except ValueError:
-            err.update("Quantity must be a positive integer")
+            err.update("Quantity must be a positive number")
             return
         try:
             avg_cost = float(avg_cost_str)
@@ -138,7 +176,14 @@ class _EquityFormScreen(ModalScreen[dict | None]):
             err.update("Avg cost must be a positive number")
             return
         self.dismiss(
-            {"symbol": symbol, "qty": qty, "avg_cost": avg_cost, "currency": currency}
+            {
+                "symbol": symbol,
+                "qty": qty,
+                "avg_cost": avg_cost,
+                "currency": currency,
+                "asset_type": asset_type,
+                "external_id": external_id,
+            }
         )
 
 
@@ -197,21 +242,42 @@ class _CashFormScreen(ModalScreen[dict | None]):
         self.dismiss({"currency": currency, "amount": amount})
 
 
-class _WatchFormScreen(ModalScreen[str | None]):
-    """Form for adding or editing a watchlist item (symbol only)."""
+class _WatchFormScreen(ModalScreen[dict | None]):
+    """Form for adding or editing a watchlist item."""
 
     CSS = _MODAL_CSS.format(cls="_WatchFormScreen")
 
-    def __init__(self, title: str = "Add Watch Item", symbol: str = "") -> None:
+    def __init__(
+        self,
+        title: str = "Add Watch Item",
+        symbol: str = "",
+        asset_type: str | None = None,
+        external_id: str = "",
+    ) -> None:
         super().__init__()
         self._title = title
         self._symbol = symbol
+        self._asset_type = asset_type
+        self._external_id = external_id
 
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label(self._title)
             yield Label("Symbol", classes="field-label")
             yield Input(value=self._symbol, placeholder="e.g. TSLA", id="symbol")
+            yield Label("Asset Type", classes="field-label")
+            yield Select(
+                [(label, val) for label, val in _ASSET_TYPE_OPTIONS],
+                value=self._asset_type,
+                allow_blank=False,
+                id="asset_type",
+            )
+            yield Label("External ID (e.g. CoinGecko coin ID)", classes="field-label")
+            yield Input(
+                value=self._external_id,
+                placeholder="e.g. bitcoin",
+                id="external_id",
+            )
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
@@ -229,11 +295,19 @@ class _WatchFormScreen(ModalScreen[str | None]):
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
+        asset_type = self.query_one("#asset_type", Select).value
+        external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
         if not symbol:
             err.update("Symbol is required")
             return
-        self.dismiss(symbol)
+        self.dismiss(
+            {
+                "symbol": symbol,
+                "asset_type": asset_type,
+                "external_id": external_id,
+            }
+        )
 
 
 class _ConfirmScreen(ModalScreen[bool]):
@@ -411,6 +485,8 @@ class PortfolioApp(App):
                         pos = portfolio.get_position(result["symbol"])
                         if pos:
                             pos.currency = result["currency"]
+                            pos.asset_type = result.get("asset_type")
+                            pos.external_id = result.get("external_id")
                     self._save(idx)
                     self._populate_tables()
 
@@ -444,13 +520,20 @@ class PortfolioApp(App):
                 )
             elif pos_type == "watch":
 
-                def on_watch(symbol: str | None) -> None:
-                    if symbol is None:
+                def on_watch(result: dict | None) -> None:
+                    if result is None:
                         return
+                    symbol = result["symbol"]
                     portfolio = self.portfolios[idx]
                     if any(w.symbol == symbol for w in portfolio.watchlist):
                         return
-                    portfolio.watchlist.append(WatchlistItem(symbol))
+                    portfolio.watchlist.append(
+                        WatchlistItem(
+                            symbol,
+                            asset_type=result.get("asset_type"),
+                            external_id=result.get("external_id"),
+                        )
+                    )
                     self._save(idx)
                     self._populate_tables()
 
@@ -505,14 +588,17 @@ class PortfolioApp(App):
         elif is_watch:
             old_item = next(w for w in portfolio.watchlist if w.symbol == identifier)
 
-            def on_watch_edit(symbol: str | None) -> None:
-                if symbol is None:
+            def on_watch_edit(result: dict | None) -> None:
+                if result is None:
                     return
-                if symbol != old_item.symbol and any(
-                    w.symbol == symbol for w in portfolio.watchlist
+                new_symbol = result["symbol"]
+                if new_symbol != old_item.symbol and any(
+                    w.symbol == new_symbol for w in portfolio.watchlist
                 ):
                     return
-                old_item.symbol = symbol
+                old_item.symbol = new_symbol
+                old_item.asset_type = result.get("asset_type")
+                old_item.external_id = result.get("external_id")
                 self._save(idx)
                 self._populate_tables()
 
@@ -520,6 +606,8 @@ class PortfolioApp(App):
                 _WatchFormScreen(
                     title=f"[{pname}] Edit Watch Item",
                     symbol=old_item.symbol,
+                    asset_type=old_item.asset_type,
+                    external_id=old_item.external_id or "",
                 ),
                 on_watch_edit,
             )
@@ -538,6 +626,8 @@ class PortfolioApp(App):
                 pos.quantity = result["qty"]
                 pos.avg_cost = result["avg_cost"]
                 pos.currency = result["currency"]
+                pos.asset_type = result.get("asset_type")
+                pos.external_id = result.get("external_id")
                 self._save(idx)
                 self._populate_tables()
 
@@ -548,6 +638,8 @@ class PortfolioApp(App):
                     qty=str(pos.quantity),
                     avg_cost=str(pos.avg_cost),
                     currency=pos.currency,
+                    asset_type=pos.asset_type,
+                    external_id=pos.external_id or "",
                 ),
                 on_equity_edit,
             )
