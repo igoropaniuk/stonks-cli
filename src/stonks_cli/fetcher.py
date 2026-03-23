@@ -1,5 +1,6 @@
 """Market data fetching via yfinance."""
 
+import importlib.resources
 import logging
 import math
 import zoneinfo
@@ -10,6 +11,7 @@ from datetime import time as dtime
 from functools import lru_cache
 
 import exchange_calendars as xcals  # type: ignore[import-untyped]
+import httpx
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
@@ -529,6 +531,254 @@ def _calc_performance(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Performance calculation failed for %s: %s", symbol, exc)
     return result
+
+
+# Module-level cache: base symbol (uppercase, e.g. "BTC") -> CoinGecko ID.
+# Populated lazily by CryptoFetcher._ensure_coin_list() (bulk) and
+# _resolve_via_search() (per-symbol fallback).
+_cg_symbol_to_id: dict[str, str] = {}
+_cg_coin_list_loaded: bool = False
+
+
+def _coingecko_error_summary(exc: BaseException) -> str:
+    """Return a one-line summary for a CoinGecko HTTP exception."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in (401, 429):
+            return f"CoinGecko rate limit reached ({code})"
+        return f"HTTP {code}"
+    return type(exc).__name__
+
+
+class CryptoFetcher:
+    """Fetches cryptocurrency prices from the CoinGecko API.
+
+    Uses direct HTTP requests via ``httpx``.  If ``COINGECKO_DEMO_API_KEY``
+    is set, it is sent as the ``x-cg-demo-api-key`` header for higher rate
+    limits.  Without a key the public endpoint is used with no auth header
+    (required -- a fake key triggers 401 on multi-coin batch requests).
+
+    Symbol resolution for each ticker (e.g. ``BTC-USD``):
+
+    1. Module-level cache (survives across refreshes within a process).
+    2. Bulk ``/coins/list`` lookup -- unambiguous symbols (only one coin
+       uses that ticker) are resolved immediately.
+    3. ``/search`` endpoint for ambiguous symbols -- returns results ranked
+       by market cap so the first exact-symbol match is the canonical coin.
+    4. Lowercased base symbol as a last-resort heuristic.
+    """
+
+    _BASE_URL = "https://api.coingecko.com/api/v3"
+
+    def __init__(self) -> None:
+        import os
+
+        api_key = os.environ.get("COINGECKO_DEMO_API_KEY")
+        headers: dict[str, str] = {}
+        if api_key:
+            headers["x-cg-demo-api-key"] = api_key
+        self._http = httpx.Client(
+            base_url=self._BASE_URL,
+            headers=headers,
+            timeout=30.0,
+        )
+
+    @staticmethod
+    def _ensure_coin_list() -> None:
+        """Load the bundled coin-list mapping into the module cache.
+
+        The mapping file (``data/coingecko_coins.json``) is a JSON dict of
+        ``SYMBOL -> coingecko_id`` for all unambiguous symbols (exactly one
+        coin uses that ticker).  It is regenerated at release time.
+
+        Ambiguous symbols (multiple coins share a ticker) are not in the
+        file and will fall through to ``_resolve_via_search``.
+        """
+        global _cg_coin_list_loaded  # noqa: PLW0603
+        if _cg_coin_list_loaded:
+            return
+        _cg_coin_list_loaded = True
+        try:
+            import json
+
+            data = (
+                importlib.resources.files("stonks_cli.data")
+                .joinpath("coingecko_coins.json")
+                .read_text(encoding="utf-8")
+            )
+            mapping: dict[str, str] = json.loads(data)
+            for sym, cg_id in mapping.items():
+                if sym not in _cg_symbol_to_id:
+                    _cg_symbol_to_id[sym] = cg_id
+        except FileNotFoundError:
+            logger.warning("CoinGecko coin list file not found.")
+        except json.JSONDecodeError:
+            logger.warning("CoinGecko coin list file is malformed JSON.")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unexpected error loading CoinGecko coin list: %s", exc)
+
+    def _resolve_via_search(self, base_symbol: str) -> str | None:
+        """Use ``/search`` to find the CoinGecko ID for *base_symbol*.
+
+        The endpoint returns coins ranked by market cap, so the first
+        result whose ticker matches exactly is the canonical coin.
+        """
+        try:
+            resp = self._http.get("/search", params={"query": base_symbol})
+            resp.raise_for_status()
+            for coin in resp.json().get("coins") or []:
+                sym = coin.get("symbol", "")
+                if sym and sym.upper() == base_symbol:
+                    return coin.get("id")
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning(
+                "CoinGecko search API failed for %s (%s)",
+                base_symbol,
+                _coingecko_error_summary(exc),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Unexpected error during CoinGecko search for %s: %s", base_symbol, exc
+            )
+        return None
+
+    def _resolve_ids(
+        self,
+        symbols: list[str],
+        external_ids: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Map Yahoo-style symbols to CoinGecko coin IDs.
+
+        If *external_ids* contains an entry for a symbol it is used
+        directly, skipping both the bulk coin-list and per-symbol search.
+        """
+        # Normalise external_ids keys to uppercase for case-insensitive lookup.
+        ext = {k.upper(): v for k, v in (external_ids or {}).items()}
+        # mapping keys are the *original* symbols (preserving caller's case).
+        mapping: dict[str, str] = {}
+        unresolved: list[str] = []
+
+        # Pass 1: external_ids and module-level cache (no API calls).
+        for sym in symbols:
+            upper = sym.upper()
+            # base: the ticker part before any '-CURRENCY' suffix (e.g. 'BTC').
+            # This lets bare symbols like 'BTC' resolve the same as 'BTC-USD'.
+            base = upper.split("-")[0]
+            if upper in ext:
+                mapping[sym] = ext[upper]
+            elif base in _cg_symbol_to_id:
+                mapping[sym] = _cg_symbol_to_id[base]
+            else:
+                unresolved.append(sym)
+
+        if not unresolved:
+            return mapping
+
+        # Pass 2: bulk /coins/list for unambiguous symbols.
+        self._ensure_coin_list()
+        needs_search: list[str] = []
+        for sym in unresolved:
+            base = sym.upper().split("-")[0]
+            if base in _cg_symbol_to_id:
+                mapping[sym] = _cg_symbol_to_id[base]
+            else:
+                needs_search.append(sym)
+
+        # Pass 3: /search for ambiguous or unknown symbols.
+        for sym in needs_search:
+            base = sym.upper().split("-")[0]
+            cg_id = self._resolve_via_search(base)
+            if cg_id:
+                _cg_symbol_to_id[base] = cg_id
+                mapping[sym] = cg_id
+            else:
+                mapping[sym] = base.lower()
+        return mapping
+
+    def fetch_prices_and_changes(
+        self,
+        symbols: list[str],
+        external_ids: dict[str, str] | None = None,
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        """Return ``(prices, prev_closes)`` for crypto symbols.
+
+        Args:
+            symbols: Yahoo-style tickers (e.g. ``["BTC-USD"]``).
+            external_ids: Optional mapping of symbol -> CoinGecko coin ID
+                from the portfolio YAML ``external_id`` field.  When
+                present these take priority over automatic resolution.
+
+        Uses the CoinGecko ``simple/price`` endpoint with 24-hour change.
+        The previous close is derived as ``price / (1 + change_24h / 100)``.
+        """
+        if not symbols:
+            return {}, {}
+
+        sym_to_id = self._resolve_ids(symbols, external_ids)
+        # Reverse lookup: CoinGecko ID -> list of portfolio symbols
+        id_to_syms: dict[str, list[str]] = {}
+        for sym, cg_id in sym_to_id.items():
+            id_to_syms.setdefault(cg_id, []).append(sym)
+
+        # Deduplicated CoinGecko IDs for the batch request.
+        all_cg_ids = list(set(sym_to_id.values()))
+        ids_str = ",".join(all_cg_ids)
+
+        def _fetch(ids: str) -> dict:
+            resp = self._http.get(
+                "/simple/price",
+                params={
+                    "ids": ids,
+                    "vs_currencies": "usd",
+                    "include_24hr_change": "true",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        result: dict = {}
+        try:
+            result = _fetch(ids_str)
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            # Batch failed -- retry each CoinGecko ID individually so one bad
+            # ID (e.g. a typo in external_id) cannot block all other coins.
+            logger.warning(
+                "CoinGecko batch request failed (%s); retrying individually",
+                _coingecko_error_summary(exc),
+            )
+            for cg_id in all_cg_ids:
+                try:
+                    result.update(_fetch(cg_id))
+                except (httpx.HTTPStatusError, httpx.RequestError) as exc_individual:
+                    logger.warning(
+                        "CoinGecko request failed for %r (%s)",
+                        cg_id,
+                        _coingecko_error_summary(exc_individual),
+                    )
+                except Exception as exc_individual:  # noqa: BLE001
+                    logger.warning(
+                        "Unexpected error during individual CoinGecko fetch for %s: %s",
+                        cg_id,
+                        exc_individual,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Unexpected error during initial CoinGecko batch fetch: %s", exc
+            )
+
+        prices: dict[str, float] = {}
+        prev_closes: dict[str, float] = {}
+        for cg_id, item in result.items():
+            usd_price = item.get("usd")
+            change_24h = item.get("usd_24h_change")
+            if usd_price is None:
+                continue
+            price = float(usd_price)
+            for sym in id_to_syms.get(cg_id, []):
+                prices[sym] = price
+                if change_24h is not None:
+                    prev_closes[sym] = price / (1 + float(change_24h) / 100)
+        return prices, prev_closes
 
 
 class PriceFetcher:
