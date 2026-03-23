@@ -35,9 +35,11 @@ class Position:
     """
 
     symbol: str
-    quantity: int
+    quantity: int | float
     avg_cost: float
     currency: str = "USD"
+    asset_type: str | None = None
+    external_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
@@ -47,6 +49,8 @@ class Position:
         if self.avg_cost <= 0:
             raise ValueError("Average cost must be positive")
         self.symbol = self.symbol.upper()
+        if self.asset_type is not None:
+            self.asset_type = self.asset_type.lower()
 
     def market_value(self, last_price: float) -> float:
         """Return total market value at the given price."""
@@ -66,11 +70,15 @@ class WatchlistItem:
     """
 
     symbol: str
+    asset_type: str | None = None
+    external_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
             raise ValueError("Symbol cannot be empty")
         self.symbol = self.symbol.upper()
+        if self.asset_type is not None:
+            self.asset_type = self.asset_type.lower()
 
 
 @dataclass
