@@ -2,7 +2,7 @@
 # make_release.sh -- tag, build, publish, and create a GitHub release.
 #
 # Usage:
-#   ./make_release.sh
+#   ./scripts/make_release.sh
 #
 # Prerequisites:
 #   - Poetry installed and configured (pypi-token.testpypi / pypi-token.pypi)
@@ -12,6 +12,8 @@
 #   - Current branch must be main
 
 set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
 
 # ---------------------------------------------------------------------------
 # Helpers
