@@ -1,11 +1,14 @@
 """Portfolio persistence: read and write the portfolio YAML file."""
 
 import importlib.resources
+import logging
 from pathlib import Path
 
 import yaml
 
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
+
+logger = logging.getLogger(__name__)
 
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
@@ -57,6 +60,7 @@ class PortfolioStore:
             try:
                 data = yaml.safe_load(fh)
             except yaml.YAMLError as exc:
+                logger.error("Failed to parse portfolio file %s: %s", self.path, exc)
                 raise ValueError(
                     f"Cannot parse portfolio file {self.path}: {exc}"
                 ) from exc

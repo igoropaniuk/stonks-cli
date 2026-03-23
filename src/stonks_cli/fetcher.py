@@ -1,5 +1,6 @@
 """Market data fetching via yfinance."""
 
+import logging
 import math
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,8 @@ from functools import lru_cache
 import exchange_calendars as xcals  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 # Keep this small: each worker thread opens its own peewee/SQLite connection
 # to yfinance's timezone cache (3 fds in WAL mode), so a large pool exhausts
@@ -288,7 +291,8 @@ def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> st
     """Return 'pre', 'regular', or 'post' given a bar timestamp and exchange hours."""
     try:
         t = ts.astimezone(zoneinfo.ZoneInfo(tz_name)).time()
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError) as exc:
+        logger.debug("Unknown timezone %r for session detection: %s", tz_name, exc)
         return "regular"
     if t < open_time:
         return "pre"
@@ -312,10 +316,14 @@ def _is_exchange_open(
     if calendar_name:
         try:
             cal = _load_calendar(calendar_name)
-            now = pd.Timestamp.now(tz="UTC")
+            now = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC"))
             return bool(cal.is_open_on_minute(now, ignore_breaks=True))
-        except (AttributeError, LookupError, ValueError):
-            pass  # fall through to time-based check
+        except (AttributeError, LookupError, ValueError) as exc:
+            logger.debug(
+                "Calendar load failed for %r, falling back to time check: %s",
+                calendar_name,
+                exc,
+            )
 
     now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
     if now_local.weekday() >= 5:
@@ -337,10 +345,14 @@ def _is_trading_day(
     if calendar_name:
         try:
             cal = _load_calendar(calendar_name)
-            today = pd.Timestamp.now(tz="UTC").normalize()
+            today = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC")).normalize()
             return bool(cal.is_session(today))
-        except (AttributeError, LookupError, ValueError):
-            pass  # fall through to weekend check
+        except (AttributeError, LookupError, ValueError) as exc:
+            logger.debug(
+                "Calendar load failed for %r, falling back to weekend check: %s",
+                calendar_name,
+                exc,
+            )
 
     now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
     return now_local.weekday() < 5
@@ -407,7 +419,8 @@ def _period_to_month(period: str) -> str:
     """Convert '0m', '-1m', '-2m' etc. to 'Mar 2026' style labels."""
     try:
         offset = int(period.replace("m", ""))
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as exc:
+        logger.debug("Cannot parse period %r: %s", period, exc)
         return period
     today = datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
     # Shift month by offset, handling year boundaries
@@ -513,8 +526,8 @@ def _calc_performance(
             stock_hist = stock_ticker.history(period=period)
             sp_hist = sp_ticker.history(period=period)
             result[label] = (_trailing_return(stock_hist), _trailing_return(sp_hist))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Performance calculation failed for %s: %s", symbol, exc)
     return result
 
 
@@ -548,7 +561,8 @@ class PriceFetcher:
                 progress=False,
                 threads=False,
             )
-        except RuntimeError:
+        except RuntimeError as exc:
+            logger.error("Price download failed for %s: %s", normalized, exc)
             return {}
 
         if data.empty:
@@ -593,7 +607,8 @@ class PriceFetcher:
                 progress=False,
                 threads=False,
             )
-        except (RuntimeError, ValueError, TypeError):
+        except (RuntimeError, ValueError, TypeError) as exc:
+            logger.error("Previous-close download failed for %s: %s", normalized, exc)
             return {}
 
         if data.empty:
@@ -657,7 +672,8 @@ class PriceFetcher:
             if price is None or (isinstance(price, float) and math.isnan(price)):
                 return None
             return float(price)
-        except (TypeError, ValueError, KeyError, AttributeError):
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            logger.debug("Cannot read fast_info price for %s: %s", symbol, exc)
             return None
 
     def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
@@ -695,7 +711,8 @@ class PriceFetcher:
                 progress=False,
                 threads=False,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Extended-price download failed for %s: %s", normalized, exc)
             return {}
 
         if data.empty:
@@ -746,7 +763,8 @@ class PriceFetcher:
         def _get(sym: str) -> tuple[str, str | None]:
             try:
                 return sym, yf.Ticker(sym).fast_info.exchange
-            except Exception:
+            except Exception as exc:
+                logger.debug("Cannot fetch exchange name for %s: %s", sym, exc)
                 return sym, None
 
         result: dict[str, str] = {}
@@ -791,7 +809,8 @@ class PriceFetcher:
                 progress=False,
                 threads=False,
             )
-        except RuntimeError:
+        except RuntimeError as exc:
+            logger.error("Forex rate download failed for %s: %s", symbols, exc)
             return rates
 
         if data.empty:
@@ -829,8 +848,10 @@ class PriceFetcher:
                     dates = [d.strftime(fmt) for d in h.index]
                     closes = [float(v) for v in h["Close"].tolist()]
                     result[label] = (dates, closes)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Cannot fetch price history for %s (%s): %s", t.ticker, period, exc
+                )
         return result
 
     @staticmethod
@@ -900,16 +921,16 @@ class PriceFetcher:
                     eps_actual.append(_finite(eh.loc[q_ts, "epsActual"]))
                     eps_estimate.append(_finite(eh.loc[q_ts, "epsEstimate"]))
                     eps_diff.append(_finite(eh.loc[q_ts, "epsDifference"]))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cannot fetch earnings history for %s: %s", t.ticker, exc)
 
         next_eps_estimate: float | None = None
         try:
             ee = t.earnings_estimate
             if ee is not None and not ee.empty and "0q" in ee.index:
                 next_eps_estimate = _finite(ee.loc["0q", "avg"])
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cannot fetch EPS estimate for %s: %s", t.ticker, exc)
 
         return (
             eps_quarters,
@@ -945,8 +966,8 @@ class PriceFetcher:
                     )
                     rev_values.append((rev or 0.0) / 1e9)
                     earn_values.append((earn or 0.0) / 1e9)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cannot fetch revenue data for %s: %s", t.ticker, exc)
         return rev_quarters, rev_values, earn_values
 
     @staticmethod
@@ -961,8 +982,8 @@ class PriceFetcher:
                     v = _finite(apt.get(k))
                     if v is not None:
                         price_targets[k] = v
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cannot fetch analyst targets for %s: %s", t.ticker, exc)
 
         recommendations: list[dict[str, int | str]] = []
         try:
@@ -979,8 +1000,8 @@ class PriceFetcher:
                             "strongSell": int(row.get("strongSell", 0)),
                         }
                     )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cannot fetch recommendations for %s: %s", t.ticker, exc)
 
         recommendation_key = str(info.get("recommendationKey", "N/A"))
         num_analysts = int(_finite(info.get("numberOfAnalystOpinions")) or 0)

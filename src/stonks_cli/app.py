@@ -1,5 +1,6 @@
 """Textual TUI for portfolio display."""
 
+import logging
 import threading
 
 from rich.text import Text
@@ -15,6 +16,8 @@ from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import PriceFetcher, exchange_label
 from stonks_cli.models import Portfolio, WatchlistItem
 from stonks_cli.storage import PortfolioStore
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Modal screens
@@ -421,7 +424,13 @@ class PortfolioApp(App):
                         self.portfolios[idx].add_cash(
                             result["currency"], result["amount"]
                         )
-                    except ValueError:
+                    except ValueError as exc:
+                        logger.warning(
+                            "Failed to add cash %s %.2f: %s",
+                            result["currency"],
+                            result["amount"],
+                            exc,
+                        )
                         return
                     self._save(idx)
                     self._populate_tables()
@@ -475,7 +484,8 @@ class PortfolioApp(App):
                 portfolio.cash.remove(cash_pos)
                 try:
                     portfolio.add_cash(result["currency"], result["amount"])
-                except ValueError:
+                except ValueError as exc:
+                    logger.warning("Failed to edit cash position: %s", exc)
                     portfolio.cash.append(cash_pos)
                     return
                 self._save(idx)
