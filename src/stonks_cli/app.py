@@ -556,8 +556,13 @@ class PortfolioApp(App):
             return
         identifier = str(row[0])
         is_cash = str(row[1]) == "Cash"
-
-        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
+        # Watchlist rows have "--" in the Qty column; position rows have
+        # a real quantity.  This distinguishes a watchlist row from a
+        # position row even when the same symbol appears in both lists.
+        is_watch_row = str(row[2]) == "--" and not is_cash
+        is_watch = is_watch_row and any(
+            w.symbol == identifier for w in portfolio.watchlist
+        )
 
         if is_cash:
             cash_pos = portfolio.get_cash(identifier)
@@ -656,7 +661,10 @@ class PortfolioApp(App):
             return
         identifier = str(row[0])
         is_cash = str(row[1]) == "Cash"
-        is_watch = any(w.symbol == identifier for w in portfolio.watchlist)
+        is_watch_row = str(row[2]) == "--" and not is_cash
+        is_watch = is_watch_row and any(
+            w.symbol == identifier for w in portfolio.watchlist
+        )
         kind = "cash" if is_cash else ("watch" if is_watch else "position")
 
         def on_confirm(confirmed: bool | None) -> None:
