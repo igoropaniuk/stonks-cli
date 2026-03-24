@@ -327,7 +327,7 @@ def _is_exchange_open(
             return bool(cal.is_open_on_minute(now, ignore_breaks=True))
         except (AttributeError, LookupError, ValueError) as exc:
             logger.debug(
-                "Calendar load failed for %r, falling back to time check: %s",
+                "Calendar load failed for %s, falling back to time check: %s",
                 calendar_name,
                 exc,
             )
@@ -356,7 +356,7 @@ def _is_trading_day(
             return bool(cal.is_session(today))
         except (AttributeError, LookupError, ValueError) as exc:
             logger.debug(
-                "Calendar load failed for %r, falling back to weekend check: %s",
+                "Calendar load failed for %s, falling back to weekend check: %s",
                 calendar_name,
                 exc,
             )
@@ -747,6 +747,8 @@ class CryptoFetcher:
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             # Batch failed -- retry each CoinGecko ID individually so one bad
             # ID (e.g. a typo in external_id) cannot block all other coins.
+            # A 401 on the batch does not mean global rate-limit; individual
+            # single-ID requests may still succeed.
             logger.warning(
                 "CoinGecko batch request failed (%s); retrying individually",
                 _coingecko_error_summary(exc),
@@ -756,7 +758,7 @@ class CryptoFetcher:
                     result.update(_fetch(cg_id))
                 except (httpx.HTTPStatusError, httpx.RequestError) as exc_individual:
                     logger.warning(
-                        "CoinGecko request failed for %r (%s)",
+                        "CoinGecko request failed for %s (%s)",
                         cg_id,
                         _coingecko_error_summary(exc_individual),
                     )
@@ -863,7 +865,11 @@ class PriceFetcher:
                 threads=False,
             )
         except (RuntimeError, ValueError, TypeError) as exc:
-            logger.error("Previous-close download failed for %s: %s", normalized, exc)
+            logger.error(
+                "Previous-close download failed for %s: %s",
+                ", ".join(normalized),
+                exc,
+            )
             return {}
 
         if data.empty:
@@ -1084,6 +1090,7 @@ class PriceFetcher:
     @staticmethod
     def _fetch_price_histories(
         t: yf.Ticker,
+        symbol: str,
     ) -> dict[str, tuple[list[str], list[float]]]:
         chart_periods = {
             "1 Day": ("1d", "5m"),
@@ -1105,7 +1112,7 @@ class PriceFetcher:
                     result[label] = (dates, closes)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Cannot fetch price history for %s (%s): %s", t.ticker, period, exc
+                    "Cannot fetch price history for %s (%s): %s", symbol, period, exc
                 )
         return result
 
@@ -1155,7 +1162,7 @@ class PriceFetcher:
 
     @staticmethod
     def _fetch_earnings(
-        t: yf.Ticker, earnings_date: str
+        t: yf.Ticker, symbol: str, earnings_date: str
     ) -> tuple[
         list[str],
         list[float | None],
@@ -1177,7 +1184,7 @@ class PriceFetcher:
                     eps_estimate.append(_finite(eh.loc[q_ts, "epsEstimate"]))
                     eps_diff.append(_finite(eh.loc[q_ts, "epsDifference"]))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot fetch earnings history for %s: %s", t.ticker, exc)
+            logger.warning("Cannot fetch earnings history for %s: %s", symbol, exc)
 
         next_eps_estimate: float | None = None
         try:
@@ -1185,7 +1192,7 @@ class PriceFetcher:
             if ee is not None and not ee.empty and "0q" in ee.index:
                 next_eps_estimate = _finite(ee.loc["0q", "avg"])
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot fetch EPS estimate for %s: %s", t.ticker, exc)
+            logger.warning("Cannot fetch EPS estimate for %s: %s", symbol, exc)
 
         return (
             eps_quarters,
@@ -1199,6 +1206,7 @@ class PriceFetcher:
     @staticmethod
     def _fetch_revenue(
         t: yf.Ticker,
+        symbol: str,
     ) -> tuple[list[str], list[float], list[float]]:
         rev_quarters: list[str] = []
         rev_values: list[float] = []
@@ -1222,12 +1230,12 @@ class PriceFetcher:
                     rev_values.append((rev or 0.0) / 1e9)
                     earn_values.append((earn or 0.0) / 1e9)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot fetch revenue data for %s: %s", t.ticker, exc)
+            logger.warning("Cannot fetch revenue data for %s: %s", symbol, exc)
         return rev_quarters, rev_values, earn_values
 
     @staticmethod
     def _fetch_analyst(
-        t: yf.Ticker, info: dict
+        t: yf.Ticker, symbol: str, info: dict
     ) -> tuple[dict[str, float], list[dict[str, int | str]], str, int]:
         price_targets: dict[str, float] = {}
         try:
@@ -1238,7 +1246,7 @@ class PriceFetcher:
                     if v is not None:
                         price_targets[k] = v
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot fetch analyst targets for %s: %s", t.ticker, exc)
+            logger.warning("Cannot fetch analyst targets for %s: %s", symbol, exc)
 
         recommendations: list[dict[str, int | str]] = []
         try:
@@ -1256,7 +1264,7 @@ class PriceFetcher:
                         }
                     )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Cannot fetch recommendations for %s: %s", t.ticker, exc)
+            logger.warning("Cannot fetch recommendations for %s: %s", symbol, exc)
 
         recommendation_key = str(info.get("recommendationKey", "N/A"))
         num_analysts = int(_finite(info.get("numberOfAnalystOpinions")) or 0)
@@ -1295,7 +1303,8 @@ class PriceFetcher:
         info = t.info if isinstance(t.info, dict) else {}
 
         performance = _calc_performance(symbol.upper())
-        price_histories = self._fetch_price_histories(t)
+        sym = symbol.upper()
+        price_histories = self._fetch_price_histories(t, sym)
         summary = self._fetch_summary(info)
         earnings_date = summary.get("Earnings Date (est.)", "N/A")
         (
@@ -1305,10 +1314,10 @@ class PriceFetcher:
             eps_diff,
             next_earnings_date,
             next_eps_estimate,
-        ) = self._fetch_earnings(t, earnings_date)
-        rev_quarters, rev_values, earn_values = self._fetch_revenue(t)
+        ) = self._fetch_earnings(t, sym, earnings_date)
+        rev_quarters, rev_values, earn_values = self._fetch_revenue(t, sym)
         price_targets, recommendations, recommendation_key, num_analysts = (
-            self._fetch_analyst(t, info)
+            self._fetch_analyst(t, sym, info)
         )
         valuation, financials_dict = self._fetch_statistics(info)
 
