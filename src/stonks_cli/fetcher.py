@@ -606,7 +606,7 @@ class PriceFetcher:
             # Normalise to a one-column DataFrame keyed by the requested symbol.
             close = close.to_frame(name=normalized[0])
 
-        today = pd.Timestamp.now().normalize()
+        today = pd.Timestamp("today").normalize()
         result: dict[str, float] = {}
         for symbol in normalized:
             if symbol not in close.columns:
