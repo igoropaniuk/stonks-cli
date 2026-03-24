@@ -32,12 +32,15 @@ class Position:
         quantity: Number of shares held.
         avg_cost: Average cost per share paid.
         currency: Currency of the position (default 'USD').
+        exchange_suffix: Optional exchange suffix for multi-exchange symbols
+            (e.g., '.AS' for Amsterdam, '.L' for London).
     """
 
     symbol: str
     quantity: int
     avg_cost: float
     currency: str = "USD"
+    exchange_suffix: str | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
@@ -47,6 +50,16 @@ class Position:
         if self.avg_cost <= 0:
             raise ValueError("Average cost must be positive")
         self.symbol = self.symbol.upper()
+        if self.exchange_suffix is not None:
+            self.exchange_suffix = self.exchange_suffix.upper()
+            if not self.exchange_suffix.startswith("."):
+                self.exchange_suffix = "." + self.exchange_suffix
+
+    def full_symbol(self) -> str:
+        """Return the full symbol including exchange suffix."""
+        if self.exchange_suffix:
+            return f"{self.symbol}{self.exchange_suffix}"
+        return self.symbol
 
     def market_value(self, last_price: float) -> float:
         """Return total market value at the given price."""
@@ -63,14 +76,27 @@ class WatchlistItem:
 
     Attributes:
         symbol: The stock ticker (e.g. 'TSLA').
+        exchange_suffix: Optional exchange suffix for multi-exchange symbols
+            (e.g., '.AS' for Amsterdam, '.L' for London).
     """
 
     symbol: str
+    exchange_suffix: str | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
             raise ValueError("Symbol cannot be empty")
         self.symbol = self.symbol.upper()
+        if self.exchange_suffix is not None:
+            self.exchange_suffix = self.exchange_suffix.upper()
+            if not self.exchange_suffix.startswith("."):
+                self.exchange_suffix = "." + self.exchange_suffix
+
+    def full_symbol(self) -> str:
+        """Return the full symbol including exchange suffix."""
+        if self.exchange_suffix:
+            return f"{self.symbol}{self.exchange_suffix}"
+        return self.symbol
 
 
 @dataclass
@@ -92,11 +118,11 @@ class Portfolio:
 
     def __post_init__(self) -> None:
         self.base_currency = self.base_currency.upper()
-        symbols = [p.symbol for p in self.positions]
-        if len(symbols) != len(set(symbols)):
+        position_keys = [p.full_symbol() for p in self.positions]
+        if len(position_keys) != len(set(position_keys)):
             raise ValueError("Duplicate symbols in portfolio")
-        watch_symbols = [w.symbol for w in self.watchlist]
-        if len(watch_symbols) != len(set(watch_symbols)):
+        watch_keys = [w.full_symbol() for w in self.watchlist]
+        if len(watch_keys) != len(set(watch_keys)):
             raise ValueError("Duplicate symbols in watchlist")
         currencies = [c.currency for c in self.cash]
         if len(currencies) != len(set(currencies)):
@@ -141,17 +167,38 @@ class Portfolio:
             existing.amount -= amount
 
     def get_position(self, symbol: str) -> Position | None:
-        """Return the position for *symbol*, or None if not held."""
+        """Return the position for *symbol*, or None if not held.
+
+        Matches by base symbol only (ignores exchange suffix).
+        """
         symbol = symbol.upper()
         return next((p for p in self.positions if p.symbol == symbol), None)
 
-    def add_position(self, symbol: str, quantity: int, avg_cost: float) -> None:
+    def get_position_by_full_symbol(self, full_symbol: str) -> Position | None:
+        """Return the position for the full symbol (with exchange suffix), or None."""
+        full_symbol = full_symbol.upper()
+        return next((p for p in self.positions if p.full_symbol() == full_symbol), None)
+
+    def add_position(
+        self,
+        symbol: str,
+        quantity: int,
+        avg_cost: float,
+        exchange_suffix: str | None = None,
+    ) -> None:
         """Add shares to the portfolio.
 
-        If the symbol is already held, quantity is increased and avg_cost is
-        recalculated as a weighted average.  Otherwise a new position is created.
+        If the symbol is already held on the same exchange, quantity is increased
+        and avg_cost is recalculated as a weighted average.  Otherwise a new
+        position is created.
         """
-        existing = self.get_position(symbol)
+        temp_pos = Position(
+            symbol=symbol,
+            quantity=quantity,
+            avg_cost=avg_cost,
+            exchange_suffix=exchange_suffix,
+        )
+        existing = self.get_position_by_full_symbol(temp_pos.full_symbol())
         if existing is not None:
             total_qty = existing.quantity + quantity
             existing.avg_cost = (
@@ -159,9 +206,7 @@ class Portfolio:
             ) / total_qty
             existing.quantity = total_qty
         else:
-            self.positions.append(
-                Position(symbol=symbol, quantity=quantity, avg_cost=avg_cost)
-            )
+            self.positions.append(temp_pos)
 
     def remove_position(self, symbol: str, quantity: int) -> None:
         """Remove shares from the portfolio.

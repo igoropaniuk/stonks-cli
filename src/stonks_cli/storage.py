@@ -70,6 +70,7 @@ class PortfolioStore:
                 quantity=p["quantity"],
                 avg_cost=p["avg_cost"],
                 currency=p.get("currency", "USD"),
+                exchange_suffix=p.get("exchange_suffix"),
             )
             for p in raw_positions
         ]
@@ -80,7 +81,13 @@ class PortfolioStore:
         ]
 
         raw_watchlist = section.get("watchlist") or []
-        watchlist = [WatchlistItem(symbol=w["symbol"]) for w in raw_watchlist]
+        watchlist = [
+            WatchlistItem(
+                symbol=w["symbol"],
+                exchange_suffix=w.get("exchange_suffix"),
+            )
+            for w in raw_watchlist
+        ]
 
         base_currency = section.get("base_currency", "USD")
         name = section.get("name", "")
@@ -109,6 +116,11 @@ class PortfolioStore:
                         "quantity": p.quantity,
                         "avg_cost": round(p.avg_cost, 6),
                         "currency": p.currency,
+                        **(
+                            {"exchange_suffix": p.exchange_suffix}
+                            if p.exchange_suffix
+                            else {}
+                        ),
                     }
                     for p in portfolio.positions
                 ],
@@ -119,7 +131,17 @@ class PortfolioStore:
                     }
                     for c in portfolio.cash
                 ],
-                "watchlist": [{"symbol": w.symbol} for w in portfolio.watchlist],
+                "watchlist": [
+                    {
+                        "symbol": w.symbol,
+                        **(
+                            {"exchange_suffix": w.exchange_suffix}
+                            if w.exchange_suffix
+                            else {}
+                        ),
+                    }
+                    for w in portfolio.watchlist
+                ],
             }
         }
         with self.path.open("w") as fh:
