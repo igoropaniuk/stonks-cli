@@ -6,8 +6,8 @@ from pathlib import Path
 import click
 
 from stonks_cli import __version__
-from stonks_cli.log import setup_logging
 from stonks_cli.app import PortfolioApp
+from stonks_cli.log import setup_logging
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
     PortfolioStore,
