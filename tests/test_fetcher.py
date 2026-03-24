@@ -51,12 +51,15 @@ def _close_df(prices: dict[str, float], date: str = "2026-03-10") -> pd.DataFram
     return pd.DataFrame(data, columns=cols, index=idx)
 
 
+_FROZEN_NOW = pd.Timestamp("2026-03-21 10:00:00", tz="UTC")
+
+
 def _extended_close_df(
     prices: dict[str, float], ts: datetime | None = None
 ) -> pd.DataFrame:
     """Like _close_df but with a timezone-aware timestamp for session detection."""
     if ts is None:
-        ts = datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
+        ts = datetime(2026, 3, 21, 10, 0, tzinfo=zoneinfo.ZoneInfo("UTC"))
     idx = pd.DatetimeIndex([pd.Timestamp(ts)])
     cols = pd.MultiIndex.from_product([["Close"], list(prices.keys())])
     data = [[v for v in prices.values()]]
@@ -131,6 +134,11 @@ _CURRENT_SESSION = "stonks_cli.fetcher.PriceFetcher.current_session"
 
 
 class TestFetchExtendedPrices:
+    @pytest.fixture(autouse=True)
+    def _freeze_now(self):
+        with patch("stonks_cli.fetcher.pd.Timestamp.now", return_value=_FROZEN_NOW):
+            yield
+
     def test_empty_symbols_returns_empty(self, fetcher: PriceFetcher):
         with patch("stonks_cli.fetcher.yf.download") as mock_dl:
             result = fetcher.fetch_extended_prices([])
