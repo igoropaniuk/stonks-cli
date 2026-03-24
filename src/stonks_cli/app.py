@@ -14,6 +14,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import PriceFetcher, exchange_label
+from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.models import Portfolio, WatchlistItem
 from stonks_cli.storage import PortfolioStore
 
@@ -270,6 +271,7 @@ class PortfolioApp(App):
         ("a", "add", "Add"),
         ("e", "edit", "Edit"),
         ("r", "remove", "Remove"),
+        ("l", "view_logs", "Logs"),
     ]
 
     CSS = """
@@ -587,6 +589,13 @@ class PortfolioApp(App):
         self.push_screen(
             _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
         )
+
+    # ------------------------------------------------------------------
+    # Log viewer
+    # ------------------------------------------------------------------
+
+    def action_view_logs(self) -> None:
+        self.push_screen(LogViewerScreen())
 
     # ------------------------------------------------------------------
     # Detail view
