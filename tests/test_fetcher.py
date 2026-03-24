@@ -632,28 +632,29 @@ class TestFetchPreviousCloses:
         result = fetcher.fetch_previous_closes(["AAPL"])
         assert result == {"AAPL": 155.0}
 
-    @patch("stonks_cli.fetcher.pd.Timestamp.now")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_excludes_today_row(self, mock_dl, mock_now, fetcher: PriceFetcher):
-        # Last row is today -> should be excluded, return the one before it
-        mock_now.return_value = pd.Timestamp("2026-03-21 09:30:00")
+    def test_excludes_today_row(self, mock_dl, fetcher: PriceFetcher):
+        # Last row is today -> should be excluded, return the one before it.
+        # Build dates dynamically so the test is not tied to a fixed calendar
+        # date (pd.Timestamp("today") is used in production, no mock needed).
+        today = pd.Timestamp("today").normalize()
+        d0 = (today - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+        d1 = (today - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        d2 = today.strftime("%Y-%m-%d")
         mock_dl.return_value = _multi_day_close_df(
             {"AAPL": [148.0, 150.0, 155.0]},
-            dates=["2026-03-18", "2026-03-19", "2026-03-21"],
+            dates=[d0, d1, d2],
         )
         result = fetcher.fetch_previous_closes(["AAPL"])
         assert result == {"AAPL": 150.0}
 
-    @patch("stonks_cli.fetcher.pd.Timestamp.now")
     @patch("stonks_cli.fetcher.yf.download")
     def test_skips_symbol_with_no_data_before_today(
-        self, mock_dl, mock_now, fetcher: PriceFetcher
+        self, mock_dl, fetcher: PriceFetcher
     ):
         # Only today's row -> nothing before today
-        mock_now.return_value = pd.Timestamp("2026-03-21 09:30:00")
-        mock_dl.return_value = _multi_day_close_df(
-            {"AAPL": [150.0]}, dates=["2026-03-21"]
-        )
+        today = pd.Timestamp("today").normalize().strftime("%Y-%m-%d")
+        mock_dl.return_value = _multi_day_close_df({"AAPL": [150.0]}, dates=[today])
         assert fetcher.fetch_previous_closes(["AAPL"]) == {}
 
     @patch("stonks_cli.fetcher.yf.download")
