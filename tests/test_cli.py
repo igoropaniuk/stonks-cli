@@ -312,6 +312,79 @@ class TestVersion:
 
 
 # ---------------------------------------------------------------------------
+# seed sample portfolio (no --portfolio flag, empty config dir)
+# ---------------------------------------------------------------------------
+
+
+class TestSeedSamplePortfolio:
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_creates_sample_portfolio_and_prints_message(
+        self, mock_app_cls, runner, tmp_path
+    ):
+        # No YAML files in config dir -> seed_sample_portfolio() returns True
+        with (
+            patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", tmp_path),
+            patch("stonks_cli.storage.PORTFOLIO_CONFIG_DIR", tmp_path),
+            patch(
+                "stonks_cli.storage.DEFAULT_PORTFOLIO_PATH", tmp_path / "portfolio.yaml"
+            ),
+        ):
+            result = runner.invoke(main, [])
+
+        assert result.exit_code == 0
+        assert "sample portfolio" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# --log-level option
+# ---------------------------------------------------------------------------
+
+
+class TestLogLevel:
+    def test_default_log_level_is_warning(self, runner, portfolio_file):
+        with patch("stonks_cli.main.setup_logging") as mock_setup:
+            invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
+        import logging
+
+        mock_setup.assert_called_once_with(level=logging.WARNING)
+
+    def test_debug_log_level_forwarded(self, runner, portfolio_file):
+        with patch("stonks_cli.main.setup_logging") as mock_setup:
+            runner.invoke(
+                main,
+                [
+                    "--portfolio",
+                    str(portfolio_file),
+                    "--log-level",
+                    "DEBUG",
+                    "add",
+                    "AAPL",
+                    "10",
+                    "150.0",
+                ],
+            )
+        import logging
+
+        mock_setup.assert_called_once_with(level=logging.DEBUG)
+
+    def test_invalid_log_level_rejected(self, runner, portfolio_file):
+        result = runner.invoke(
+            main,
+            [
+                "--portfolio",
+                str(portfolio_file),
+                "--log-level",
+                "VERBOSE",
+                "add",
+                "AAPL",
+                "10",
+                "150.0",
+            ],
+        )
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
 # dashboard with multiple portfolios
 # ---------------------------------------------------------------------------
 
