@@ -1,5 +1,6 @@
 """CLI entry point for the stonks portfolio tracker."""
 
+import logging
 from pathlib import Path
 
 import click
@@ -43,10 +44,17 @@ def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
         "Defaults to ~/.config/stonks/portfolio.yaml."
     ),
 )
+@click.option(
+    "--log-level",
+    default="WARNING",
+    show_default=True,
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="Minimum log level written to file and stderr.",
+)
 @click.pass_context
-def main(ctx: click.Context, portfolio: tuple[str, ...]) -> None:
+def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None:
     """CLI tool for tracking an investment portfolio."""
-    setup_logging()
+    setup_logging(level=getattr(logging, log_level.upper()))
     ctx.ensure_object(dict)
     if not portfolio:
         if seed_sample_portfolio():
