@@ -13,6 +13,15 @@ Track your investment portfolio directly from the terminal.
 
 ![demo](docs/assets/demo.gif)
 
+- **Terminal dashboard (TUI)** -- live prices with auto-refresh
+- **Extended-hours quotes** -- PRE / AH / CLS session labels for US equities
+- **Daily % change** -- intraday gain/loss vs. previous close for every row
+- **Stock detail screen** -- charts, earnings, analyst insights, key statistics
+- **Watchlist** -- track symbols without a position; dimmed in the dashboard
+- **Cryptocurrency** -- `BTC-USD`-style symbols priced
+- **Multi-portfolio** -- side-by-side YAML files with multiple `-p` flags
+- **Multi-currency** -- totals converted to a base currency using forex rates
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -44,32 +53,6 @@ Track your investment portfolio directly from the terminal.
 - [Market analysis](#market-analysis)
 - [Contributing](#contributing)
 - [License](#license)
-
----
-
-## Features
-
-- **Terminal dashboard (TUI)** -- live prices refresh automatically every
-  60 seconds (configurable)
-- **Extended-hours quotes** -- pre-market, regular, after-hours, and closed
-  session labels for US equities
-- **Daily % change** -- shows today's gain/loss vs. the previous close for
-  every position and watchlist item
-- **Stock detail screen** -- press Enter on any row to open charts, earnings
-  trends, analyst insights, and key statistics
-- **Watchlist** -- track symbols without holding a position; shown in the
-  dashboard with dimmed styling
-- **Multi-portfolio** -- open several YAML files side-by-side with multiple
-  `-p` flags
-- **Multi-currency** -- portfolio totals are converted to a base currency
-  using live forex rates
-- **Cryptocurrency** -- crypto positions (e.g. `BTC-USD`, `ETH-USD`)
-- **50+ exchanges** -- US, Europe, Asia-Pacific, Americas, and crypto
-  (no dot-suffix for US tickers)
-- **Yahoo Finance / CoinGecko** -- no API token required for either source
-- **Holiday-aware sessions** -- uses exchange-calendars to detect market
-  holidays correctly
-- **Open source** -- MIT licensed
 
 ---
 
