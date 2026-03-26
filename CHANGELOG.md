@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-27
+
+### Added
+
+- **`stonks show` command** -- one-shot portfolio snapshot with live prices
+  printed to stdout; supports multi-portfolio headers, session badges
+  (PRE/AH/CLS), Daily chg, and a Total line in the base currency.
+  Contributed by @MrCry0.
+- **Cryptocurrency support** -- positions and watchlist items with
+  `asset_type: crypto` are priced via the CoinGecko public API (no key
+  required). New `asset_type` and `external_id` fields on positions and
+  watchlist entries; a bundled 11 000+ entry coin map covers most symbols
+  without a runtime API call. Set `COINGECKO_DEMO_API_KEY` for higher rate
+  limits.
+- **Daily % change column** -- shows intraday gain/loss vs. the previous
+  close for every position and watchlist row; green for gains, red for
+  losses; suppressed (`--`) for closed sessions.
+- **Log viewer screen** -- press `L` in the dashboard to open the current
+  log file in a full-screen TUI view without leaving the app.
+- **`--log-level` CLI option** -- control logging verbosity at startup
+  (`DEBUG`, `INFO`, `WARNING`, `ERROR`; default: `WARNING`).
+- **Per-process log file** -- each `stonks` instance writes to
+  `stonks.<pid>.log` in the platform log directory so concurrent instances
+  never contend on the same file. Files older than 30 days are removed
+  automatically at startup.
+- `asset_type` dropdown and `external_id` input added to the Add/Edit
+  position and watchlist forms in the TUI.
+
+### Fixed
+
+- `CLS` session label now shown correctly for non-trading tickers (e.g.
+  crypto outside market hours); daily change is suppressed for closed
+  sessions instead of showing a stale value.
+- `TypeError` in `fetch_previous_closes` caused by mixing tz-aware and
+  tz-naive datetime objects when building the lookback window.
+- Watchlist and position rows are now correctly distinguished in the
+  edit/remove TUI handlers.
+- Log messages in the fetcher reformatted for improved readability
+  (symbols logged without extra quoting, list reprs replaced with joined
+  strings).
+
 ## [0.3.1] - 2026-03-23
 
 ### Fixed
@@ -162,6 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[0.4.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.0...v0.2.1
