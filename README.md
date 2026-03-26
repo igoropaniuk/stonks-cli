@@ -13,6 +13,40 @@ Track your investment portfolio directly from the terminal.
 
 ![demo](docs/assets/demo.gif)
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Portfolio configuration](#portfolio-configuration)
+  - [File structure](#file-structure)
+  - [Ticker symbols and exchange suffixes](#ticker-symbols-and-exchange-suffixes)
+  - [Americas](#americas)
+  - [Canada](#canada)
+  - [Europe](#europe)
+  - [Asia-Pacific](#asia-pacific)
+  - [Cryptocurrency](#cryptocurrency)
+  - [Examples](#examples)
+- [Usage](#usage)
+  - [Quick snapshot (stdout)](#quick-snapshot-stdout)
+  - [Interactive dashboard (TUI)](#interactive-dashboard-tui)
+  - [Add a position](#add-a-position)
+  - [Remove a position](#remove-a-position)
+  - [Manage cash](#manage-cash)
+  - [List portfolios](#list-portfolios)
+- [Dashboard](#dashboard)
+  - [Columns](#columns)
+  - [Session labels](#session-labels)
+  - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Stock detail screen](#stock-detail-screen)
+- [Logging](#logging)
+- [Running with Docker](#running-with-docker)
+  - [Build the image](#build-the-image)
+  - [Run the container](#run-the-container)
+- [Market analysis](#market-analysis)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Features
 
 - **Terminal dashboard (TUI)** -- live prices refresh automatically every
