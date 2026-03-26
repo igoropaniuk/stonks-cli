@@ -29,9 +29,10 @@ Track your investment portfolio directly from the terminal.
   `-p` flags
 - **Multi-currency** -- portfolio totals are converted to a base currency
   using live forex rates
+- **Cryptocurrency** -- crypto positions (e.g. `BTC-USD`, `ETH-USD`)
 - **50+ exchanges** -- US, Europe, Asia-Pacific, Americas, and crypto
   (no dot-suffix for US tickers)
-- **Yahoo Finance** -- no API token required
+- **Yahoo Finance / CoinGecko** -- no API token required for either source
 - **Holiday-aware sessions** -- uses exchange-calendars to detect market
   holidays correctly
 - **Open source** -- MIT licensed
@@ -83,6 +84,13 @@ portfolio:
       avg_cost: 1850.00
       currency: JPY
 
+    - symbol: BTC-USD
+      quantity: 0.5
+      avg_cost: 60000.00
+      currency: USD
+      asset_type: crypto
+      external_id: bitcoin
+
   cash:
     - currency: USD
       amount: 4250.00
@@ -93,16 +101,21 @@ portfolio:
   watchlist:
     - symbol: TSLA
     - symbol: NVDA
+    - symbol: LINK-USD
+      asset_type: crypto
+      external_id: chainlink
 ```
 
 **Positions** fields:
 
-| Field      | Type   | Required | Description                             |
-| ---------- | ------ | -------- | --------------------------------------- |
-| `symbol`   | string | yes      | Yahoo Finance ticker (case-insensitive) |
-| `quantity` | int    | yes      | Shares held (positive integer)          |
-| `avg_cost` | float  | yes      | Average cost per share (positive)       |
-| `currency` | string | no       | ISO 4217 code; defaults to `USD`        |
+| Field         | Type          | Required | Description                                                  |
+| ------------- | ------------- | -------- | ------------------------------------------------------------ |
+| `symbol`      | string        | yes      | Yahoo Finance ticker (case-insensitive); use `BASE-USD` for crypto |
+| `quantity`    | int \| float  | yes      | Units held; fractional values supported for crypto           |
+| `avg_cost`    | float         | yes      | Average cost per unit (positive)                             |
+| `currency`    | string        | no       | ISO 4217 code; defaults to `USD`                             |
+| `asset_type`  | string        | no       | Asset class: `equity`, `crypto`, `etf`, `bond`, `commodity`, `forex` |
+| `external_id` | string        | no       | Provider-specific ID used for price lookup  |
 
 **Cash** fields:
 
@@ -113,9 +126,11 @@ portfolio:
 
 **Watchlist** fields:
 
-| Field    | Type   | Required | Description                             |
-| -------- | ------ | -------- | --------------------------------------- |
-| `symbol` | string | yes      | Yahoo Finance ticker (case-insensitive) |
+| Field         | Type   | Required | Description                                                       |
+| ------------- | ------ | -------- | ----------------------------------------------------------------- |
+| `symbol`      | string | yes      | Yahoo Finance ticker (case-insensitive); use `BASE-USD` for crypto |
+| `asset_type`  | string | no       | Same values as positions; set to `crypto` for CoinGecko routing   |
+| `external_id` | string | no       | CoinGecko coin ID (or other provider ID) for unambiguous lookup   |
 
 Watchlist items are displayed in the dashboard with a dimmed style and only
 show the live price and daily change -- they have no quantity, cost, or market
@@ -191,6 +206,32 @@ Append the appropriate suffix to the base ticker symbol.
 | `.BK`   | Stock Exchange of Thailand     | Thailand    |
 | `.VN`   | Ho Chi Minh Stock Exchange     | Vietnam     |
 
+### Cryptocurrency
+
+Crypto symbols follow Yahoo Finance's `BASE-QUOTE` convention (e.g. `BTC-USD`).
+Prices are fetched from the **CoinGecko public API** instead of Yahoo Finance.
+No API key is required; set `COINGECKO_DEMO_API_KEY` in your environment to
+use a Demo key for higher rate limits.
+
+Set `asset_type: crypto` and provide an `external_id` (the CoinGecko coin ID)
+for each crypto position or watchlist item. The `external_id` disambiguates
+symbols that map to multiple coins and avoids a runtime search API call.
+
+| Name      | Yahoo Finance symbol | CoinGecko `external_id` |
+| --------- | -------------------- | ----------------------- |
+| Bitcoin   | `BTC-USD`            | `bitcoin`               |
+| Ethereum  | `ETH-USD`            | `ethereum`              |
+| Solana    | `SOL-USD`            | `solana`                |
+| Cardano   | `ADA-USD`            | `cardano`               |
+| Dogecoin  | `DOGE-USD`           | `dogecoin`              |
+| Polygon   | `MATIC-USD`          | `matic-network`         |
+| Chainlink | `LINK-USD`           | `chainlink`             |
+| Uniswap   | `UNI-USD`            | `uniswap`               |
+
+If `external_id` is omitted, stonks-cli resolves the coin automatically using
+a bundled symbol map (11 000+ entries) and falls back to the CoinGecko
+`/search` endpoint for ambiguous symbols, ranked by market cap.
+
 ### Examples
 
 | Symbol       | Instrument                |
@@ -201,7 +242,7 @@ Append the appropriate suffix to the base ticker symbol.
 | `HSBA.L`     | HSBC (London SE)          |
 | `005930.KS`  | Samsung (KOSPI)           |
 | `BTC-USD`    | Bitcoin / USD             |
-| `ETH-EUR`    | Ethereum / EUR            |
+| `ETH-USD`    | Ethereum / USD            |
 
 ---
 
@@ -274,8 +315,11 @@ stonks add AAPL 10 150.00
 # Add a non-US stock (ASML on Euronext Amsterdam)
 stonks add ASML.AS 5 680.00
 
-# Add crypto
+# Add crypto (symbol is resolved automatically via the bundled coin map)
 stonks add BTC-USD 0.5 60000.00
+
+# For precise control, set external_id directly in the YAML:
+#   external_id: bitcoin
 
 # Use a named portfolio (resolves to ~/.config/stonks/work.yaml)
 stonks -p work add NVDA 2 800.00
