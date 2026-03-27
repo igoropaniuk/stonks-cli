@@ -3,7 +3,6 @@
 import logging
 import threading
 
-import httpx
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -23,8 +22,9 @@ from textual.widgets import (
 )
 
 from stonks_cli.detail import StockDetailScreen
-from stonks_cli.fetcher import CryptoFetcher, PriceFetcher, exchange_label
+from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
+from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import Portfolio, WatchlistItem
 from stonks_cli.storage import PortfolioStore
 
@@ -1021,84 +1021,14 @@ class PortfolioApp(App):
             self._refresh_lock.release()
 
     def _do_refresh_prices(self) -> None:
-        fetcher = PriceFetcher()
-
-        # Build asset-type and external-id lookups from all portfolios.
-        asset_types: dict[str, str | None] = {}
-        external_ids: dict[str, str] = {}
-        for portfolio in self.portfolios:
-            for item in portfolio.positions + portfolio.watchlist:
-                asset_types[item.symbol] = item.asset_type
-                if item.external_id:
-                    external_ids[item.symbol] = item.external_id
-
-        all_symbols = list(asset_types)
-        crypto_symbols = [s for s in all_symbols if asset_types.get(s) == "crypto"]
-        equity_symbols = [s for s in all_symbols if s not in crypto_symbols]
-
-        # --- Equity prices (yfinance) ---
-        extended = fetcher.fetch_extended_prices(equity_symbols)
-        new_prices = {sym: price for sym, (price, _) in extended.items()}
-        new_sessions = {sym: sess for sym, (_, sess) in extended.items()}
-
-        # Fall back to daily batch prices for symbols that had no 1-minute data.
-        missing = [s for s in equity_symbols if s not in new_prices]
-        if missing:
-            fallback = fetcher.fetch_prices(missing)
-            new_prices.update(fallback)
-            # No intraday data for today -- mark as closed.
-            new_sessions.update({sym: "closed" for sym in fallback})
-
-        # Final fallback: fetch individually for symbols still missing after
-        # the batch attempt (cross-exchange DataFrame alignment can silently
-        # drop tickers from the batch result).
-        still_missing = [s for s in missing if s not in new_prices]
-        for sym in still_missing:
-            price = fetcher.fetch_price_single(sym)
-            if price is not None:
-                new_prices[sym] = price
-                new_sessions[sym] = "closed"
-
-        new_exchange_codes = fetcher.fetch_exchange_names(equity_symbols)
-        new_prev_closes = fetcher.fetch_previous_closes(equity_symbols)
-
-        # --- Crypto prices (CoinGecko) ---
-        if crypto_symbols:
-            try:
-                crypto_fetcher = CryptoFetcher()
-                crypto_prices, crypto_prev = crypto_fetcher.fetch_prices_and_changes(
-                    crypto_symbols, external_ids=external_ids
-                )
-                new_prices.update(crypto_prices)
-                new_sessions.update({sym: "regular" for sym in crypto_prices})
-                new_prev_closes.update(crypto_prev)
-            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                # CoinGecko unavailable or network error -- fall back to yfinance.
-                logger.warning(
-                    "CoinGecko fetch failed (%s); falling back to yfinance for crypto.",
-                    exc,
-                )
-                yf_crypto = fetcher.fetch_prices(crypto_symbols)
-                new_prices.update(yf_crypto)
-                new_sessions.update({sym: "regular" for sym in yf_crypto})
-                new_prev_closes.update(fetcher.fetch_previous_closes(crypto_symbols))
-            except Exception as exc:
-                logger.error("Unexpected error during CoinGecko fetch: %s", exc)
-
-        all_currencies = list(
-            {p.currency for portfolio in self.portfolios for p in portfolio.positions}
-            | {c.currency for portfolio in self.portfolios for c in portfolio.cash}
-        )
-        new_forex: dict[str, dict[str, float]] = {}
-        for base in {p.base_currency for p in self.portfolios}:
-            new_forex[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
+        snap = build_market_snapshot(self.portfolios)
         self.call_from_thread(
             self._apply_prices,
-            new_prices,
-            new_forex,
-            new_sessions,
-            new_exchange_codes,
-            new_prev_closes,
+            snap.prices,
+            snap.forex_rates,
+            snap.sessions,
+            snap.exchange_codes,
+            snap.prev_closes,
         )
 
     def _apply_prices(

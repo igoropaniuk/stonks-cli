@@ -16,6 +16,7 @@ from stonks_cli.app import (
     _TypeSelectScreen,
     _WatchFormScreen,
 )
+from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 # Capture before autouse fixture in conftest.py replaces it with a lambda
@@ -409,82 +410,29 @@ async def test_apply_prices_without_optional_args_preserves_state(
 
 
 @pytest.mark.asyncio
-async def test_refresh_prices_calls_fetcher_and_applies(portfolio: Portfolio) -> None:
-    """_refresh_prices fetches prices and forwards them to _apply_prices."""
-    mock_fetcher = MagicMock()
-    mock_fetcher.fetch_extended_prices.return_value = {
-        "AAPL": (160.0, "regular"),
-        "NVDA": (90.0, "regular"),
-    }
-    mock_fetcher.fetch_exchange_names.return_value = {"AAPL": "NMS", "NVDA": "NMS"}
-    mock_fetcher.fetch_previous_closes.return_value = {"AAPL": 155.0, "NVDA": 85.0}
-    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+async def test_refresh_prices_applies_snapshot(portfolio: Portfolio) -> None:
+    """_refresh_prices forwards the MarketSnapshot returned by build_market_snapshot."""
+    snap = MarketSnapshot(
+        prices={"AAPL": 160.0, "NVDA": 90.0},
+        sessions={"AAPL": "regular", "NVDA": "regular"},
+        exchange_codes={"AAPL": "NMS", "NVDA": "NMS"},
+        forex_rates={"USD": {"USD": 1.0}},
+        prev_closes={"AAPL": 155.0, "NVDA": 85.0},
+    )
 
-    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+    with patch("stonks_cli.app.build_market_snapshot", return_value=snap) as mock_bms:
         app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
         async with app.run_test() as pilot:
             await pilot.pause()
-            # call_from_thread requires a real worker thread -- stub it to call directly
             app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
             _REAL_REFRESH_PRICES.__wrapped__(app)
             await pilot.pause()
-    assert mock_fetcher.fetch_extended_prices.called
+
+    mock_bms.assert_called_once_with([portfolio])
     assert app.prices == {"AAPL": 160.0, "NVDA": 90.0}
     assert app.sessions == {"AAPL": "regular", "NVDA": "regular"}
     assert app.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
     assert app.prev_closes == {"AAPL": 155.0, "NVDA": 85.0}
-
-
-@pytest.mark.asyncio
-async def test_refresh_prices_tier2_fallback(portfolio: Portfolio) -> None:
-    """Symbols missing from extended prices are fetched via daily batch fallback."""
-    mock_fetcher = MagicMock()
-    # Extended fetch only returns AAPL; NVDA is missing
-    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
-    mock_fetcher.fetch_prices.return_value = {"NVDA": 90.0}
-    mock_fetcher.fetch_price_single.return_value = None
-    mock_fetcher.fetch_exchange_names.return_value = {}
-    mock_fetcher.fetch_previous_closes.return_value = {}
-    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
-
-    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
-        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
-            _REAL_REFRESH_PRICES.__wrapped__(app)
-            await pilot.pause()
-
-    assert mock_fetcher.fetch_prices.called
-    assert app.prices.get("NVDA") == pytest.approx(90.0)
-    # No intraday data -> marked as closed
-    assert app.sessions.get("NVDA") == "closed"
-
-
-@pytest.mark.asyncio
-async def test_refresh_prices_tier3_fallback(portfolio: Portfolio) -> None:
-    """Symbols still missing after daily batch are fetched individually."""
-    mock_fetcher = MagicMock()
-    # Both tiers 1 and 2 return nothing for NVDA
-    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
-    mock_fetcher.fetch_prices.return_value = {}
-    mock_fetcher.fetch_price_single.return_value = 88.0
-    mock_fetcher.fetch_exchange_names.return_value = {}
-    mock_fetcher.fetch_previous_closes.return_value = {}
-    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
-
-    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
-        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
-            _REAL_REFRESH_PRICES.__wrapped__(app)
-            await pilot.pause()
-
-    mock_fetcher.fetch_price_single.assert_called_once_with("NVDA")
-    assert app.prices.get("NVDA") == pytest.approx(88.0)
-    # No intraday data -> marked as closed
-    assert app.sessions.get("NVDA") == "closed"
 
 
 @pytest.mark.asyncio
@@ -511,17 +459,19 @@ async def test_populate_single_no_matches_returns_early(portfolio: Portfolio) ->
 
 
 @pytest.mark.asyncio
-async def test_refresh_prices_tier3_none_price_skipped(portfolio: Portfolio) -> None:
-    """Tier-3 fetch returning None leaves the symbol absent from prices."""
-    mock_fetcher = MagicMock()
-    mock_fetcher.fetch_extended_prices.return_value = {"AAPL": (160.0, "regular")}
-    mock_fetcher.fetch_prices.return_value = {}
-    mock_fetcher.fetch_price_single.return_value = None  # NVDA unreachable
-    mock_fetcher.fetch_exchange_names.return_value = {}
-    mock_fetcher.fetch_previous_closes.return_value = {}
-    mock_fetcher.fetch_forex_rates.return_value = {"USD": 1.0}
+async def test_refresh_prices_missing_symbol_absent_from_prices(
+    portfolio: Portfolio,
+) -> None:
+    """A symbol absent from the snapshot is absent from app.prices after refresh."""
+    snap = MarketSnapshot(
+        prices={"AAPL": 160.0},  # NVDA missing
+        sessions={"AAPL": "regular"},
+        exchange_codes={},
+        forex_rates={"USD": {"USD": 1.0}},
+        prev_closes={},
+    )
 
-    with patch("stonks_cli.app.PriceFetcher", return_value=mock_fetcher):
+    with patch("stonks_cli.app.build_market_snapshot", return_value=snap):
         app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
         async with app.run_test() as pilot:
             await pilot.pause()

@@ -8,7 +8,8 @@ import click
 from stonks_cli import __version__
 from stonks_cli.app import PortfolioApp
 from stonks_cli.log import setup_logging
-from stonks_cli.show import fetch_portfolio_data, format_show_table
+from stonks_cli.market import build_market_snapshot
+from stonks_cli.show import format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
     PortfolioStore,
@@ -174,18 +175,14 @@ def show(ctx: click.Context) -> None:
         click.echo("Portfolio is empty.")
         return
 
-    prices, sessions, exchange_codes, forex_rates, prev_closes = fetch_portfolio_data(
-        portfolios,
-    )
+    snap = build_market_snapshot(portfolios)
 
     for i, portfolio in enumerate(portfolios):
         if len(portfolios) > 1:
             label = portfolio.name or f"Portfolio {i + 1}"
             click.echo(f"\n{label} ({portfolio.base_currency})")
             click.echo("=" * len(f"{label} ({portfolio.base_currency})"))
-        table = format_show_table(
-            portfolio, prices, sessions, exchange_codes, forex_rates, prev_closes
-        )
+        table = format_show_table(portfolio, snap)
         click.echo(table)
         if i < len(portfolios) - 1:
             click.echo()

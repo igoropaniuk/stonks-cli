@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from stonks_cli import __version__
 from stonks_cli.main import _resolve_portfolio_path, main
+from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position
 from stonks_cli.show import format_show_table
 from stonks_cli.storage import PORTFOLIO_CONFIG_DIR, PortfolioStore
@@ -417,24 +418,24 @@ class TestDashboardMultiplePortfolios:
 # ---------------------------------------------------------------------------
 
 
-def _mock_fetch(
+def _mock_snapshot(
     prices, sessions=None, exchange_codes=None, forex_rates=None, prev_closes=None
 ):
-    """Return a mock replacement for fetch_portfolio_data."""
-    return (
-        prices or {},
-        sessions or {},
-        exchange_codes or {},
-        forex_rates or {},
-        prev_closes or {},
+    """Return a MarketSnapshot for use as a build_market_snapshot mock return value."""
+    return MarketSnapshot(
+        prices=prices or {},
+        sessions=sessions or {},
+        exchange_codes=exchange_codes or {},
+        forex_rates=forex_rates or {},
+        prev_closes=prev_closes or {},
     )
 
 
 class TestShow:
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_shows_positions_with_prices(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 175.0},
             sessions={"AAPL": "regular"},
             exchange_codes={"AAPL": "NMS"},
@@ -449,7 +450,7 @@ class TestShow:
         assert "17,500.00" in result.output  # market value
         assert "+2,500.00" in result.output  # unrealized P&L
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_empty_portfolio_message(self, mock_fetch, runner, portfolio_file):
         result = invoke(runner, portfolio_file, "show")
 
@@ -457,10 +458,10 @@ class TestShow:
         assert "empty" in result.output.lower()
         mock_fetch.assert_not_called()
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_missing_price_shows_na(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "50", "100.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={},
             forex_rates={"USD": {"USD": 1.0}},
         )
@@ -470,10 +471,10 @@ class TestShow:
         assert result.exit_code == 0
         assert "N/A" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_cash_only_portfolio(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add-cash", "USD", "5000")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={},
             forex_rates={"USD": {"USD": 1.0}},
         )
@@ -485,10 +486,10 @@ class TestShow:
         assert "Cash" in result.output
         assert "5,000.00" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_negative_pnl(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "200.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 150.0},
             sessions={"AAPL": "regular"},
             exchange_codes={"AAPL": "NMS"},
@@ -500,10 +501,10 @@ class TestShow:
         assert result.exit_code == 0
         assert "-500.00" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_session_badge_pre(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 155.0},
             sessions={"AAPL": "pre"},
             exchange_codes={"AAPL": "NMS"},
@@ -514,10 +515,10 @@ class TestShow:
 
         assert "PRE" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_session_badge_post(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 155.0},
             sessions={"AAPL": "post"},
             exchange_codes={"AAPL": "NMS"},
@@ -528,10 +529,10 @@ class TestShow:
 
         assert "AH" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_session_badge_closed(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 155.0},
             sessions={"AAPL": "closed"},
             exchange_codes={"AAPL": "NMS"},
@@ -542,13 +543,13 @@ class TestShow:
 
         assert "CLS" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_multi_portfolio(self, mock_fetch, runner, tmp_path):
         p1 = tmp_path / "p1.yaml"
         p2 = tmp_path / "p2.yaml"
         runner.invoke(main, ["--portfolio", str(p1), "add", "AAPL", "10", "150"])
         runner.invoke(main, ["--portfolio", str(p2), "add", "NVDA", "5", "800"])
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 175.0, "NVDA": 950.0},
             sessions={"AAPL": "regular", "NVDA": "regular"},
             exchange_codes={"AAPL": "NMS", "NVDA": "NMS"},
@@ -565,12 +566,12 @@ class TestShow:
         assert "AAPL" in result.output
         assert "NVDA" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_total_shows_na_when_price_missing(
         self, mock_fetch, runner, portfolio_file
     ):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={},
             forex_rates={"USD": {"USD": 1.0}},
         )
@@ -583,10 +584,10 @@ class TestShow:
         assert total_line
         assert "N/A" in total_line[0]
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_daily_change_shown(self, mock_fetch, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 110.0},
             sessions={"AAPL": "regular"},
             exchange_codes={"AAPL": "NMS"},
@@ -599,12 +600,12 @@ class TestShow:
         assert result.exit_code == 0
         assert "+10.00%" in result.output
 
-    @patch("stonks_cli.main.fetch_portfolio_data")
+    @patch("stonks_cli.main.build_market_snapshot")
     def test_daily_change_suppressed_for_closed_session(
         self, mock_fetch, runner, portfolio_file
     ):
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
-        mock_fetch.return_value = _mock_fetch(
+        mock_fetch.return_value = _mock_snapshot(
             prices={"AAPL": 110.0},
             sessions={"AAPL": "closed"},
             exchange_codes={"AAPL": "NMS"},
@@ -631,10 +632,12 @@ class TestFormatShowTable:
         )
         table = format_show_table(
             portfolio,
-            prices={"AAPL": 175.0},
-            sessions={"AAPL": "regular"},
-            exchange_codes={"AAPL": "NMS"},
-            forex_rates={"USD": {"USD": 1.0}},
+            _mock_snapshot(
+                prices={"AAPL": 175.0},
+                sessions={"AAPL": "regular"},
+                exchange_codes={"AAPL": "NMS"},
+                forex_rates={"USD": {"USD": 1.0}},
+            ),
         )
         lines = table.split("\n")
         # All data lines should have the same length (padded).
@@ -660,10 +663,10 @@ class TestFormatShowTable:
         )
         table = format_show_table(
             portfolio,
-            prices={"AAPL": 150.0, "NVDA": 300.0},
-            sessions={},
-            exchange_codes={},
-            forex_rates={"USD": {"USD": 1.0}},
+            _mock_snapshot(
+                prices={"AAPL": 150.0, "NVDA": 300.0},
+                forex_rates={"USD": {"USD": 1.0}},
+            ),
         )
         # AAPL: 10*150=1500, NVDA: 5*300=1500, cash: 1000 -> total: 4000
         assert "4,000.00" in table
@@ -675,10 +678,10 @@ class TestFormatShowTable:
         )
         table = format_show_table(
             portfolio,
-            prices={},
-            sessions={},
-            exchange_codes={},
-            forex_rates={"USD": {"EUR": 1.08}},
+            _mock_snapshot(
+                prices={},
+                forex_rates={"USD": {"EUR": 1.08}},
+            ),
         )
         assert "--" in table
         assert "Cash" in table
@@ -690,11 +693,12 @@ class TestFormatShowTable:
         )
         table = format_show_table(
             portfolio,
-            prices={"AAPL": 110.0},
-            sessions={"AAPL": "regular"},
-            exchange_codes={},
-            forex_rates={"USD": {"USD": 1.0}},
-            prev_closes={"AAPL": 100.0},
+            _mock_snapshot(
+                prices={"AAPL": 110.0},
+                sessions={"AAPL": "regular"},
+                forex_rates={"USD": {"USD": 1.0}},
+                prev_closes={"AAPL": 100.0},
+            ),
         )
         assert "Daily chg" in table
         assert "+10.00%" in table
@@ -706,11 +710,12 @@ class TestFormatShowTable:
         )
         table = format_show_table(
             portfolio,
-            prices={"AAPL": 110.0},
-            sessions={"AAPL": "closed"},
-            exchange_codes={},
-            forex_rates={"USD": {"USD": 1.0}},
-            prev_closes={"AAPL": 100.0},
+            _mock_snapshot(
+                prices={"AAPL": 110.0},
+                sessions={"AAPL": "closed"},
+                forex_rates={"USD": {"USD": 1.0}},
+                prev_closes={"AAPL": 100.0},
+            ),
         )
         assert "+10.00%" not in table
         assert "--" in table
