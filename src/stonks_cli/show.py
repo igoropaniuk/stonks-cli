@@ -1,60 +1,10 @@
 """CLI formatted output for portfolio show command."""
 
-from stonks_cli.fetcher import PriceFetcher, exchange_label
+from stonks_cli.fetcher import exchange_label
+from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import Portfolio
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
-
-
-def fetch_portfolio_data(
-    portfolios: list[Portfolio],
-) -> tuple[
-    dict[str, float],
-    dict[str, str],
-    dict[str, str],
-    dict[str, dict[str, float]],
-    dict[str, float],
-]:
-    """Fetch prices, sessions, exchange codes, forex rates, and previous closes.
-
-    Returns a tuple of (prices, sessions, exchange_codes, forex_rates, prev_closes).
-    """
-    fetcher = PriceFetcher()
-    all_symbols = list(
-        {pos.symbol for portfolio in portfolios for pos in portfolio.positions}
-        | {item.symbol for portfolio in portfolios for item in portfolio.watchlist}
-    )
-
-    extended = fetcher.fetch_extended_prices(all_symbols)
-    prices = {sym: price for sym, (price, _) in extended.items()}
-    sessions = {sym: sess for sym, (_, sess) in extended.items()}
-
-    missing = [s for s in all_symbols if s not in prices]
-    if missing:
-        fallback = fetcher.fetch_prices(missing)
-        prices.update(fallback)
-        sessions.update({sym: fetcher.current_session(sym) for sym in fallback})
-
-    still_missing = [s for s in missing if s not in prices]
-    for sym in still_missing:
-        price = fetcher.fetch_price_single(sym)
-        if price is not None:
-            prices[sym] = price
-            sessions[sym] = fetcher.current_session(sym)
-
-    exchange_codes = fetcher.fetch_exchange_names(all_symbols)
-
-    all_currencies = list(
-        {pos.currency for portfolio in portfolios for pos in portfolio.positions}
-        | {c.currency for portfolio in portfolios for c in portfolio.cash}
-    )
-    forex_rates: dict[str, dict[str, float]] = {}
-    for base in {p.base_currency for p in portfolios}:
-        forex_rates[base] = fetcher.fetch_forex_rates(all_currencies, base=base)
-
-    prev_closes = fetcher.fetch_previous_closes(all_symbols)
-
-    return prices, sessions, exchange_codes, forex_rates, prev_closes
 
 
 def _daily_chg_str(last: float, prev: float | None, session: str) -> str:
@@ -66,17 +16,13 @@ def _daily_chg_str(last: float, prev: float | None, session: str) -> str:
     return f"{sign}{pct:.2f}%"
 
 
-def format_show_table(
-    portfolio: Portfolio,
-    prices: dict[str, float],
-    sessions: dict[str, str],
-    exchange_codes: dict[str, str],
-    forex_rates: dict[str, dict[str, float]],
-    prev_closes: dict[str, float] | None = None,
-) -> str:
+def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
     """Build a plain-text table for a single portfolio."""
-    if prev_closes is None:
-        prev_closes = {}
+    prices = snap.prices
+    sessions = snap.sessions
+    exchange_codes = snap.exchange_codes
+    forex_rates = snap.forex_rates
+    prev_closes = snap.prev_closes
 
     headers = (
         "Instrument",
@@ -93,7 +39,7 @@ def format_show_table(
 
     for pos in portfolio.positions:
         symbol = pos.symbol
-        exchange = exchange_label(symbol, exchange_codes.get(symbol))
+        exchange = exchange_label(symbol, exchange_codes.get(symbol), pos.asset_type)
         qty = str(pos.quantity)
         avg_cost = f"{pos.avg_cost:.2f}"
         last_price = prices.get(symbol)
@@ -125,7 +71,7 @@ def format_show_table(
 
     for item in portfolio.watchlist:
         symbol = item.symbol
-        exchange = exchange_label(symbol, exchange_codes.get(symbol))
+        exchange = exchange_label(symbol, exchange_codes.get(symbol), item.asset_type)
         last_price = prices.get(symbol)
         session = sessions.get(symbol, "regular")
         badge = _SESSION_BADGES.get(session, "")
