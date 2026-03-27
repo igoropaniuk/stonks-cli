@@ -65,35 +65,57 @@ class PortfolioStore:
                     f"Cannot parse portfolio file {self.path}: {exc}"
                 ) from exc
 
-        section = (data or {}).get("portfolio", {})
+        try:
+            section = (data or {}).get("portfolio", {}) or {}
+        except AttributeError as exc:
+            raise ValueError(
+                f"Invalid portfolio file {self.path}: "
+                f"expected a mapping at the top level, got {type(data).__name__}"
+            ) from exc
 
-        raw_positions = section.get("positions") or []
-        positions = [
-            Position(
-                symbol=p["symbol"],
-                quantity=p["quantity"],
-                avg_cost=p["avg_cost"],
-                currency=p.get("currency", "USD"),
-                asset_type=p.get("asset_type"),
-                external_id=p.get("external_id"),
-            )
-            for p in raw_positions
-        ]
+        try:
+            raw_positions = section.get("positions") or []
+            positions = [
+                Position(
+                    symbol=p["symbol"],
+                    quantity=p["quantity"],
+                    avg_cost=p["avg_cost"],
+                    currency=p.get("currency", "USD"),
+                    asset_type=p.get("asset_type"),
+                    external_id=p.get("external_id"),
+                )
+                for p in raw_positions
+            ]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid position entry in {self.path}: missing required field {exc}"
+            ) from exc
 
-        raw_cash = section.get("cash") or []
-        cash = [
-            CashPosition(currency=c["currency"], amount=c["amount"]) for c in raw_cash
-        ]
+        try:
+            raw_cash = section.get("cash") or []
+            cash = [
+                CashPosition(currency=c["currency"], amount=c["amount"])
+                for c in raw_cash
+            ]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid cash entry in {self.path}: missing required field {exc}"
+            ) from exc
 
-        raw_watchlist = section.get("watchlist") or []
-        watchlist = [
-            WatchlistItem(
-                symbol=w["symbol"],
-                asset_type=w.get("asset_type"),
-                external_id=w.get("external_id"),
-            )
-            for w in raw_watchlist
-        ]
+        try:
+            raw_watchlist = section.get("watchlist") or []
+            watchlist = [
+                WatchlistItem(
+                    symbol=w["symbol"],
+                    asset_type=w.get("asset_type"),
+                    external_id=w.get("external_id"),
+                )
+                for w in raw_watchlist
+            ]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid watchlist entry in {self.path}: missing required field {exc}"
+            ) from exc
 
         base_currency = section.get("base_currency", "USD")
         name = section.get("name", "")
