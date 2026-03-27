@@ -3,6 +3,7 @@
 import importlib.resources
 import logging
 import math
+import threading
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -543,6 +544,7 @@ def _calc_performance(
 # _resolve_via_search() (per-symbol fallback).
 _cg_symbol_to_id: dict[str, str] = {}
 _cg_coin_list_loaded: bool = False
+_cg_lock = threading.Lock()
 
 
 def _coingecko_error_summary(exc: BaseException) -> str:
@@ -602,7 +604,10 @@ class CryptoFetcher:
         global _cg_coin_list_loaded  # noqa: PLW0603
         if _cg_coin_list_loaded:
             return
-        _cg_coin_list_loaded = True
+        with _cg_lock:
+            if _cg_coin_list_loaded:
+                return
+            _cg_coin_list_loaded = True
         try:
             import json
 
