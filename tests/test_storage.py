@@ -1,5 +1,6 @@
 """Tests for stonks_cli.storage."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,75 @@ class TestLoad:
         store = make_store(tmp_path)
         store.path.write_text("portfolio: {\nbad yaml: [")
         with pytest.raises(ValueError, match="Cannot parse portfolio file"):
+            store.load()
+
+    def test_raises_on_non_mapping_top_level(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.path.write_text("- item1\n- item2\n")
+        with pytest.raises(ValueError, match="Invalid portfolio file"):
+            store.load()
+
+    def test_raises_on_position_missing_symbol(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [{"quantity": 10, "avg_cost": 150.0}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid position entry"):
+            store.load()
+
+    def test_raises_on_position_missing_quantity(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [{"symbol": "AAPL", "avg_cost": 150.0}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid position entry"):
+            store.load()
+
+    def test_raises_on_position_missing_avg_cost(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [{"symbol": "AAPL", "quantity": 10}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid position entry"):
+            store.load()
+
+    def test_raises_on_cash_missing_currency(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [], "cash": [{"amount": 1000.0}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid cash entry"):
+            store.load()
+
+    def test_raises_on_cash_missing_amount(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [], "cash": [{"currency": "EUR"}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid cash entry"):
+            store.load()
+
+    def test_raises_on_watchlist_missing_symbol(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [], "watchlist": [{"asset_type": "crypto"}]}},
+        )
+        with pytest.raises(ValueError, match="Invalid watchlist entry"):
+            store.load()
+
+    def test_schema_errors_include_file_path(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        write_yaml(
+            store.path,
+            {"portfolio": {"positions": [{"quantity": 10, "avg_cost": 150.0}]}},
+        )
+        with pytest.raises(ValueError, match=re.escape(str(store.path))):
             store.load()
 
 
