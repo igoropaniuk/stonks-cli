@@ -777,23 +777,31 @@ class PortfolioApp(App):
         style = f"dim {color}" if dim else color
         return Text(label, style=style), pct
 
-    def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
-        saved_cursor = table.cursor_coordinate
-        table.clear()
-        tid = table.id or ""
-        rates = self.forex_rates.get(portfolio.base_currency, {})
+    @staticmethod
+    def _format_price_cell(last: float, session: str) -> Text | str:
+        """Return a price cell with a session badge appended when applicable."""
+        if session == "pre":
+            return Text(f"{last:.2f} ").append("PRE", style="bold yellow")
+        if session == "post":
+            return Text(f"{last:.2f} ").append("AH", style="bold cyan")
+        if session == "closed":
+            return Text(f"{last:.2f} ").append("CLS", style="bold red")
+        return f"{last:.2f}"
 
-        # Build (sort_key, display_cells) pairs for every row.
+    def _render_position_rows(
+        self,
+        portfolio: Portfolio,
+        rates: dict[str, float],
+    ) -> list[tuple[tuple, tuple]]:
+        """Build (sort_key, display_cells) pairs for held positions."""
         rows: list[tuple[tuple, tuple]] = []
-
         for pos in portfolio.positions:
             label = exchange_label(
                 pos.symbol, self.exchange_codes.get(pos.symbol), pos.asset_type
             )
             last = self.prices.get(pos.symbol)
-            sort_key: tuple[object, ...]
-            display: tuple[object, ...]
             if last is not None:
+                session = self.sessions.get(pos.symbol, "regular")
                 mkt_value = pos.market_value(last)
                 pnl = pos.unrealized_pnl(last)
                 sign = "+" if pnl >= 0 else ""
@@ -801,20 +809,10 @@ class PortfolioApp(App):
                     f"{sign}{pnl:,.2f}",
                     style="bold green" if pnl >= 0 else "bold red",
                 )
-                session = self.sessions.get(pos.symbol, "regular")
-                price_cell: Text | str
-                if session == "pre":
-                    price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
-                elif session == "post":
-                    price_cell = Text(f"{last:.2f} ").append("AH", style="bold cyan")
-                elif session == "closed":
-                    price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
-                else:
-                    price_cell = f"{last:.2f}"
                 chg_cell, chg_val = self._daily_chg_cell(
                     last, self.prev_closes.get(pos.symbol), session=session
                 )
-                sort_key = (
+                sort_key: tuple = (
                     pos.symbol,
                     label,
                     pos.quantity,
@@ -824,12 +822,12 @@ class PortfolioApp(App):
                     mkt_value,
                     pnl,
                 )
-                display = (
+                display: tuple = (
                     pos.symbol,
                     label,
                     str(pos.quantity),
                     f"{pos.avg_cost:.2f}",
-                    price_cell,
+                    self._format_price_cell(last, session),
                     chg_cell,
                     f"{mkt_value:,.2f}",
                     pnl_text,
@@ -856,17 +854,25 @@ class PortfolioApp(App):
                     "N/A",
                 )
             rows.append((sort_key, display))
+        return rows
 
+    def _render_cash_rows(
+        self,
+        portfolio: Portfolio,
+        rates: dict[str, float],
+    ) -> list[tuple[tuple, tuple]]:
+        """Build (sort_key, display_cells) pairs for cash positions."""
+        rows: list[tuple[tuple, tuple]] = []
         for cash_pos in portfolio.cash:
             rate = rates.get(cash_pos.currency)
             if rate is not None:
                 mkt_value = cash_pos.amount * rate
-                price_cell = (
+                price_cell: str = (
                     f"{rate:.4f}"
                     if cash_pos.currency != portfolio.base_currency
                     else "1.0000"
                 )
-                sort_key = (
+                sort_key: tuple = (
                     cash_pos.currency,
                     "Cash",
                     cash_pos.amount,
@@ -876,7 +882,7 @@ class PortfolioApp(App):
                     mkt_value,
                     0.0,
                 )
-                display = (
+                display: tuple = (
                     cash_pos.currency,
                     "Cash",
                     f"{cash_pos.amount:,.2f}",
@@ -908,7 +914,14 @@ class PortfolioApp(App):
                     "--",
                 )
             rows.append((sort_key, display))
+        return rows
 
+    def _render_watchlist_rows(
+        self,
+        portfolio: Portfolio,
+    ) -> list[tuple[tuple, tuple]]:
+        """Build (sort_key, display_cells) pairs for watchlist items."""
+        rows: list[tuple[tuple, tuple]] = []
         for watch in portfolio.watchlist:
             label = exchange_label(
                 watch.symbol, self.exchange_codes.get(watch.symbol), watch.asset_type
@@ -916,27 +929,16 @@ class PortfolioApp(App):
             last = self.prices.get(watch.symbol)
             if last is not None:
                 session = self.sessions.get(watch.symbol, "regular")
-                if session == "pre":
-                    price_cell = Text(f"{last:.2f} ").append("PRE", style="bold yellow")
-                elif session == "post":
-                    price_cell = Text(f"{last:.2f} ").append("AH", style="bold cyan")
-                elif session == "closed":
-                    price_cell = Text(f"{last:.2f} ").append("CLS", style="bold red")
-                else:
-                    price_cell = f"{last:.2f}"
                 chg_cell, chg_val = self._daily_chg_cell(
-                    last,
-                    self.prev_closes.get(watch.symbol),
-                    dim=True,
-                    session=session,
+                    last, self.prev_closes.get(watch.symbol), dim=True, session=session
                 )
-                sort_key = (watch.symbol, label, 0, 0.0, last, chg_val, 0.0, 0.0)
-                display = (
+                sort_key: tuple = (watch.symbol, label, 0, 0.0, last, chg_val, 0.0, 0.0)
+                display: tuple = (
                     Text(watch.symbol, style="dim"),
                     Text(label, style="dim"),
                     Text("--", style="dim"),
                     Text("--", style="dim"),
-                    price_cell,
+                    self._format_price_cell(last, session),
                     chg_cell,
                     Text("--", style="dim"),
                     Text("--", style="dim"),
@@ -954,6 +956,19 @@ class PortfolioApp(App):
                     Text("--", style="dim"),
                 )
             rows.append((sort_key, display))
+        return rows
+
+    def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
+        saved_cursor = table.cursor_coordinate
+        table.clear()
+        tid = table.id or ""
+        rates = self.forex_rates.get(portfolio.base_currency, {})
+
+        rows = (
+            self._render_position_rows(portfolio, rates)
+            + self._render_cash_rows(portfolio, rates)
+            + self._render_watchlist_rows(portfolio)
+        )
 
         if tid in self._sort_column:
             col = self._sort_column[tid]
