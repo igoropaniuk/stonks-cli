@@ -2,6 +2,8 @@
 
 import logging
 import threading
+from enum import Enum, auto
+from typing import NamedTuple
 
 from rich.text import Text
 from textual import work
@@ -29,6 +31,18 @@ from stonks_cli.models import Portfolio, WatchlistItem
 from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
+
+
+class _RowKind(Enum):
+    POSITION = auto()
+    CASH = auto()
+    WATCHLIST = auto()
+
+
+class _RowMeta(NamedTuple):
+    kind: _RowKind
+    symbol: str  # ticker for position/watchlist, currency code for cash
+
 
 # ---------------------------------------------------------------------------
 # Modal screens
@@ -390,6 +404,8 @@ class PortfolioApp(App):
         self._sort_column: dict[str, int] = {}
         self._sort_reverse: dict[str, bool] = {}
         self._refresh_lock = threading.Lock()
+        # Row metadata: (table_id, row_key_str) -> _RowMeta.
+        self._row_meta: dict[tuple[str, str], _RowMeta] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -551,18 +567,12 @@ class PortfolioApp(App):
         table, idx = active
         portfolio = self.portfolios[idx]
         pname = self._pname(idx)
-        row = table.get_row_at(table.cursor_row)
-        if not row:
+        meta = self._get_row_meta(table)
+        if meta is None:
             return
-        identifier = str(row[0])
-        is_cash = str(row[1]) == "Cash"
-        # Watchlist rows have "--" in the Qty column; position rows have
-        # a real quantity.  This distinguishes a watchlist row from a
-        # position row even when the same symbol appears in both lists.
-        is_watch_row = str(row[2]) == "--" and not is_cash
-        is_watch = is_watch_row and any(
-            w.symbol == identifier for w in portfolio.watchlist
-        )
+        identifier = meta.symbol
+        is_cash = meta.kind == _RowKind.CASH
+        is_watch = meta.kind == _RowKind.WATCHLIST
 
         if is_cash:
             cash_pos = portfolio.get_cash(identifier)
@@ -656,15 +666,12 @@ class PortfolioApp(App):
         table, idx = active
         portfolio = self.portfolios[idx]
         pname = self._pname(idx)
-        row = table.get_row_at(table.cursor_row)
-        if not row:
+        meta = self._get_row_meta(table)
+        if meta is None:
             return
-        identifier = str(row[0])
-        is_cash = str(row[1]) == "Cash"
-        is_watch_row = str(row[2]) == "--" and not is_cash
-        is_watch = is_watch_row and any(
-            w.symbol == identifier for w in portfolio.watchlist
-        )
+        identifier = meta.symbol
+        is_cash = meta.kind == _RowKind.CASH
+        is_watch = meta.kind == _RowKind.WATCHLIST
         kind = "cash" if is_cash else ("watch" if is_watch else "position")
 
         def on_confirm(confirmed: bool | None) -> None:
@@ -703,10 +710,11 @@ class PortfolioApp(App):
     # ------------------------------------------------------------------
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        row = event.data_table.get_row(event.row_key)
-        if not row or str(row[1]) == "Cash":
+        tid = event.data_table.id or ""
+        meta = self._row_meta.get((tid, str(event.row_key.value)))
+        if meta is None or meta.kind == _RowKind.CASH:
             return
-        self.push_screen(StockDetailScreen(str(row[0])))
+        self.push_screen(StockDetailScreen(meta.symbol))
 
     # ------------------------------------------------------------------
     # Column sorting
@@ -792,9 +800,9 @@ class PortfolioApp(App):
         self,
         portfolio: Portfolio,
         rates: dict[str, float],
-    ) -> list[tuple[tuple, tuple]]:
-        """Build (sort_key, display_cells) pairs for held positions."""
-        rows: list[tuple[tuple, tuple]] = []
+    ) -> list[tuple[tuple, tuple, _RowMeta]]:
+        """Build (sort_key, display_cells, meta) triples for held positions."""
+        rows: list[tuple[tuple, tuple, _RowMeta]] = []
         for pos in portfolio.positions:
             label = exchange_label(
                 pos.symbol, self.exchange_codes.get(pos.symbol), pos.asset_type
@@ -853,16 +861,16 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
-            rows.append((sort_key, display))
+            rows.append((sort_key, display, _RowMeta(_RowKind.POSITION, pos.symbol)))
         return rows
 
     def _render_cash_rows(
         self,
         portfolio: Portfolio,
         rates: dict[str, float],
-    ) -> list[tuple[tuple, tuple]]:
-        """Build (sort_key, display_cells) pairs for cash positions."""
-        rows: list[tuple[tuple, tuple]] = []
+    ) -> list[tuple[tuple, tuple, _RowMeta]]:
+        """Build (sort_key, display_cells, meta) triples for cash positions."""
+        rows: list[tuple[tuple, tuple, _RowMeta]] = []
         for cash_pos in portfolio.cash:
             rate = rates.get(cash_pos.currency)
             if rate is not None:
@@ -913,15 +921,15 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
-            rows.append((sort_key, display))
+            rows.append((sort_key, display, _RowMeta(_RowKind.CASH, cash_pos.currency)))
         return rows
 
     def _render_watchlist_rows(
         self,
         portfolio: Portfolio,
-    ) -> list[tuple[tuple, tuple]]:
-        """Build (sort_key, display_cells) pairs for watchlist items."""
-        rows: list[tuple[tuple, tuple]] = []
+    ) -> list[tuple[tuple, tuple, _RowMeta]]:
+        """Build (sort_key, display_cells, meta) triples for watchlist items."""
+        rows: list[tuple[tuple, tuple, _RowMeta]] = []
         for watch in portfolio.watchlist:
             label = exchange_label(
                 watch.symbol, self.exchange_codes.get(watch.symbol), watch.asset_type
@@ -955,7 +963,7 @@ class PortfolioApp(App):
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                 )
-            rows.append((sort_key, display))
+            rows.append((sort_key, display, _RowMeta(_RowKind.WATCHLIST, watch.symbol)))
         return rows
 
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
@@ -976,9 +984,23 @@ class PortfolioApp(App):
                 key=lambda r: r[0][col], reverse=self._sort_reverse.get(tid, False)
             )
 
-        for _, cells in rows:
-            table.add_row(*cells)
+        # Rebuild per-table row metadata and write rows with explicit keys.
+        for key in [k for k in self._row_meta if k[0] == tid]:
+            del self._row_meta[key]
+        for _, cells, meta in rows:
+            rkey = f"{meta.kind.name}:{meta.symbol}"
+            table.add_row(*cells, key=rkey)
+            self._row_meta[(tid, rkey)] = meta
         table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
+
+    def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
+        """Return the _RowMeta for the row currently under the cursor, or None."""
+        try:
+            row_key = table.ordered_rows[table.cursor_row].key
+        except (IndexError, AttributeError):
+            return None
+        tid = table.id or ""
+        return self._row_meta.get((tid, str(row_key.value)))
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
         rates = self.forex_rates.get(portfolio.base_currency, {})
