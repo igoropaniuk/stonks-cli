@@ -9,13 +9,13 @@ from textual.widgets import DataTable, Label, Static
 
 from stonks_cli.app import PortfolioApp
 from stonks_cli.detail import StockDetailScreen
-from stonks_cli.fetcher import (
-    PriceFetcher,
+from stonks_cli.models import CashPosition, Portfolio, Position
+from stonks_cli.stock_detail import (
     StockDetail,
+    StockDetailFetcher,
     _calc_performance,
     _trailing_return,
 )
-from stonks_cli.models import CashPosition, Portfolio, Position
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,34 +195,34 @@ class TestCalcPerformance:
 
 class TestFetcherHelpers:
     def test_fmt_price(self):
-        from stonks_cli.fetcher import _fmt_price
+        from stonks_cli.stock_detail import _fmt_price
 
         assert _fmt_price(123.456) == "123.46"
         assert _fmt_price(None) == "N/A"
         assert _fmt_price(float("nan")) == "N/A"
 
     def test_fmt_bid_ask(self):
-        from stonks_cli.fetcher import _fmt_bid_ask
+        from stonks_cli.stock_detail import _fmt_bid_ask
 
         assert _fmt_bid_ask(150.5, 100) == "150.50 x 100"
         assert _fmt_bid_ask(150.5, None) == "150.50"
         assert _fmt_bid_ask(None, 100) == "N/A"
 
     def test_fmt_range(self):
-        from stonks_cli.fetcher import _fmt_range
+        from stonks_cli.stock_detail import _fmt_range
 
         assert _fmt_range(100.0, 200.0) == "100.00 - 200.00"
         assert _fmt_range(None, 200.0) == "N/A"
         assert _fmt_range(100.0, None) == "N/A"
 
     def test_fmt_int(self):
-        from stonks_cli.fetcher import _fmt_int
+        from stonks_cli.stock_detail import _fmt_int
 
         assert _fmt_int(1000000) == "1,000,000"
         assert _fmt_int(None) == "N/A"
 
     def test_fmt_large(self):
-        from stonks_cli.fetcher import _fmt_large
+        from stonks_cli.stock_detail import _fmt_large
 
         assert _fmt_large(3.73e12) == "3.73T"
         assert _fmt_large(1.5e9) == "1.50B"
@@ -232,19 +232,19 @@ class TestFetcherHelpers:
         assert _fmt_large(-1.5e9) == "-1.50B"
 
     def test_fmt_dec(self):
-        from stonks_cli.fetcher import _fmt_dec
+        from stonks_cli.stock_detail import _fmt_dec
 
         assert _fmt_dec(3.14159, 2) == "3.14"
         assert _fmt_dec(None) == "N/A"
 
     def test_fmt_pct(self):
-        from stonks_cli.fetcher import _fmt_pct
+        from stonks_cli.stock_detail import _fmt_pct
 
         assert _fmt_pct(0.2550) == "25.50%"
         assert _fmt_pct(None) == "N/A"
 
     def test_fiscal_quarter(self):
-        from stonks_cli.fetcher import _fiscal_quarter
+        from stonks_cli.stock_detail import _fiscal_quarter
 
         class FakeTS:
             month = 7
@@ -635,8 +635,8 @@ class TestFetchStockDetail:
     @pytest.fixture(autouse=True)
     def _mock_yf(self):
         with (
-            patch("stonks_cli.fetcher.yf.Ticker") as mock_cls,
-            patch("stonks_cli.fetcher._calc_performance", return_value={}),
+            patch("stonks_cli.stock_detail.yf.Ticker") as mock_cls,
+            patch("stonks_cli.stock_detail._calc_performance", return_value={}),
         ):
             self.mock_ticker_cls = mock_cls
             self.ticker = MagicMock()
@@ -664,7 +664,7 @@ class TestFetchStockDetail:
         self.ticker.analyst_price_targets = {}
         self.ticker.recommendations_summary = pd.DataFrame()
 
-        detail = PriceFetcher().fetch_stock_detail("AAPL")
+        detail = StockDetailFetcher().fetch_stock_detail("AAPL")
 
         assert detail.symbol == "AAPL"
         assert detail.performance == {}
@@ -714,7 +714,7 @@ class TestFetchStockDetail:
         }
         self.ticker.recommendations_summary = pd.DataFrame()
 
-        detail = PriceFetcher().fetch_stock_detail("TEST")
+        detail = StockDetailFetcher().fetch_stock_detail("TEST")
 
         assert len(detail.eps_quarters) == 2
         assert detail.eps_actual == [1.50, 1.60]
@@ -755,7 +755,7 @@ class TestFetchStockDetail:
         rs = pd.DataFrame([rec0, rec1])
         self.ticker.recommendations_summary = rs
 
-        detail = PriceFetcher().fetch_stock_detail("REC")
+        detail = StockDetailFetcher().fetch_stock_detail("REC")
 
         assert len(detail.recommendations) == 2
         assert detail.recommendations[0]["strongBuy"] == 5
@@ -784,7 +784,7 @@ class TestFetchStockDetail:
             lambda self: (_ for _ in ()).throw(Exception("fail"))
         )
 
-        detail = PriceFetcher().fetch_stock_detail("FAIL")
+        detail = StockDetailFetcher().fetch_stock_detail("FAIL")
 
         assert detail.symbol == "FAIL"
         assert detail.eps_quarters == []

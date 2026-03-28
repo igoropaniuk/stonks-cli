@@ -13,9 +13,9 @@ from stonks_cli.fetcher import (
     CryptoFetcher,
     ExchangeSession,
     PriceFetcher,
-    _finite,
     exchange_label,
 )
+from stonks_cli.stock_detail import _finite
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
 _AMS = zoneinfo.ZoneInfo("Europe/Amsterdam")
