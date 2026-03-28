@@ -192,3 +192,40 @@ class Portfolio:
             self.positions.remove(existing)
         else:
             existing.quantity -= quantity
+
+
+def daily_change_pct(last: float, prev: float | None, session: str) -> float | None:
+    """Return the daily change as a percentage, or None when it cannot be computed.
+
+    Returns None when *prev* is absent/zero or the market session is 'closed'.
+    """
+    if prev is None or prev == 0 or session == "closed":
+        return None
+    return (last - prev) / prev * 100
+
+
+def portfolio_total(
+    portfolio: "Portfolio",
+    prices: dict[str, float],
+    rates: dict[str, float],
+) -> float | None:
+    """Return the total portfolio value in base currency, or None if data is incomplete.
+
+    Args:
+        portfolio: The portfolio to value.
+        prices: Last prices keyed by symbol.
+        rates: Forex conversion rates to base currency, keyed by position currency.
+    """
+    total = 0.0
+    for pos in portfolio.positions:
+        price = prices.get(pos.symbol)
+        rate = rates.get(pos.currency)
+        if price is None or rate is None:
+            return None
+        total += pos.market_value(price) * rate
+    for cash_pos in portfolio.cash:
+        rate = rates.get(cash_pos.currency)
+        if rate is None:
+            return None
+        total += cash_pos.amount * rate
+    return total
