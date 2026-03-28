@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-28
+
+### Added
+
+- **Error status bar in the TUI** -- add and edit operations now surface
+  validation and duplicate-entry errors in a dedicated error bar below the
+  status line. The bar is hidden by default and cleared automatically after
+  a subsequent successful operation.
+
+### Fixed
+
+- Price refresh exceptions (e.g. network errors in `build_market_snapshot`)
+  are now caught in the worker thread, logged at ERROR level with a full
+  traceback, and shown to the user via the error bar instead of being
+  silently swallowed.
+- CLI `add` and `add-cash` commands now raise a clean `ClickException` on
+  an internal lookup failure instead of crashing with a raw `AssertionError`
+  traceback.
+- CoinGecko coin-list cache (`_cg_symbol_to_id`) is now guarded with a
+  `threading.Lock` using double-checked locking, preventing a race condition
+  when two refresh threads start simultaneously.
+- `PackageNotFoundError` from `importlib.metadata.version()` is handled in
+  `__init__.py`; source checkouts without installed package metadata now fall
+  back to `"0.0.0.dev"` instead of making the package unimportable.
+
 ## [0.4.0] - 2026-03-27
 
 ### Added
