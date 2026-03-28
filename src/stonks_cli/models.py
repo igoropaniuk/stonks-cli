@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from stonks_cli._session import Session
+
 
 @dataclass
 class CashPosition:
@@ -199,7 +201,7 @@ def daily_change_pct(last: float, prev: float | None, session: str) -> float | N
 
     Returns None when *prev* is absent/zero or the market session is 'closed'.
     """
-    if prev is None or prev == 0 or session == "closed":
+    if prev is None or prev == 0 or session == Session.CLOSED:
         return None
     return (last - prev) / prev * 100
 
