@@ -2,7 +2,6 @@
 
 import logging
 import threading
-from enum import Enum, auto
 from typing import Any, NamedTuple, TypedDict, TypeVar
 
 from rich.text import Text
@@ -27,8 +26,9 @@ from textual.widgets import (
 from textual.widgets._select import NoSelection
 
 from stonks_cli._columns import _TABLE_COLUMNS
+from stonks_cli._row_model import RowData, RowKind, build_row_data
+from stonks_cli._session import Session
 from stonks_cli.detail import StockDetailScreen
-from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import (
@@ -36,7 +36,6 @@ from stonks_cli.models import (
     Portfolio,
     Position,
     WatchlistItem,
-    daily_change_pct,
     portfolio_total,
 )
 from stonks_cli.storage import PortfolioStore
@@ -44,14 +43,8 @@ from stonks_cli.storage import PortfolioStore
 logger = logging.getLogger(__name__)
 
 
-class _RowKind(Enum):
-    POSITION = auto()
-    CASH = auto()
-    WATCHLIST = auto()
-
-
 class _RowMeta(NamedTuple):
-    kind: _RowKind
+    kind: RowKind
     symbol: str  # ticker for position/watchlist, currency code for cash
 
 
@@ -68,10 +61,10 @@ class _RowData(NamedTuple):
     meta: _RowMeta
 
 
-_ROW_KIND_LABELS: dict[_RowKind, str] = {
-    _RowKind.POSITION: "position",
-    _RowKind.CASH: "cash",
-    _RowKind.WATCHLIST: "watch",
+_ROW_KIND_LABELS: dict[RowKind, str] = {
+    RowKind.POSITION: "position",
+    RowKind.CASH: "cash",
+    RowKind.WATCHLIST: "watch",
 }
 
 
@@ -171,6 +164,26 @@ class _TypeSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
+def _validate_required(value: str, label_str: str, err: Label) -> bool:
+    """Return True if *value* is non-empty; otherwise update *err* and return False."""
+    if not value:
+        err.update(f"{label_str} is required")
+        return False
+    return True
+
+
+def _validate_positive_float(raw: str, label_str: str, err: Label) -> float | None:
+    """Parse *raw* as a positive float; update *err* and return None on failure."""
+    try:
+        val = float(raw)
+        if val <= 0:
+            raise ValueError
+    except ValueError:
+        err.update(f"{label_str} must be a positive number")
+        return None
+    return val
+
+
 _ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
     ("Equity (default)", None),
     ("Crypto", "crypto"),
@@ -242,22 +255,13 @@ class _EquityFormScreen(_BaseFormScreen[_EquityResult]):
         )
         external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
-        if not symbol:
-            err.update("Symbol is required")
+        if not _validate_required(symbol, "Symbol", err):
             return
-        try:
-            qty = float(qty_str)
-            if qty <= 0:
-                raise ValueError
-        except ValueError:
-            err.update("Quantity must be a positive number")
+        qty = _validate_positive_float(qty_str, "Quantity", err)
+        if qty is None:
             return
-        try:
-            avg_cost = float(avg_cost_str)
-            if avg_cost <= 0:
-                raise ValueError
-        except ValueError:
-            err.update("Avg cost must be a positive number")
+        avg_cost = _validate_positive_float(avg_cost_str, "Avg cost", err)
+        if avg_cost is None:
             return
         self.dismiss(
             _EquityResult(
@@ -300,15 +304,10 @@ class _CashFormScreen(_BaseFormScreen[_CashResult]):
         currency = self.query_one("#currency", Input).value.strip().upper()
         amount_str = self.query_one("#amount", Input).value.strip()
         err = self.query_one("#error", Label)
-        if not currency:
-            err.update("Currency is required")
+        if not _validate_required(currency, "Currency", err):
             return
-        try:
-            amount = float(amount_str)
-            if amount <= 0:
-                raise ValueError
-        except ValueError:
-            err.update("Amount must be a positive number")
+        amount = _validate_positive_float(amount_str, "Amount", err)
+        if amount is None:
             return
         self.dismiss(_CashResult(currency=currency, amount=amount))
 
@@ -359,8 +358,7 @@ class _WatchFormScreen(_BaseFormScreen[_WatchResult]):
         )
         external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
-        if not symbol:
-            err.update("Symbol is required")
+        if not _validate_required(symbol, "Symbol", err):
             return
         self.dismiss(
             _WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)
@@ -393,199 +391,161 @@ class _ConfirmScreen(ModalScreen[bool]):
             self.dismiss(False)
 
 
-def _daily_chg_cell(
-    last: float,
-    prev: float | None,
-    dim: bool = False,
-    session: str = "regular",
-) -> tuple[Text | str, float]:
-    """Return (display_cell, sort_value) for the daily change column."""
-    pct = daily_change_pct(last, prev, session)
-    if pct is None:
-        cell: Text | str = Text("--", style="dim") if dim else "--"
-        return cell, 0.0
-    sign = "+" if pct >= 0 else ""
-    label = f"{sign}{pct:.2f}%"
-    color = "green" if pct >= 0 else "red"
-    style = f"dim {color}" if dim else color
-    return Text(label, style=style), pct
-
-
 def _format_price_cell(last: float, session: str) -> Text | str:
     """Return a price cell with a session badge appended when applicable."""
-    if session == "pre":
+    if session == Session.PRE:
         return Text(f"{last:.2f} ").append("PRE", style="bold yellow")
-    if session == "post":
+    if session == Session.POST:
         return Text(f"{last:.2f} ").append("AH", style="bold cyan")
-    if session == "closed":
+    if session == Session.CLOSED:
         return Text(f"{last:.2f} ").append("CLS", style="bold red")
     return f"{last:.2f}"
 
 
-def _build_position_rows(
-    positions: list[Position],
-    prices: dict[str, float],
-    sessions: dict[str, str],
-    prev_closes: dict[str, float],
-    exchange_codes: dict[str, str],
-    rates: dict[str, float],
-) -> list[_RowData]:
-    """Build _RowData triples for held positions."""
+def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
+    """Convert shared :class:`RowData` objects to TUI-specific :class:`_RowData`.
+
+    Applies Rich Text styling and builds sort keys on top of the
+    presentation-agnostic values produced by :func:`build_row_data`.
+    """
     rows: list[_RowData] = []
-    for pos in positions:
-        label = exchange_label(
-            pos.symbol, exchange_codes.get(pos.symbol), pos.asset_type
-        )
-        last = prices.get(pos.symbol)
-        if last is not None:
-            session = sessions.get(pos.symbol, "regular")
-            mkt_value = pos.market_value(last)
-            pnl = pos.unrealized_pnl(last)
-            sign = "+" if pnl >= 0 else ""
-            pnl_cell: str | Text = Text(
-                f"{sign}{pnl:,.2f}",
-                style="bold green" if pnl >= 0 else "bold red",
+    for rd in row_data:
+        if rd.kind == RowKind.POSITION:
+            assert rd.qty is not None and rd.avg_cost is not None
+            if rd.last is not None:
+                pnl = rd.pnl if rd.pnl is not None else 0.0
+                sign = "+" if pnl >= 0 else ""
+                pnl_cell: str | Text = Text(
+                    f"{sign}{pnl:,.2f}",
+                    style="bold green" if pnl >= 0 else "bold red",
+                )
+                price_cell: str | Text = _format_price_cell(rd.last, rd.session)
+                if rd.chg_pct is not None:
+                    chg_sign = "+" if rd.chg_pct >= 0 else ""
+                    chg_cell: str | Text = Text(
+                        f"{chg_sign}{rd.chg_pct:.2f}%",
+                        style="green" if rd.chg_pct >= 0 else "red",
+                    )
+                    chg_val = rd.chg_pct
+                else:
+                    chg_cell = "--"
+                    chg_val = 0.0
+                mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
+                sort_key: tuple = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    rd.avg_cost,
+                    rd.last,
+                    chg_val,
+                    mkt_value,
+                    pnl,
+                )
+                mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
+            else:
+                price_cell = "N/A"
+                chg_cell = "--"
+                mkt_value_cell = "N/A"
+                pnl_cell = "N/A"
+                sort_key = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    rd.avg_cost,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            display: tuple = (
+                rd.symbol,
+                rd.exchange,
+                str(rd.qty),
+                f"{rd.avg_cost:.2f}",
+                price_cell,
+                chg_cell,
+                mkt_value_cell,
+                pnl_cell,
             )
-            price_cell: str | Text = _format_price_cell(last, session)
-            chg_cell: str | Text
-            chg_cell, chg_val = _daily_chg_cell(
-                last, prev_closes.get(pos.symbol), session=session
+            rows.append(
+                _RowData(sort_key, display, _RowMeta(RowKind.POSITION, rd.symbol))
             )
-            mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
-            sort_key: tuple = (
-                pos.symbol,
-                label,
-                pos.quantity,
-                pos.avg_cost,
-                last,
-                chg_val,
-                mkt_value,
-                pnl,
-            )
-        else:
-            price_cell = "N/A"
-            chg_cell = "--"
-            mkt_value_cell = "N/A"
-            pnl_cell = "N/A"
-            sort_key = (
-                pos.symbol,
-                label,
-                pos.quantity,
-                pos.avg_cost,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            )
-        display: tuple = (
-            pos.symbol,
-            label,
-            str(pos.quantity),
-            f"{pos.avg_cost:.2f}",
-            price_cell,
-            chg_cell,
-            mkt_value_cell,
-            pnl_cell,
-        )
-        rows.append(
-            _RowData(sort_key, display, _RowMeta(_RowKind.POSITION, pos.symbol))
-        )
-    return rows
 
+        elif rd.kind == RowKind.CASH:
+            assert rd.qty is not None
+            if rd.last is not None:
+                mkt_value_c = rd.mkt_value if rd.mkt_value is not None else 0.0
+                sort_key = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    1.0,
+                    rd.last,
+                    0.0,
+                    mkt_value_c,
+                    0.0,
+                )
+                price_cell_c: str = f"{rd.last:.4f}"
+                mkt_value_cell_c: str = f"{mkt_value_c:,.2f}"
+            else:
+                sort_key = (rd.symbol, rd.exchange, rd.qty, 1.0, 0.0, 0.0, 0.0, 0.0)
+                price_cell_c = "N/A"
+                mkt_value_cell_c = "N/A"
+            display_c: tuple = (
+                rd.symbol,
+                rd.exchange,
+                f"{rd.qty:,.2f}",
+                "1.00",
+                price_cell_c,
+                "--",
+                mkt_value_cell_c,
+                "--",
+            )
+            rows.append(
+                _RowData(sort_key, display_c, _RowMeta(RowKind.CASH, rd.symbol))
+            )
 
-def _build_cash_rows(
-    cash: list[CashPosition],
-    rates: dict[str, float],
-    base_currency: str,
-) -> list[_RowData]:
-    """Build _RowData triples for cash positions."""
-    rows: list[_RowData] = []
-    for cash_pos in cash:
-        rate = rates.get(cash_pos.currency)
-        if rate is not None:
-            mkt_value = cash_pos.amount * rate
-            price_cell: str = (
-                f"{rate:.4f}" if cash_pos.currency != base_currency else "1.0000"
+        else:  # WATCHLIST
+            if rd.last is not None:
+                price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
+                if rd.chg_pct is not None:
+                    chg_sign_w = "+" if rd.chg_pct >= 0 else ""
+                    chg_cell_w: str | Text = Text(
+                        f"{chg_sign_w}{rd.chg_pct:.2f}%",
+                        style=f"dim {'green' if rd.chg_pct >= 0 else 'red'}",
+                    )
+                    chg_val_w = rd.chg_pct
+                else:
+                    chg_cell_w = Text("--", style="dim")
+                    chg_val_w = 0.0
+                sort_key_w: tuple = (
+                    rd.symbol,
+                    rd.exchange,
+                    0,
+                    0.0,
+                    rd.last,
+                    chg_val_w,
+                    0.0,
+                    0.0,
+                )
+            else:
+                price_cell_w = Text("N/A", style="dim")
+                chg_cell_w = Text("--", style="dim")
+                sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            display_w: tuple = (
+                Text(rd.symbol, style="dim"),
+                Text(rd.exchange, style="dim"),
+                Text("--", style="dim"),
+                Text("--", style="dim"),
+                price_cell_w,
+                chg_cell_w,
+                Text("--", style="dim"),
+                Text("--", style="dim"),
             )
-            mkt_value_cell: str = f"{mkt_value:,.2f}"
-            sort_key: tuple = (
-                cash_pos.currency,
-                "Cash",
-                cash_pos.amount,
-                1.0,
-                rate,
-                0.0,
-                mkt_value,
-                0.0,
+            rows.append(
+                _RowData(sort_key_w, display_w, _RowMeta(RowKind.WATCHLIST, rd.symbol))
             )
-        else:
-            price_cell = "N/A"
-            mkt_value_cell = "N/A"
-            sort_key = (
-                cash_pos.currency,
-                "Cash",
-                cash_pos.amount,
-                1.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            )
-        display: tuple = (
-            cash_pos.currency,
-            "Cash",
-            f"{cash_pos.amount:,.2f}",
-            "1.00",
-            price_cell,
-            "--",
-            mkt_value_cell,
-            "--",
-        )
-        rows.append(
-            _RowData(sort_key, display, _RowMeta(_RowKind.CASH, cash_pos.currency))
-        )
-    return rows
 
-
-def _build_watchlist_rows(
-    watchlist: list[WatchlistItem],
-    prices: dict[str, float],
-    sessions: dict[str, str],
-    prev_closes: dict[str, float],
-    exchange_codes: dict[str, str],
-) -> list[_RowData]:
-    """Build _RowData triples for watchlist items."""
-    rows: list[_RowData] = []
-    for watch in watchlist:
-        label = exchange_label(
-            watch.symbol, exchange_codes.get(watch.symbol), watch.asset_type
-        )
-        last = prices.get(watch.symbol)
-        if last is not None:
-            session = sessions.get(watch.symbol, "regular")
-            price_cell: str | Text = _format_price_cell(last, session)
-            chg_cell: str | Text
-            chg_cell, chg_val = _daily_chg_cell(
-                last, prev_closes.get(watch.symbol), dim=True, session=session
-            )
-            sort_key: tuple = (watch.symbol, label, 0, 0.0, last, chg_val, 0.0, 0.0)
-        else:
-            price_cell = Text("N/A", style="dim")
-            chg_cell = Text("--", style="dim")
-            sort_key = (watch.symbol, label, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        display: tuple = (
-            Text(watch.symbol, style="dim"),
-            Text(label, style="dim"),
-            Text("--", style="dim"),
-            Text("--", style="dim"),
-            price_cell,
-            chg_cell,
-            Text("--", style="dim"),
-            Text("--", style="dim"),
-        )
-        rows.append(
-            _RowData(sort_key, display, _RowMeta(_RowKind.WATCHLIST, watch.symbol))
-        )
     return rows
 
 
@@ -709,22 +669,14 @@ class PortfolioTableWidget(Widget):
         saved_cursor = table.cursor_coordinate
         table.clear()
         rates = self._forex_rates.get(portfolio.base_currency, {})
-        rows = (
-            _build_position_rows(
-                portfolio.positions,
+        rows = _to_tui_rows(
+            build_row_data(
+                portfolio,
                 self._prices,
                 self._sessions,
                 self._prev_closes,
                 self._exchange_codes,
                 rates,
-            )
-            + _build_cash_rows(portfolio.cash, rates, portfolio.base_currency)
-            + _build_watchlist_rows(
-                portfolio.watchlist,
-                self._prices,
-                self._sessions,
-                self._prev_closes,
-                self._exchange_codes,
             )
         )
         self._write_rows(table, self._apply_sort(rows))
@@ -1074,12 +1026,12 @@ class PortfolioApp(App[None]):
             return
         identifier = meta.symbol
 
-        if meta.kind == _RowKind.CASH:
+        if meta.kind == RowKind.CASH:
             cash_pos = portfolio.get_cash(identifier)
             if cash_pos is None:
                 return
             self._edit_cash(portfolio, idx, pname, cash_pos)
-        elif meta.kind == _RowKind.WATCHLIST:
+        elif meta.kind == RowKind.WATCHLIST:
             old_item = next(
                 (w for w in portfolio.watchlist if w.symbol == identifier), None
             )
@@ -1109,11 +1061,11 @@ class PortfolioApp(App[None]):
         def on_confirm(confirmed: bool | None) -> None:
             if not confirmed:
                 return
-            if meta.kind == _RowKind.CASH:
+            if meta.kind == RowKind.CASH:
                 cash_pos = portfolio.get_cash(identifier)
                 if cash_pos:
                     portfolio.cash.remove(cash_pos)
-            elif meta.kind == _RowKind.WATCHLIST:
+            elif meta.kind == RowKind.WATCHLIST:
                 item = next(
                     (w for w in portfolio.watchlist if w.symbol == identifier), None
                 )
@@ -1144,7 +1096,7 @@ class PortfolioApp(App[None]):
     def on_portfolio_table_widget_row_selected(
         self, event: PortfolioTableWidget.RowSelected
     ) -> None:
-        if event.meta.kind == _RowKind.CASH:
+        if event.meta.kind == RowKind.CASH:
             return
         self.push_screen(StockDetailScreen(event.meta.symbol))
 
