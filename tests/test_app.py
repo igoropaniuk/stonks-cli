@@ -8,8 +8,8 @@ from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.widgets import Button, DataTable, Input, Label, Static
 
-from stonks_cli.app import (
-    PortfolioApp,
+from stonks_cli.app import PortfolioApp
+from stonks_cli.forms import (
     _CashFormScreen,
     _ConfirmScreen,
     _EquityFormScreen,
