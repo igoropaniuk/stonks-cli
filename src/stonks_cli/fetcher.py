@@ -530,25 +530,25 @@ class CryptoFetcher:
         with _cg_lock:
             if _cg_coin_list_loaded:
                 return
-            _cg_coin_list_loaded = True
-        try:
-            import json
+            try:
+                import json
 
-            data = (
-                importlib.resources.files("stonks_cli.data")
-                .joinpath("coingecko_coins.json")
-                .read_text(encoding="utf-8")
-            )
-            mapping: dict[str, str] = json.loads(data)
-            for sym, cg_id in mapping.items():
-                if sym not in _cg_symbol_to_id:
-                    _cg_symbol_to_id[sym] = cg_id
-        except FileNotFoundError:
-            logger.warning("CoinGecko coin list file not found.")
-        except json.JSONDecodeError:
-            logger.warning("CoinGecko coin list file is malformed JSON.")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Unexpected error loading CoinGecko coin list: %s", exc)
+                data = (
+                    importlib.resources.files("stonks_cli.data")
+                    .joinpath("coingecko_coins.json")
+                    .read_text(encoding="utf-8")
+                )
+                mapping: dict[str, str] = json.loads(data)
+                for sym, cg_id in mapping.items():
+                    if sym not in _cg_symbol_to_id:
+                        _cg_symbol_to_id[sym] = cg_id
+                _cg_coin_list_loaded = True
+            except FileNotFoundError:
+                logger.warning("CoinGecko coin list file not found.")
+            except json.JSONDecodeError:
+                logger.warning("CoinGecko coin list file is malformed JSON.")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Unexpected error loading CoinGecko coin list: %s", exc)
 
     def _resolve_via_search(self, base_symbol: str) -> str | None:
         """Use ``/search`` to find the CoinGecko ID for *base_symbol*.
