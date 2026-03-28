@@ -1070,6 +1070,9 @@ class PortfolioApp(App):
             return
         try:
             self._do_refresh_prices()
+        except Exception as exc:
+            logger.error("Price refresh failed: %s", exc, exc_info=True)
+            self.call_from_thread(self._show_error, f"Price refresh failed: {exc}")
         finally:
             self._refresh_lock.release()
 
@@ -1101,4 +1104,5 @@ class PortfolioApp(App):
             self.exchange_codes = exchange_codes
         if prev_closes is not None:
             self.prev_closes = prev_closes
+        self._show_error("")
         self._populate_tables()
