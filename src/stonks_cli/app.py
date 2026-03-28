@@ -11,7 +11,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
+from textual.message import Message
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import (
     Button,
     DataTable,
@@ -587,6 +589,162 @@ def _build_watchlist_rows(
     return rows
 
 
+class PortfolioTableWidget(Widget):
+    """DataTable plus a total bar for a single portfolio.
+
+    Owns sort state, row metadata, and all table-rendering logic.
+    Call :meth:`refresh_data` to push new portfolio/price data into the widget.
+    """
+
+    def __init__(
+        self,
+        widget_id: str | None = None,
+        table_id: str | None = None,
+        total_id: str | None = None,
+    ) -> None:
+        super().__init__(id=widget_id)
+        self._table_id = table_id
+        self._total_id = total_id
+        self._sort_column: int | None = None
+        self._sort_reverse: bool = False
+        self._row_meta: dict[str, _RowMeta] = {}
+        # Cached market data: populated by refresh_data(), reused on sort.
+        self._portfolio: Portfolio | None = None
+        self._prices: dict[str, float] = {}
+        self._forex_rates: dict[str, dict[str, float]] = {}
+        self._sessions: dict[str, str] = {}
+        self._prev_closes: dict[str, float] = {}
+        self._exchange_codes: dict[str, str] = {}
+
+    def compose(self) -> ComposeResult:
+        yield DataTable(zebra_stripes=True, cursor_type="row", id=self._table_id)
+        yield Static("", id=self._total_id, classes="total")
+
+    def on_mount(self) -> None:
+        self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
+
+    def refresh_data(
+        self,
+        portfolio: Portfolio,
+        prices: dict[str, float],
+        forex_rates: dict[str, dict[str, float]],
+        sessions: dict[str, str],
+        prev_closes: dict[str, float],
+        exchange_codes: dict[str, str],
+    ) -> None:
+        """Push new data into the widget and repaint."""
+        self._portfolio = portfolio
+        self._prices = prices
+        self._forex_rates = forex_rates
+        self._sessions = sessions
+        self._prev_closes = prev_closes
+        self._exchange_codes = exchange_codes
+        self._repaint()
+
+    def get_row_meta(self) -> _RowMeta | None:
+        """Return the _RowMeta for the row currently under the cursor."""
+        table = self.query_one(DataTable)
+        try:
+            row_key = table.ordered_rows[table.cursor_row].key
+        except (IndexError, AttributeError):
+            return None
+        return self._row_meta.get(str(row_key.value))
+
+    def get_meta_for_key(self, rkey: str) -> _RowMeta | None:
+        """Return the _RowMeta for a specific row key string."""
+        return self._row_meta.get(rkey)
+
+    class RowSelected(Message):
+        """Posted when the user selects a row in this widget's table."""
+
+        def __init__(self, meta: _RowMeta) -> None:
+            self.meta = meta
+            super().__init__()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        meta = self.get_meta_for_key(str(event.row_key.value))
+        if meta is not None:
+            self.post_message(self.RowSelected(meta))
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        col = event.column_index
+        if self._sort_column == col:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = col
+            self._sort_reverse = False
+        self._repaint()
+
+    # ------------------------------------------------------------------
+    # Internal rendering
+    # ------------------------------------------------------------------
+
+    def _repaint(self) -> None:
+        if self._portfolio is None:
+            return
+        table = self.query_one(DataTable)
+        self._render_rows(table)
+        self._update_total()
+
+    def _apply_sort(self, rows: list[_RowData]) -> list[_RowData]:
+        if self._sort_column is None:
+            return rows
+        col = self._sort_column
+        return sorted(
+            rows,
+            key=lambda r: r[0][col],
+            reverse=self._sort_reverse,
+        )
+
+    def _write_rows(self, table: DataTable, rows: list[_RowData]) -> None:
+        self._row_meta.clear()
+        for _, cells, meta in rows:
+            rkey = f"{meta.kind.name}:{meta.symbol}"
+            table.add_row(*cells, key=rkey)
+            self._row_meta[rkey] = meta
+
+    def _render_rows(self, table: DataTable) -> None:
+        portfolio = self._portfolio
+        assert portfolio is not None
+        saved_cursor = table.cursor_coordinate
+        table.clear()
+        rates = self._forex_rates.get(portfolio.base_currency, {})
+        rows = (
+            _build_position_rows(
+                portfolio.positions,
+                self._prices,
+                self._sessions,
+                self._prev_closes,
+                self._exchange_codes,
+                rates,
+            )
+            + _build_cash_rows(portfolio.cash, rates, portfolio.base_currency)
+            + _build_watchlist_rows(
+                portfolio.watchlist,
+                self._prices,
+                self._sessions,
+                self._prev_closes,
+                self._exchange_codes,
+            )
+        )
+        self._write_rows(table, self._apply_sort(rows))
+        table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
+
+    def _update_total(self) -> None:
+        portfolio = self._portfolio
+        assert portfolio is not None
+        rates = self._forex_rates.get(portfolio.base_currency, {})
+        total = portfolio_total(portfolio, self._prices, rates)
+        base = portfolio.base_currency
+        widget = self.query_one(Static)
+        if total is None:
+            widget.update(Text(f"Total ({base})  ").append("N/A", style="bold"))
+        else:
+            widget.update(
+                Text(f"Total ({base})  ").append(f"{total:,.2f}", style="bold")
+            )
+
+
 class PortfolioApp(App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
@@ -645,37 +803,27 @@ class PortfolioApp(App[None]):
         self.exchange_codes: dict[str, str] = {}
         self.refresh_interval = refresh_interval
         self.stores = stores or []
-        # Sort state keyed by table widget id ("" for the single-portfolio table).
-        self._sort_column: dict[str, int] = {}
-        self._sort_reverse: dict[str, bool] = {}
         self._refresh_lock = threading.Lock()
-        # Row metadata: (table_id, row_key_str) -> _RowMeta.
-        self._row_meta: dict[tuple[str, str], _RowMeta] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
         if len(self.portfolios) == 1:
-            yield DataTable(zebra_stripes=True, cursor_type="row")
-            yield Static("", id="total", classes="total")
+            yield PortfolioTableWidget(total_id="total")
         else:
             with VerticalScroll():
                 for i, portfolio in enumerate(self.portfolios):
                     label = portfolio.name or f"Portfolio {i + 1}"
                     yield Label(label, id=f"header-{i}", classes="portfolio-header")
-                    yield DataTable(
-                        zebra_stripes=True, cursor_type="row", id=f"table-{i}"
+                    yield PortfolioTableWidget(
+                        widget_id=f"pf-{i}",
+                        table_id=f"table-{i}",
+                        total_id=f"total-{i}",
                     )
-                    yield Static("", id=f"total-{i}", classes="total")
         yield Static("", id="status")
         yield Static("", id="error")
         yield Footer()
 
     def on_mount(self) -> None:
-        if len(self.portfolios) == 1:
-            self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
-        else:
-            for i in range(len(self.portfolios)):
-                self.query_one(f"#table-{i}", DataTable).add_columns(*_TABLE_COLUMNS)
         self._populate_tables()
         self._refresh_prices()
         self.set_interval(self.refresh_interval, self._refresh_prices)
@@ -993,26 +1141,12 @@ class PortfolioApp(App[None]):
     # Detail view
     # ------------------------------------------------------------------
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        tid = event.data_table.id or ""
-        meta = self._row_meta.get((tid, str(event.row_key.value)))
-        if meta is None or meta.kind == _RowKind.CASH:
+    def on_portfolio_table_widget_row_selected(
+        self, event: PortfolioTableWidget.RowSelected
+    ) -> None:
+        if event.meta.kind == _RowKind.CASH:
             return
-        self.push_screen(StockDetailScreen(meta.symbol))
-
-    # ------------------------------------------------------------------
-    # Column sorting
-    # ------------------------------------------------------------------
-
-    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
-        tid = event.data_table.id or ""
-        col = event.column_index
-        if self._sort_column.get(tid) == col:
-            self._sort_reverse[tid] = not self._sort_reverse.get(tid, False)
-        else:
-            self._sort_column[tid] = col
-            self._sort_reverse[tid] = False
-        self._populate_tables()
+        self.push_screen(StockDetailScreen(event.meta.symbol))
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -1035,89 +1169,36 @@ class PortfolioApp(App[None]):
 
     def _populate_single(self) -> None:
         try:
-            table = self.query_one(DataTable)
-            total_widget = self.query_one("#total", Static)
+            widget = self.query_one(PortfolioTableWidget)
         except NoMatches:
             return
-        self._render_rows(table, self.portfolios[0])
-        self._update_total_widget(total_widget, self.portfolios[0])
+        self._refresh_widget(widget, self.portfolios[0])
 
     def _populate_for(self, i: int, portfolio: Portfolio) -> None:
         try:
-            table = self.query_one(f"#table-{i}", DataTable)
-            total_widget = self.query_one(f"#total-{i}", Static)
+            widget = self.query_one(f"#pf-{i}", PortfolioTableWidget)
         except NoMatches:
             return
-        self._render_rows(table, portfolio)
-        self._update_total_widget(total_widget, portfolio)
+        self._refresh_widget(widget, portfolio)
 
-    def _apply_sort(self, tid: str, rows: list[_RowData]) -> list[_RowData]:
-        """Return *rows* sorted by the active column for *tid*, if any."""
-        if tid not in self._sort_column:
-            return rows
-        col = self._sort_column[tid]
-        return sorted(
-            rows,
-            key=lambda r: r[0][col],
-            reverse=self._sort_reverse.get(tid, False),
+    def _refresh_widget(
+        self, widget: PortfolioTableWidget, portfolio: Portfolio
+    ) -> None:
+        widget.refresh_data(
+            portfolio,
+            self.prices,
+            self.forex_rates,
+            self.sessions,
+            self.prev_closes,
+            self.exchange_codes,
         )
-
-    def _write_rows(self, table: DataTable, tid: str, rows: list[_RowData]) -> None:
-        """Flush *rows* into *table*, rebuilding row-metadata for *tid*."""
-        for key in [k for k in self._row_meta if k[0] == tid]:
-            del self._row_meta[key]
-        for _, cells, meta in rows:
-            rkey = f"{meta.kind.name}:{meta.symbol}"
-            table.add_row(*cells, key=rkey)
-            self._row_meta[(tid, rkey)] = meta
-
-    def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
-        saved_cursor = table.cursor_coordinate
-        table.clear()
-        tid = table.id or ""
-        rates = self.forex_rates.get(portfolio.base_currency, {})
-
-        rows = (
-            _build_position_rows(
-                portfolio.positions,
-                self.prices,
-                self.sessions,
-                self.prev_closes,
-                self.exchange_codes,
-                rates,
-            )
-            + _build_cash_rows(portfolio.cash, rates, portfolio.base_currency)
-            + _build_watchlist_rows(
-                portfolio.watchlist,
-                self.prices,
-                self.sessions,
-                self.prev_closes,
-                self.exchange_codes,
-            )
-        )
-
-        self._write_rows(table, tid, self._apply_sort(tid, rows))
-        table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
 
     def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
         """Return the _RowMeta for the row currently under the cursor, or None."""
-        try:
-            row_key = table.ordered_rows[table.cursor_row].key
-        except (IndexError, AttributeError):
-            return None
-        tid = table.id or ""
-        return self._row_meta.get((tid, str(row_key.value)))
-
-    def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
-        rates = self.forex_rates.get(portfolio.base_currency, {})
-        total = portfolio_total(portfolio, self.prices, rates)
-        base = portfolio.base_currency
-        if total is None:
-            widget.update(Text(f"Total ({base})  ").append("N/A", style="bold"))
-        else:
-            widget.update(
-                Text(f"Total ({base})  ").append(f"{total:,.2f}", style="bold")
-            )
+        for widget in self.query(PortfolioTableWidget):
+            if widget.query_one(DataTable) is table:
+                return widget.get_row_meta()
+        return None
 
     # ------------------------------------------------------------------
     # Price refresh
