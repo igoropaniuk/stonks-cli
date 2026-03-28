@@ -16,6 +16,8 @@ import httpx
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
+from stonks_cli._session import Session
+
 logger = logging.getLogger(__name__)
 
 # Keep this small: each worker thread opens its own peewee/SQLite connection
@@ -793,6 +795,54 @@ class CryptoFetcher:
         return prices, prev_closes
 
 
+def _yf_download_close(
+    symbols: list[str],
+    *,
+    period: str,
+    description: str = "price",
+    auto_adjust: bool = True,
+    interval: str | None = None,
+    prepost: bool = False,
+) -> "pd.DataFrame | None":
+    """Call ``yf.download`` and return the ``Close`` DataFrame, or ``None`` on failure.
+
+    Encapsulates the common normalize -> download -> empty-check pattern shared
+    by all batch-download methods.  Each caller is responsible for extracting
+    and interpreting the per-symbol series from the returned DataFrame.
+
+    Args:
+        symbols: Already-normalised ticker list passed directly to yfinance.
+        period: yfinance period string (e.g. ``"1d"``, ``"5d"``).
+        description: Short label used in error log messages.
+        auto_adjust: Passed to ``yf.download`` (default True).
+        interval: Optional bar interval (e.g. ``"1m"``); omitted when None.
+        prepost: Whether to include pre/post-market bars (default False).
+
+    Returns:
+        The ``data["Close"]`` DataFrame, or ``None`` if the download failed or
+        returned an empty result.
+    """
+    kw: dict = {
+        "tickers": symbols,
+        "period": period,
+        "auto_adjust": auto_adjust,
+        "progress": False,
+        "threads": False,
+    }
+    if interval is not None:
+        kw["interval"] = interval
+    if prepost:
+        kw["prepost"] = True
+    try:
+        data = yf.download(**kw)
+    except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
+        logger.error("%s download failed for %s: %s", description, symbols, exc)
+        return None
+    if data.empty:
+        return None
+    return data["Close"]
+
+
 class PriceFetcher:
     """Fetches the latest closing price for a list of stock symbols.
 
@@ -814,25 +864,11 @@ class PriceFetcher:
             return {}
 
         normalized = [s.upper() for s in symbols]
-
-        try:
-            data = yf.download(
-                tickers=normalized,
-                period="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except RuntimeError as exc:
-            logger.error("Price download failed for %s: %s", normalized, exc)
-            return {}
-
-        if data.empty:
-            return {}
-
         # With multi_level_index=True (yfinance default), data["Close"] is
         # always a DataFrame whose columns are the ticker symbols.
-        close = data["Close"]
+        close = _yf_download_close(normalized, period="1d", description="price")
+        if close is None:
+            return {}
 
         result: dict[str, float] = {}
         for symbol in normalized:
@@ -860,27 +896,12 @@ class PriceFetcher:
             return {}
 
         normalized = [s.upper() for s in symbols]
-
-        try:
-            data = yf.download(
-                tickers=normalized,
-                period="5d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except (RuntimeError, ValueError, TypeError) as exc:
-            logger.error(
-                "Previous-close download failed for %s: %s",
-                ", ".join(normalized),
-                exc,
-            )
+        close = _yf_download_close(
+            normalized, period="5d", description="previous-close"
+        )
+        if close is None:
             return {}
 
-        if data.empty:
-            return {}
-
-        close = data["Close"]
         if isinstance(close, pd.Series):
             # yfinance returns a Series (not a DataFrame) when a single ticker
             # is requested and the result is a flat (non-MultiIndex) DataFrame.
@@ -913,17 +934,17 @@ class PriceFetcher:
         """
         hours = _exchange_hours(symbol)
         if hours is None:
-            return "regular"  # crypto -- always regular
+            return Session.REGULAR  # crypto -- always regular
         calendar_name = _exchange_calendar_name(symbol)
         if not _is_trading_day(hours[0], calendar_name=calendar_name):
-            return "closed"
+            return Session.CLOSED
         now = pd.Timestamp.now(tz="UTC")
         session = _market_session(now, *hours)
-        if session != "regular":
+        if session != Session.REGULAR:
             suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
             info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
             if not info or not info.extended_hours:
-                return "closed"
+                return Session.CLOSED
         return session
 
     def fetch_price_single(self, symbol: str) -> float | None:
@@ -968,25 +989,15 @@ class PriceFetcher:
             return {}
 
         normalized = [s.upper() for s in symbols]
-
-        try:
-            data = yf.download(
-                tickers=normalized,
-                period="1d",
-                interval="1m",
-                prepost=True,
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Extended-price download failed for %s: %s", normalized, exc)
+        close = _yf_download_close(
+            normalized,
+            period="1d",
+            description="extended-price",
+            interval="1m",
+            prepost=True,
+        )
+        if close is None:
             return {}
-
-        if data.empty:
-            return {}
-
-        close = data["Close"]
 
         today = pd.Timestamp.now(tz="UTC").normalize()
         result: dict[str, tuple[float, Session]] = {}
@@ -1001,7 +1012,7 @@ class PriceFetcher:
             # intraday data for today (not trading in extended hours).
             last_bar_date = series.index[-1].tz_convert("UTC").normalize()
             if last_bar_date < today:
-                result[symbol] = (price, "closed")
+                result[symbol] = (price, Session.CLOSED)
             else:
                 result[symbol] = (price, self.current_session(symbol))
 
@@ -1068,23 +1079,12 @@ class PriceFetcher:
             return rates
 
         symbols = [f"{c}{base}=X" for c in non_base]
-
-        try:
-            data = yf.download(
-                tickers=symbols,
-                period="1d",
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-            )
-        except RuntimeError as exc:
-            logger.error("Forex rate download failed for %s: %s", symbols, exc)
+        close = _yf_download_close(
+            symbols, period="1d", description="forex", auto_adjust=False
+        )
+        if close is None:
             return rates
 
-        if data.empty:
-            return rates
-
-        close = data["Close"]
         for currency, symbol in zip(non_base, symbols):
             if symbol not in close.columns:
                 continue
