@@ -1705,8 +1705,8 @@ async def test_action_edit_equity_rename_to_existing_blocked() -> None:
 
 
 @pytest.mark.asyncio
-async def test_action_edit_cash_currency_merge() -> None:
-    """Editing cash currency to an existing one merges amounts via add_cash."""
+async def test_action_edit_cash_currency_conflict_blocked() -> None:
+    """Editing cash to an existing currency shows an error; both positions stay."""
     p = Portfolio(
         name="Test",
         positions=[],
@@ -1728,17 +1728,23 @@ async def test_action_edit_cash_currency_merge() -> None:
         await pilot.press("e")
         await pilot.pause()
 
-        # Change currency from EUR to USD (which already exists)
+        # Attempt to change currency from EUR to USD (which already exists)
         app.screen.query_one("#currency", Input).value = "USD"
         app.screen.query_one("#amount", Input).value = "1000"
         app.screen.query_one("#ok", Button).press()
         await pilot.pause()
 
-    # EUR removed, USD should have merged amount (500 + 1000 = 1500)
-    assert p.get_cash("EUR") is None
-    usd = p.get_cash("USD")
-    assert usd is not None
-    assert usd.amount == pytest.approx(1500.0)
+        # Both positions must remain unchanged
+        eur = p.get_cash("EUR")
+        assert eur is not None
+        assert eur.amount == pytest.approx(1000.0)
+        usd = p.get_cash("USD")
+        assert usd is not None
+        assert usd.amount == pytest.approx(500.0)
+        # Error bar must be visible with an informative message
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "USD" in str(err.render())
 
 
 # ---------------------------------------------------------------------------
