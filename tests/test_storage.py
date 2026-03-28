@@ -324,17 +324,17 @@ class TestName:
     def test_default_name_when_missing(self, tmp_path: Path):
         store = make_store(tmp_path)
         write_yaml(store.path, {"portfolio": {"positions": []}})
-        assert store.load().name == ""
+        assert store.load().name is None
 
     def test_saves_and_loads_name(self, tmp_path: Path):
         store = make_store(tmp_path)
         store.save(Portfolio(name="Work"))
         assert store.load().name == "Work"
 
-    def test_name_round_trip_empty(self, tmp_path: Path):
+    def test_name_round_trip_none(self, tmp_path: Path):
         store = make_store(tmp_path)
-        store.save(Portfolio(name=""))
-        assert store.load().name == ""
+        store.save(Portfolio())
+        assert store.load().name is None
 
 
 class TestWatchlist:

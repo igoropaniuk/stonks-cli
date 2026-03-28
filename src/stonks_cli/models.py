@@ -96,7 +96,7 @@ class Portfolio:
     cash: list[CashPosition] = field(default_factory=list)
     watchlist: list[WatchlistItem] = field(default_factory=list)
     base_currency: str = "USD"
-    name: str = ""
+    name: str | None = None
 
     def __post_init__(self) -> None:
         self.base_currency = self.base_currency.upper()
