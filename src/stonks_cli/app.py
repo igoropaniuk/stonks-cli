@@ -3,7 +3,7 @@
 import logging
 import threading
 from enum import Enum, auto
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from rich.text import Text
 from textual import work
@@ -69,6 +69,35 @@ _MODAL_CSS = """
 """
 
 
+class _BaseFormScreen(ModalScreen[dict | None]):
+    """Shared boilerplate for add/edit form dialogs.
+
+    Subclasses must implement :meth:`_submit`.  CSS is generated
+    automatically from the concrete class name.
+    """
+
+    def __init_subclass__(cls, **kwargs: bool) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.CSS = _MODAL_CSS.format(cls=cls.__name__)
+
+    def __init__(self, title: str = "") -> None:
+        super().__init__()
+        self._title = title
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+        else:
+            self._submit()
+
+    def on_key(self, event: Any) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+    def _submit(self) -> None:
+        raise NotImplementedError
+
+
 class _TypeSelectScreen(ModalScreen[str | None]):
     """Ask whether the new position is equity or cash."""
 
@@ -91,7 +120,7 @@ class _TypeSelectScreen(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(None if event.button.id == "cancel" else event.button.id)
 
-    def on_key(self, event) -> None:
+    def on_key(self, event: Any) -> None:
         if event.key == "escape":
             self.dismiss(None)
 
@@ -106,10 +135,8 @@ _ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
 ]
 
 
-class _EquityFormScreen(ModalScreen[dict | None]):
+class _EquityFormScreen(_BaseFormScreen):
     """Form for adding or editing an equity position."""
-
-    CSS = _MODAL_CSS.format(cls="_EquityFormScreen")
 
     def __init__(
         self,
@@ -121,8 +148,7 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         asset_type: str | None = None,
         external_id: str = "",
     ) -> None:
-        super().__init__()
-        self._title = title
+        super().__init__(title)
         self._symbol = symbol
         self._qty = qty
         self._avg_cost = avg_cost
@@ -158,16 +184,6 @@ class _EquityFormScreen(ModalScreen[dict | None]):
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
-        else:
-            self._submit()
-
-    def on_key(self, event) -> None:
-        if event.key == "escape":
-            self.dismiss(None)
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
@@ -206,10 +222,8 @@ class _EquityFormScreen(ModalScreen[dict | None]):
         )
 
 
-class _CashFormScreen(ModalScreen[dict | None]):
+class _CashFormScreen(_BaseFormScreen):
     """Form for adding or editing a cash position."""
-
-    CSS = _MODAL_CSS.format(cls="_CashFormScreen")
 
     def __init__(
         self,
@@ -217,8 +231,7 @@ class _CashFormScreen(ModalScreen[dict | None]):
         currency: str = "",
         amount: str = "",
     ) -> None:
-        super().__init__()
-        self._title = title
+        super().__init__(title)
         self._currency = currency
         self._amount = amount
 
@@ -233,16 +246,6 @@ class _CashFormScreen(ModalScreen[dict | None]):
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
-        else:
-            self._submit()
-
-    def on_key(self, event) -> None:
-        if event.key == "escape":
-            self.dismiss(None)
 
     def _submit(self) -> None:
         currency = self.query_one("#currency", Input).value.strip().upper()
@@ -261,10 +264,8 @@ class _CashFormScreen(ModalScreen[dict | None]):
         self.dismiss({"currency": currency, "amount": amount})
 
 
-class _WatchFormScreen(ModalScreen[dict | None]):
+class _WatchFormScreen(_BaseFormScreen):
     """Form for adding or editing a watchlist item."""
-
-    CSS = _MODAL_CSS.format(cls="_WatchFormScreen")
 
     def __init__(
         self,
@@ -273,8 +274,7 @@ class _WatchFormScreen(ModalScreen[dict | None]):
         asset_type: str | None = None,
         external_id: str = "",
     ) -> None:
-        super().__init__()
-        self._title = title
+        super().__init__(title)
         self._symbol = symbol
         self._asset_type = asset_type
         self._external_id = external_id
@@ -301,16 +301,6 @@ class _WatchFormScreen(ModalScreen[dict | None]):
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(None)
-        else:
-            self._submit()
-
-    def on_key(self, event) -> None:
-        if event.key == "escape":
-            self.dismiss(None)
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
@@ -350,7 +340,7 @@ class _ConfirmScreen(ModalScreen[bool]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "yes")
 
-    def on_key(self, event) -> None:
+    def on_key(self, event: Any) -> None:
         if event.key == "escape":
             self.dismiss(False)
 
