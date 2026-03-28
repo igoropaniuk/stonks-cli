@@ -27,7 +27,12 @@ from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import build_market_snapshot
-from stonks_cli.models import Portfolio, WatchlistItem
+from stonks_cli.models import (
+    Portfolio,
+    WatchlistItem,
+    daily_change_pct,
+    portfolio_total,
+)
 from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
@@ -806,10 +811,10 @@ class PortfolioApp(App):
         session: str = "regular",
     ) -> tuple[Text | str, float]:
         """Return (display_cell, sort_value) for the daily change column."""
-        if prev is None or prev == 0 or session == "closed":
+        pct = daily_change_pct(last, prev, session)
+        if pct is None:
             cell: Text | str = Text("--", style="dim") if dim else "--"
             return cell, 0.0
-        pct = (last - prev) / prev * 100
         sign = "+" if pct >= 0 else ""
         label = f"{sign}{pct:.2f}%"
         color = "green" if pct >= 0 else "red"
@@ -1035,30 +1040,14 @@ class PortfolioApp(App):
 
     def _update_total_widget(self, widget: Static, portfolio: Portfolio) -> None:
         rates = self.forex_rates.get(portfolio.base_currency, {})
-        missing_price = any(
-            self.prices.get(pos.symbol) is None for pos in portfolio.positions
-        )
-        missing_rate = any(
-            rates.get(p.currency) is None for p in portfolio.positions
-        ) or any(rates.get(c.currency) is None for c in portfolio.cash)
-        if missing_price or missing_rate:
-            widget.update(
-                Text(f"Total ({portfolio.base_currency})  ").append("N/A", style="bold")
-            )
-            return
-        stock_total = sum(
-            pos.market_value(self.prices[pos.symbol]) * rates[pos.currency]
-            for pos in portfolio.positions
-        )
-        cash_total = sum(
-            cash_pos.amount * rates[cash_pos.currency] for cash_pos in portfolio.cash
-        )
+        total = portfolio_total(portfolio, self.prices, rates)
         base = portfolio.base_currency
-        widget.update(
-            Text(f"Total ({base})  ").append(
-                f"{stock_total + cash_total:,.2f}", style="bold"
+        if total is None:
+            widget.update(Text(f"Total ({base})  ").append("N/A", style="bold"))
+        else:
+            widget.update(
+                Text(f"Total ({base})  ").append(f"{total:,.2f}", style="bold")
             )
-        )
 
     # ------------------------------------------------------------------
     # Price refresh

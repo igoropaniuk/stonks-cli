@@ -2,16 +2,15 @@
 
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.market import MarketSnapshot
-from stonks_cli.models import Portfolio
+from stonks_cli.models import Portfolio, daily_change_pct, portfolio_total
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
 
 
-def _daily_chg_str(last: float, prev: float | None, session: str) -> str:
-    """Return a plain-text daily change string for the given price and session."""
-    if prev is None or prev == 0 or session == "closed":
+def _fmt_chg(last: float, prev: float | None, session: str) -> str:
+    pct = daily_change_pct(last, prev, session)
+    if pct is None:
         return "--"
-    pct = (last - prev) / prev * 100
     sign = "+" if pct >= 0 else ""
     return f"{sign}{pct:.2f}%"
 
@@ -52,7 +51,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
             )
         else:
             last_price_str = f"{last_price:.2f}"
-            daily_chg_str = _daily_chg_str(last_price, prev_closes.get(symbol), session)
+            daily_chg_str = _fmt_chg(last_price, prev_closes.get(symbol), session)
             mkt_value_str = f"{last_price * pos.quantity:,.2f}"
             pnl = (last_price - pos.avg_cost) * pos.quantity
             pnl_str = f"{pnl:+,.2f}"
@@ -81,7 +80,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
             last_price_str = "N/A"
         else:
             last_price_str = f"{last_price:.2f}"
-            daily_chg_str = _daily_chg_str(last_price, prev_closes.get(symbol), session)
+            daily_chg_str = _fmt_chg(last_price, prev_closes.get(symbol), session)
         rows.append(
             (instrument, exchange, "-", "-", last_price_str, daily_chg_str, "-", "-")
         )
@@ -117,22 +116,8 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
         lines.append("  ".join(cell.ljust(w) for cell, w in zip(row, col_widths)))
 
     rates = forex_rates.get(portfolio.base_currency, {})
-    missing_price = any(prices.get(pos.symbol) is None for pos in portfolio.positions)
-    missing_rate = any(
-        rates.get(p.currency) is None for p in portfolio.positions
-    ) or any(rates.get(c.currency) is None for c in portfolio.cash)
-
-    if missing_price or missing_rate:
-        total_str = "N/A"
-    else:
-        stock_total = sum(
-            pos.market_value(prices[pos.symbol]) * rates[pos.currency]
-            for pos in portfolio.positions
-        )
-        cash_total = sum(
-            cash_pos.amount * rates[cash_pos.currency] for cash_pos in portfolio.cash
-        )
-        total_str = f"{stock_total + cash_total:,.2f}"
+    total = portfolio_total(portfolio, prices, rates)
+    total_str = "N/A" if total is None else f"{total:,.2f}"
 
     total_label = f"Total ({portfolio.base_currency})"
     # Align total value under the Mkt Value column.

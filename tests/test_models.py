@@ -2,7 +2,14 @@
 
 import pytest
 
-from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
+from stonks_cli.models import (
+    CashPosition,
+    Portfolio,
+    Position,
+    WatchlistItem,
+    daily_change_pct,
+    portfolio_total,
+)
 
 
 class TestCashPosition:
@@ -282,3 +289,58 @@ class TestPortfolio:
         items = [WatchlistItem("TSLA"), WatchlistItem("TSLA")]
         with pytest.raises(ValueError, match="Duplicate symbols in watchlist"):
             Portfolio(watchlist=items)
+
+
+class TestDailyChangePct:
+    def test_positive_change(self):
+        assert daily_change_pct(110.0, 100.0, "regular") == pytest.approx(10.0)
+
+    def test_negative_change(self):
+        assert daily_change_pct(90.0, 100.0, "regular") == pytest.approx(-10.0)
+
+    def test_none_when_prev_is_none(self):
+        assert daily_change_pct(110.0, None, "regular") is None
+
+    def test_none_when_prev_is_zero(self):
+        assert daily_change_pct(110.0, 0.0, "regular") is None
+
+    def test_none_when_session_closed(self):
+        assert daily_change_pct(110.0, 100.0, "closed") is None
+
+    def test_non_closed_sessions_compute(self):
+        assert daily_change_pct(110.0, 100.0, "pre") == pytest.approx(10.0)
+        assert daily_change_pct(110.0, 100.0, "post") == pytest.approx(10.0)
+
+
+class TestPortfolioTotal:
+    def test_positions_and_cash(self):
+        p = Portfolio(
+            positions=[Position("AAPL", 10, 150.0)],
+            cash=[CashPosition("USD", 500.0)],
+        )
+        prices = {"AAPL": 200.0}
+        rates = {"USD": 1.0}
+        assert portfolio_total(p, prices, rates) == pytest.approx(2500.0)
+
+    def test_none_when_price_missing(self):
+        p = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+        assert portfolio_total(p, {}, {"USD": 1.0}) is None
+
+    def test_none_when_position_rate_missing(self):
+        p = Portfolio(positions=[Position("AAPL", 10, 150.0, currency="EUR")])
+        assert portfolio_total(p, {"AAPL": 200.0}, {}) is None
+
+    def test_none_when_cash_rate_missing(self):
+        p = Portfolio(cash=[CashPosition("EUR", 1000.0)])
+        assert portfolio_total(p, {}, {}) is None
+
+    def test_empty_portfolio(self):
+        assert portfolio_total(Portfolio(), {}, {}) == pytest.approx(0.0)
+
+    def test_forex_conversion(self):
+        p = Portfolio(
+            positions=[Position("VOW3", 5, 100.0, currency="EUR")],
+        )
+        prices = {"VOW3": 120.0}
+        rates = {"EUR": 1.1}  # EUR -> USD
+        assert portfolio_total(p, prices, rates) == pytest.approx(5 * 120.0 * 1.1)
