@@ -654,27 +654,25 @@ class CryptoFetcher:
             )
         return None
 
-    def _resolve_ids(
-        self,
+    @staticmethod
+    def _resolve_from_external_ids(
         symbols: list[str],
-        external_ids: dict[str, str] | None = None,
-    ) -> dict[str, str]:
-        """Map Yahoo-style symbols to CoinGecko coin IDs.
+        ext: dict[str, str],
+    ) -> tuple[dict[str, str], list[str]]:
+        """Resolve symbols using caller-supplied external IDs.
 
-        If *external_ids* contains an entry for a symbol it is used
-        directly, skipping both the bulk coin-list and per-symbol search.
+        Args:
+            symbols: Yahoo-style tickers (original case preserved).
+            ext: Uppercase-keyed symbol -> CoinGecko ID mapping.
+
+        Returns:
+            ``(mapping, unresolved)`` where *mapping* holds the resolved
+            entries and *unresolved* lists symbols not found in *ext*.
         """
-        # Normalise external_ids keys to uppercase for case-insensitive lookup.
-        ext = {k.upper(): v for k, v in (external_ids or {}).items()}
-        # mapping keys are the *original* symbols (preserving caller's case).
         mapping: dict[str, str] = {}
         unresolved: list[str] = []
-
-        # Pass 1: external_ids and module-level cache (no API calls).
         for sym in symbols:
             upper = sym.upper()
-            # base: the ticker part before any '-CURRENCY' suffix (e.g. 'BTC').
-            # This lets bare symbols like 'BTC' resolve the same as 'BTC-USD'.
             base = upper.split("-")[0]
             if upper in ext:
                 mapping[sym] = ext[upper]
@@ -682,22 +680,49 @@ class CryptoFetcher:
                 mapping[sym] = _cg_symbol_to_id[base]
             else:
                 unresolved.append(sym)
+        return mapping, unresolved
 
-        if not unresolved:
-            return mapping
+    @staticmethod
+    def _resolve_from_cache(
+        symbols: list[str],
+    ) -> tuple[dict[str, str], list[str]]:
+        """Resolve symbols from the module-level coin-list cache.
 
-        # Pass 2: bulk /coins/list for unambiguous symbols.
-        self._ensure_coin_list()
+        Intended to be called after :meth:`_ensure_coin_list` so the cache
+        has been populated.
+
+        Args:
+            symbols: Unresolved Yahoo-style tickers.
+
+        Returns:
+            ``(mapping, needs_search)`` where *needs_search* lists symbols
+            still unknown after consulting the cache.
+        """
+        mapping: dict[str, str] = {}
         needs_search: list[str] = []
-        for sym in unresolved:
+        for sym in symbols:
             base = sym.upper().split("-")[0]
             if base in _cg_symbol_to_id:
                 mapping[sym] = _cg_symbol_to_id[base]
             else:
                 needs_search.append(sym)
+        return mapping, needs_search
 
-        # Pass 3: /search for ambiguous or unknown symbols.
-        for sym in needs_search:
+    def _resolve_from_api(self, symbols: list[str]) -> dict[str, str]:
+        """Resolve symbols via the CoinGecko /search endpoint.
+
+        Populates the module-level cache as a side-effect so subsequent
+        calls skip the API for already-resolved symbols.
+
+        Args:
+            symbols: Tickers that could not be resolved from cache.
+
+        Returns:
+            Mapping of symbol -> CoinGecko ID; falls back to the
+            lowercase base symbol when the API returns no match.
+        """
+        mapping: dict[str, str] = {}
+        for sym in symbols:
             base = sym.upper().split("-")[0]
             cg_id = self._resolve_via_search(base)
             if cg_id:
@@ -705,6 +730,38 @@ class CryptoFetcher:
                 mapping[sym] = cg_id
             else:
                 mapping[sym] = base.lower()
+        return mapping
+
+    def _resolve_ids(
+        self,
+        symbols: list[str],
+        external_ids: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Map Yahoo-style symbols to CoinGecko coin IDs.
+
+        Orchestrates three resolution passes in order of cost:
+        1. Caller-supplied *external_ids* + module-level cache (no I/O).
+        2. Bulk ``/coins/list`` cache after :meth:`_ensure_coin_list`.
+        3. Per-symbol ``/search`` API calls for anything still unknown.
+
+        If *external_ids* contains an entry for a symbol it is used
+        directly, skipping both the bulk coin-list and per-symbol search.
+        """
+        # Normalise external_ids keys to uppercase for case-insensitive lookup.
+        ext = {k.upper(): v for k, v in (external_ids or {}).items()}
+
+        # Pass 1: external_ids + module-level cache (no API calls).
+        mapping, unresolved = self._resolve_from_external_ids(symbols, ext)
+        if not unresolved:
+            return mapping
+
+        # Pass 2: bulk /coins/list for unambiguous symbols.
+        self._ensure_coin_list()
+        cache_hits, needs_search = self._resolve_from_cache(unresolved)
+        mapping.update(cache_hits)
+
+        # Pass 3: /search for ambiguous or unknown symbols.
+        mapping.update(self._resolve_from_api(needs_search))
         return mapping
 
     def fetch_prices_and_changes(
