@@ -700,7 +700,7 @@ class TestFormatShowTable:
                 prev_closes={"AAPL": 100.0},
             ),
         )
-        assert "Daily chg" in table
+        assert "Daily Chg" in table
         assert "+10.00%" in table
 
     def test_daily_chg_suppressed_for_closed_session(self):

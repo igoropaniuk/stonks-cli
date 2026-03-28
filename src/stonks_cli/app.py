@@ -36,6 +36,7 @@ from stonks_cli.models import (
     daily_change_pct,
     portfolio_total,
 )
+from stonks_cli.show import _TABLE_COLUMNS
 from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ class _RowKind(Enum):
 class _RowMeta(NamedTuple):
     kind: _RowKind
     symbol: str  # ticker for position/watchlist, currency code for cash
+
+
+_ROW_KIND_LABELS: dict[_RowKind, str] = {
+    _RowKind.POSITION: "position",
+    _RowKind.CASH: "cash",
+    _RowKind.WATCHLIST: "watch",
+}
 
 
 class _EquityResult(TypedDict):
@@ -454,21 +462,11 @@ class PortfolioApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        cols = (
-            "Instrument",
-            "Exchange",
-            "Qty",
-            "Avg Cost",
-            "Last Price",
-            "Daily Chg",
-            "Mkt Value",
-            "Unrealized P&L",
-        )
         if len(self.portfolios) == 1:
-            self.query_one(DataTable).add_columns(*cols)
+            self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
         else:
             for i in range(len(self.portfolios)):
-                self.query_one(f"#table-{i}", DataTable).add_columns(*cols)
+                self.query_one(f"#table-{i}", DataTable).add_columns(*_TABLE_COLUMNS)
         self._populate_tables()
         self._refresh_prices()
         self.set_interval(self.refresh_interval, self._refresh_prices)
@@ -749,18 +747,16 @@ class PortfolioApp(App):
         if meta is None:
             return
         identifier = meta.symbol
-        is_cash = meta.kind == _RowKind.CASH
-        is_watch = meta.kind == _RowKind.WATCHLIST
-        kind = "cash" if is_cash else ("watch" if is_watch else "position")
+        kind = _ROW_KIND_LABELS[meta.kind]
 
         def on_confirm(confirmed: bool | None) -> None:
             if not confirmed:
                 return
-            if is_cash:
+            if meta.kind == _RowKind.CASH:
                 cash_pos = portfolio.get_cash(identifier)
                 if cash_pos:
                     portfolio.cash.remove(cash_pos)
-            elif is_watch:
+            elif meta.kind == _RowKind.WATCHLIST:
                 item = next(
                     (w for w in portfolio.watchlist if w.symbol == identifier), None
                 )
