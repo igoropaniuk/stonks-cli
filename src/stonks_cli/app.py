@@ -379,6 +379,14 @@ class PortfolioApp(App):
         padding: 0 1;
         color: $text-muted;
     }
+    #error {
+        padding: 0 1;
+        color: $error;
+        display: none;
+    }
+    #error.visible {
+        display: block;
+    }
     """
 
     def __init__(
@@ -422,6 +430,7 @@ class PortfolioApp(App):
                     )
                     yield Static("", id=f"total-{i}", classes="total")
         yield Static("", id="status")
+        yield Static("", id="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -479,6 +488,18 @@ class PortfolioApp(App):
         p = self.portfolios[idx]
         return p.name or f"Portfolio {idx + 1}"
 
+    def _show_error(self, msg: str) -> None:
+        """Display *msg* in the #error bar, or hide it when *msg* is empty."""
+        try:
+            widget = self.query_one("#error", Static)
+        except NoMatches:
+            return
+        widget.update(msg)
+        if msg:
+            widget.add_class("visible")
+        else:
+            widget.remove_class("visible")
+
     def action_add(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
@@ -526,7 +547,9 @@ class PortfolioApp(App):
                             result["amount"],
                             exc,
                         )
+                        self._show_error(str(exc))
                         return
+                    self._show_error("")
                     self._save(idx)
                     self._populate_tables()
 
@@ -542,6 +565,7 @@ class PortfolioApp(App):
                     symbol = result["symbol"]
                     portfolio = self.portfolios[idx]
                     if any(w.symbol == symbol for w in portfolio.watchlist):
+                        self._show_error(f"{symbol} is already in the watchlist")
                         return
                     portfolio.watchlist.append(
                         WatchlistItem(
@@ -550,6 +574,7 @@ class PortfolioApp(App):
                             external_id=result.get("external_id"),
                         )
                     )
+                    self._show_error("")
                     self._save(idx)
                     self._populate_tables()
 
@@ -588,7 +613,9 @@ class PortfolioApp(App):
                 except ValueError as exc:
                     logger.warning("Failed to edit cash position: %s", exc)
                     portfolio.cash.append(cash_pos)
+                    self._show_error(str(exc))
                     return
+                self._show_error("")
                 self._save(idx)
                 self._populate_tables()
 
@@ -610,7 +637,9 @@ class PortfolioApp(App):
                 if new_symbol != old_item.symbol and any(
                     w.symbol == new_symbol for w in portfolio.watchlist
                 ):
+                    self._show_error(f"{new_symbol} is already in the watchlist")
                     return
+                self._show_error("")
                 old_item.symbol = new_symbol
                 old_item.asset_type = result.get("asset_type")
                 old_item.external_id = result.get("external_id")
@@ -636,7 +665,9 @@ class PortfolioApp(App):
                     return
                 new_symbol = result["symbol"]
                 if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
+                    self._show_error(f"{new_symbol} already exists in this portfolio")
                     return
+                self._show_error("")
                 pos.symbol = new_symbol
                 pos.quantity = result["qty"]
                 pos.avg_cost = result["avg_cost"]

@@ -1641,10 +1641,14 @@ async def test_action_edit_equity_rename_to_existing_blocked() -> None:
         app.screen.query_one("#ok", Button).press()
         await pilot.pause()
 
-    # AAPL should still exist unchanged
-    assert p.positions[0].symbol == "AAPL"
-    assert p.positions[0].quantity == 10
-    assert len(p.positions) == 2
+        # AAPL should still exist unchanged
+        assert p.positions[0].symbol == "AAPL"
+        assert p.positions[0].quantity == 10
+        assert len(p.positions) == 2
+        # Error bar should be visible with an informative message
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "NVDA" in str(err.render())
 
 
 @pytest.mark.asyncio
@@ -1863,6 +1867,119 @@ async def test_type_selector_shows_watch_option() -> None:
 
         buttons = [b.id for b in app.screen.query(Button)]
         assert "watch" in buttons
+
+
+# ---------------------------------------------------------------------------
+# Error bar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_error_bar_hidden_on_startup() -> None:
+    """The #error widget starts hidden."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)])
+    app = PortfolioApp(portfolios=[p], prices={"AAPL": 160.0}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        err = app.query_one("#error", Static)
+        assert not err.has_class("visible")
+
+
+@pytest.mark.asyncio
+async def test_error_bar_shown_on_duplicate_watchlist_add() -> None:
+    """Adding a duplicate watchlist symbol shows an error in the #error bar."""
+    p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+    app = PortfolioApp(portfolios=[p], prices={"TSLA": 250.0}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#watch", Button).press()
+        await pilot.pause()
+
+        # Submit the same symbol again
+        app.screen.query_one("#symbol", Input).value = "TSLA"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+        assert len(p.watchlist) == 1
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "TSLA" in str(err.render())
+
+
+@pytest.mark.asyncio
+async def test_error_bar_shown_on_duplicate_watchlist_edit() -> None:
+    """Renaming a watchlist item to an existing symbol shows an error."""
+    p = Portfolio(watchlist=[WatchlistItem("TSLA"), WatchlistItem("META")])
+    app = PortfolioApp(
+        portfolios=[p],
+        prices={"TSLA": 250.0, "META": 500.0},
+        forex_rates=USD_RATES,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+
+        app.screen.query_one("#symbol", Input).value = "META"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+        assert p.watchlist[0].symbol == "TSLA"
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "META" in str(err.render())
+
+
+@pytest.mark.asyncio
+async def test_error_bar_cleared_on_successful_edit() -> None:
+    """A successful edit clears a previously shown error."""
+    p = Portfolio(
+        positions=[
+            Position(symbol="AAPL", quantity=10, avg_cost=150.0),
+            Position(symbol="NVDA", quantity=5, avg_cost=800.0),
+        ]
+    )
+    prices = {"AAPL": 160.0, "NVDA": 850.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        # First edit: trigger an error (rename AAPL -> NVDA)
+        await pilot.press("e")
+        await pilot.pause()
+        app.screen.query_one("#symbol", Input).value = "NVDA"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+
+        # Second edit: valid rename clears the error
+        await pilot.press("e")
+        await pilot.pause()
+        app.screen.query_one("#symbol", Input).value = "MSFT"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+        err = app.query_one("#error", Static)
+        assert not err.has_class("visible")
 
 
 # ---------------------------------------------------------------------------
