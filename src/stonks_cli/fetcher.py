@@ -254,6 +254,21 @@ _YF_CODE_TO_LABEL: dict[str, str] = {
 }
 
 
+def _exchange_info_for(symbol: str) -> ExchangeInfo | None:
+    """Return the :class:`ExchangeInfo` for *symbol*, or ``None`` for crypto.
+
+    Resolution order:
+    - Symbol contains ``'-'``           -> crypto, return ``None``
+    - Symbol contains ``'.'``           -> look up suffix in ``_EXCHANGES``
+    - Plain ticker (no dot, no dash)    -> return ``_US_EXCHANGE``
+    """
+    if "-" in symbol:
+        return None  # crypto
+    if "." in symbol:
+        return _EXCHANGES.get(symbol.rsplit(".", 1)[1])
+    return _US_EXCHANGE
+
+
 def exchange_label(
     symbol: str,
     exchange_code: str | None = None,
@@ -378,26 +393,22 @@ class ExchangeSession:
     @staticmethod
     def calendar_name_for(symbol: str) -> str | None:
         """Return the exchange-calendars MIC for *symbol*'s exchange, or ``None``."""
-        if "-" in symbol:
-            return None  # crypto -- no calendar
-        if "." in symbol:
-            suffix = symbol.rsplit(".", 1)[1]
-            info = _EXCHANGES.get(suffix)
-            return info.calendar_name if info else None
-        return _US_EXCHANGE.calendar_name  # plain US ticker
+        info = _exchange_info_for(symbol)
+        return info.calendar_name if info else None
 
     @staticmethod
     def hours_for(symbol: str) -> tuple[str, dtime, dtime] | None:
         """Return ``(tz_name, open, close)`` for *symbol*, or ``None`` for crypto."""
-        if "-" in symbol:
-            return None  # crypto
-        if "." in symbol:
-            suffix = symbol.rsplit(".", 1)[1]
-            info = _EXCHANGES.get(suffix)
-            if info is None:
-                return None
-            return (info.tz_name, info.open_time, info.close_time)
-        return (_US_EXCHANGE.tz_name, _US_EXCHANGE.open_time, _US_EXCHANGE.close_time)
+        info = _exchange_info_for(symbol)
+        if info is None:
+            return None
+        return (info.tz_name, info.open_time, info.close_time)
+
+    @staticmethod
+    def extended_hours_for(symbol: str) -> bool:
+        """Return ``True`` if *symbol*'s exchange supports extended-hours data."""
+        info = _exchange_info_for(symbol)
+        return bool(info and info.extended_hours)
 
     def current_session(self, symbol: str) -> str:
         """Return the current market session label for *symbol*.
@@ -416,11 +427,10 @@ class ExchangeSession:
             return Session.CLOSED
         now = pd.Timestamp.now(tz="UTC")
         session = ExchangeSession.market_session(now, *hours)
-        if session != Session.REGULAR:
-            suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
-            info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
-            if not info or not info.extended_hours:
-                return Session.CLOSED
+        if session != Session.REGULAR and not ExchangeSession.extended_hours_for(
+            symbol
+        ):
+            return Session.CLOSED
         return session
 
 
