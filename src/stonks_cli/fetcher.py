@@ -279,9 +279,186 @@ def exchange_label(
     return "NYSE/NASDAQ"
 
 
-@lru_cache(maxsize=64)
+class ExchangeSession:
+    """Session detection and exchange-calendar utilities.
+
+    All lookup methods are exposed as static methods so they can be called
+    without an instance.  The :meth:`current_session` instance method
+    orchestrates them into a single wall-clock-time-based session label.
+
+    ``PriceFetcher`` holds one instance (``self._session``) and delegates
+    its ``current_session`` call to it.
+    """
+
+    @staticmethod
+    @lru_cache(maxsize=64)
+    def load_calendar(name: str):
+        """Return the ``exchange-calendars`` calendar for *name* (cached)."""
+        return xcals.get_calendar(name)
+
+    @staticmethod
+    def market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
+        """Return ``Session.PRE``, ``Session.REGULAR``, or ``Session.POST``.
+
+        Args:
+            ts: A timezone-aware timestamp (bar close or wall-clock now).
+            tz_name: IANA timezone name for the exchange (e.g. 'America/New_York').
+            open_time: Exchange regular open (local time).
+            close_time: Exchange regular close (local time).
+        """
+        try:
+            t = ts.astimezone(zoneinfo.ZoneInfo(tz_name)).time()
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError) as exc:
+            logger.debug("Unknown timezone %r for session detection: %s", tz_name, exc)
+            return Session.REGULAR
+        if t < open_time:
+            return Session.PRE
+        if t < close_time:
+            return Session.REGULAR
+        return Session.POST
+
+    @staticmethod
+    def is_exchange_open(
+        tz_name: str,
+        open_time: dtime,
+        close_time: dtime,
+        calendar_name: str | None = None,
+    ) -> bool:
+        """Return ``True`` if the exchange is currently open.
+
+        When *calendar_name* is provided, delegates to exchange-calendars for
+        accurate holiday awareness.  Falls back to a weekend + trading-hours
+        check (no holiday awareness) if the calendar cannot be loaded.
+        """
+        if calendar_name:
+            try:
+                cal = ExchangeSession.load_calendar(calendar_name)
+                now = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC"))
+                return bool(cal.is_open_on_minute(now, ignore_breaks=True))
+            except (AttributeError, LookupError, ValueError) as exc:
+                logger.debug(
+                    "Calendar load failed for %s, falling back to time check: %s",
+                    calendar_name,
+                    exc,
+                )
+
+        now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
+        if now_local.weekday() >= 5:
+            return False
+        return open_time <= now_local.time() < close_time
+
+    @staticmethod
+    def is_trading_day(
+        tz_name: str,
+        calendar_name: str | None = None,
+    ) -> bool:
+        """Return ``True`` if today is a trading day for this exchange.
+
+        Unlike :meth:`is_exchange_open`, this ignores the time of day and
+        only answers "does this exchange have a session today?".  This
+        allows session labels (pre/regular/post) to be derived from the bar
+        timestamp even when the current clock time is outside regular hours.
+        """
+        if calendar_name:
+            try:
+                cal = ExchangeSession.load_calendar(calendar_name)
+                today = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC")).normalize()
+                return bool(cal.is_session(today))
+            except (AttributeError, LookupError, ValueError) as exc:
+                logger.debug(
+                    "Calendar load failed for %s, falling back to weekend check: %s",
+                    calendar_name,
+                    exc,
+                )
+
+        now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
+        return now_local.weekday() < 5
+
+    @staticmethod
+    def calendar_name_for(symbol: str) -> str | None:
+        """Return the exchange-calendars MIC for *symbol*'s exchange, or ``None``."""
+        if "-" in symbol:
+            return None  # crypto -- no calendar
+        if "." in symbol:
+            suffix = symbol.rsplit(".", 1)[1]
+            info = _EXCHANGES.get(suffix)
+            return info.calendar_name if info else None
+        return _US_EXCHANGE.calendar_name  # plain US ticker
+
+    @staticmethod
+    def hours_for(symbol: str) -> tuple[str, dtime, dtime] | None:
+        """Return ``(tz_name, open, close)`` for *symbol*, or ``None`` for crypto."""
+        if "-" in symbol:
+            return None  # crypto
+        if "." in symbol:
+            suffix = symbol.rsplit(".", 1)[1]
+            info = _EXCHANGES.get(suffix)
+            if info is None:
+                return None
+            return (info.tz_name, info.open_time, info.close_time)
+        return (_US_EXCHANGE.tz_name, _US_EXCHANGE.open_time, _US_EXCHANGE.close_time)
+
+    def current_session(self, symbol: str) -> str:
+        """Return the current market session label for *symbol*.
+
+        Uses the current wall-clock time rather than a bar timestamp, so it
+        can assign a meaningful session label to prices that were fetched via
+        a fallback path that has no associated bar.
+
+        Returns one of ``'pre'``, ``'regular'``, ``'post'``, or ``'closed'``.
+        """
+        hours = ExchangeSession.hours_for(symbol)
+        if hours is None:
+            return Session.REGULAR  # crypto -- always regular
+        calendar_name = ExchangeSession.calendar_name_for(symbol)
+        if not ExchangeSession.is_trading_day(hours[0], calendar_name=calendar_name):
+            return Session.CLOSED
+        now = pd.Timestamp.now(tz="UTC")
+        session = ExchangeSession.market_session(now, *hours)
+        if session != Session.REGULAR:
+            suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
+            info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
+            if not info or not info.extended_hours:
+                return Session.CLOSED
+        return session
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible shims -- kept so that existing callers and tests that
+# import or patch these names continue to work.  New code should use the
+# ExchangeSession static methods directly.
+# ---------------------------------------------------------------------------
+
+
 def _load_calendar(name: str):
-    return xcals.get_calendar(name)
+    return ExchangeSession.load_calendar(name)
+
+
+def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
+    return ExchangeSession.market_session(ts, tz_name, open_time, close_time)
+
+
+def _is_exchange_open(
+    tz_name: str,
+    open_time: dtime,
+    close_time: dtime,
+    calendar_name: str | None = None,
+) -> bool:
+    return ExchangeSession.is_exchange_open(
+        tz_name, open_time, close_time, calendar_name
+    )
+
+
+def _is_trading_day(tz_name: str, calendar_name: str | None = None) -> bool:
+    return ExchangeSession.is_trading_day(tz_name, calendar_name)
+
+
+def _exchange_calendar_name(symbol: str) -> str | None:
+    return ExchangeSession.calendar_name_for(symbol)
+
+
+def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
+    return ExchangeSession.hours_for(symbol)
 
 
 def _finite(value) -> float | None:
@@ -295,101 +472,6 @@ def _finite(value) -> float | None:
     if not math.isfinite(f):
         return None
     return f
-
-
-def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
-    """Return Session.PRE, Session.REGULAR, or Session.POST given a bar timestamp."""
-    try:
-        t = ts.astimezone(zoneinfo.ZoneInfo(tz_name)).time()
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError) as exc:
-        logger.debug("Unknown timezone %r for session detection: %s", tz_name, exc)
-        return Session.REGULAR
-    if t < open_time:
-        return Session.PRE
-    if t < close_time:
-        return Session.REGULAR
-    return Session.POST
-
-
-def _is_exchange_open(
-    tz_name: str,
-    open_time: dtime,
-    close_time: dtime,
-    calendar_name: str | None = None,
-) -> bool:
-    """Return True if the exchange is currently open.
-
-    When *calendar_name* is provided, delegates to exchange-calendars for
-    accurate holiday awareness.  Falls back to a weekend + trading-hours
-    check (no holiday awareness) if the calendar cannot be loaded.
-    """
-    if calendar_name:
-        try:
-            cal = _load_calendar(calendar_name)
-            now = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC"))
-            return bool(cal.is_open_on_minute(now, ignore_breaks=True))
-        except (AttributeError, LookupError, ValueError) as exc:
-            logger.debug(
-                "Calendar load failed for %s, falling back to time check: %s",
-                calendar_name,
-                exc,
-            )
-
-    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
-    if now_local.weekday() >= 5:
-        return False
-    return open_time <= now_local.time() < close_time
-
-
-def _is_trading_day(
-    tz_name: str,
-    calendar_name: str | None = None,
-) -> bool:
-    """Return True if today is a trading day for this exchange.
-
-    Unlike :func:`_is_exchange_open`, this ignores the time of day and only
-    answers the question "does this exchange have a session today?".  This
-    allows session labels (pre/regular/post) to be derived from the bar
-    timestamp even when the current clock time is outside regular hours.
-    """
-    if calendar_name:
-        try:
-            cal = _load_calendar(calendar_name)
-            today = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC")).normalize()
-            return bool(cal.is_session(today))
-        except (AttributeError, LookupError, ValueError) as exc:
-            logger.debug(
-                "Calendar load failed for %s, falling back to weekend check: %s",
-                calendar_name,
-                exc,
-            )
-
-    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name))
-    return now_local.weekday() < 5
-
-
-def _exchange_calendar_name(symbol: str) -> str | None:
-    """Return the exchange-calendars MIC for *symbol*'s exchange, or None."""
-    if "-" in symbol:
-        return None  # crypto -- no calendar
-    if "." in symbol:
-        suffix = symbol.rsplit(".", 1)[1]
-        info = _EXCHANGES.get(suffix)
-        return info.calendar_name if info else None
-    return _US_EXCHANGE.calendar_name  # plain US ticker
-
-
-def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
-    """Return (tz_name, open, close) for *symbol*, or None for crypto/unknown."""
-    if "-" in symbol:
-        return None  # crypto
-    if "." in symbol:
-        suffix = symbol.rsplit(".", 1)[1]
-        info = _EXCHANGES.get(suffix)
-        if info is None:
-            return None
-        return (info.tz_name, info.open_time, info.close_time)
-    return (_US_EXCHANGE.tz_name, _US_EXCHANGE.open_time, _US_EXCHANGE.close_time)
 
 
 @dataclass
@@ -906,6 +988,9 @@ class PriceFetcher:
     Uses yfinance.download() to batch all symbols in a single API call.
     """
 
+    def __init__(self) -> None:
+        self._session = ExchangeSession()
+
     def fetch_prices(self, symbols: list[str]) -> dict[str, float]:
         """Return the most recent closing price for each symbol.
 
@@ -983,26 +1068,10 @@ class PriceFetcher:
     def current_session(self, symbol: str) -> str:
         """Return the current market session label for *symbol*.
 
-        Uses the current wall-clock time rather than a bar timestamp, so it
-        can assign a meaningful session label to prices that were fetched via
-        a fallback path that has no associated bar.
-
+        Delegates to :meth:`ExchangeSession.current_session`.
         Returns one of ``'pre'``, ``'regular'``, ``'post'``, or ``'closed'``.
         """
-        hours = _exchange_hours(symbol)
-        if hours is None:
-            return Session.REGULAR  # crypto -- always regular
-        calendar_name = _exchange_calendar_name(symbol)
-        if not _is_trading_day(hours[0], calendar_name=calendar_name):
-            return Session.CLOSED
-        now = pd.Timestamp.now(tz="UTC")
-        session = _market_session(now, *hours)
-        if session != Session.REGULAR:
-            suffix = symbol.rsplit(".", 1)[1] if "." in symbol else None
-            info = _EXCHANGES.get(suffix) if suffix else _US_EXCHANGE
-            if not info or not info.extended_hours:
-                return Session.CLOSED
-        return session
+        return self._session.current_session(symbol)
 
     def fetch_price_single(self, symbol: str) -> float | None:
         """Return the most recent price for *symbol* using an individual lookup.
