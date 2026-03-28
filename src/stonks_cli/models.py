@@ -171,7 +171,7 @@ class Portfolio:
                 Position(symbol=symbol, quantity=quantity, avg_cost=avg_cost)
             )
 
-    def remove_position(self, symbol: str, quantity: int) -> None:
+    def remove_position(self, symbol: str, quantity: int | float) -> None:
         """Remove shares from the portfolio.
 
         If *quantity* equals the full holding the position is deleted.
