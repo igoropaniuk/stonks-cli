@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from stonks_cli import __version__
-from stonks_cli.app import PortfolioApp
+from stonks_cli.app import DEFAULT_REFRESH_INTERVAL, PortfolioApp
 from stonks_cli.log import setup_logging
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.show import format_show_table
@@ -112,7 +112,7 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
 @main.command()
 @click.option(
     "--refresh",
-    default=60.0,
+    default=DEFAULT_REFRESH_INTERVAL,
     show_default=True,
     type=float,
     help="Price refresh interval in seconds.",

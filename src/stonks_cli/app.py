@@ -53,6 +53,8 @@ class _RowMeta(NamedTuple):
     symbol: str  # ticker for position/watchlist, currency code for cash
 
 
+DEFAULT_REFRESH_INTERVAL: float = 60.0
+
 _ROW_KIND_LABELS: dict[_RowKind, str] = {
     _RowKind.POSITION: "position",
     _RowKind.CASH: "cash",
@@ -424,7 +426,7 @@ class PortfolioApp(App):
         forex_rates: dict[str, dict[str, float]],
         sessions: dict[str, str] | None = None,
         prev_closes: dict[str, float] | None = None,
-        refresh_interval: float = 60.0,
+        refresh_interval: float = DEFAULT_REFRESH_INTERVAL,
         stores: list[PortfolioStore] | None = None,
     ) -> None:
         super().__init__()
