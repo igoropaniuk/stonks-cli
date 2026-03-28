@@ -11,6 +11,9 @@ no string formatting).  Each consumer applies its own rendering on top.
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Any, NamedTuple
+
+from rich.text import Text
 
 from stonks_cli._session import Session
 from stonks_cli.fetcher import exchange_label
@@ -130,5 +133,190 @@ def build_row_data(
                 pnl=None,
             )
         )
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# TUI-specific row types and rendering
+# ---------------------------------------------------------------------------
+
+
+class _RowMeta(NamedTuple):
+    """Identifies a table row's kind and subject symbol/currency."""
+
+    kind: RowKind
+    symbol: str  # ticker for position/watchlist, currency code for cash
+
+
+class _RowData(NamedTuple):
+    """One table row: sort key, display cells, and row metadata."""
+
+    sort_key: tuple[Any, ...]
+    cells: tuple[str | Text, ...]
+    meta: _RowMeta
+
+
+_ROW_KIND_LABELS: dict[RowKind, str] = {
+    RowKind.POSITION: "position",
+    RowKind.CASH: "cash",
+    RowKind.WATCHLIST: "watch",
+}
+
+
+def _format_price_cell(last: float, session: str) -> Text | str:
+    """Return a price cell with a session badge appended when applicable."""
+    if session == Session.PRE:
+        return Text(f"{last:.2f} ").append("PRE", style="bold yellow")
+    if session == Session.POST:
+        return Text(f"{last:.2f} ").append("AH", style="bold cyan")
+    if session == Session.CLOSED:
+        return Text(f"{last:.2f} ").append("CLS", style="bold red")
+    return f"{last:.2f}"
+
+
+def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
+    """Convert shared :class:`RowData` objects to TUI-specific :class:`_RowData`.
+
+    Applies Rich Text styling and builds sort keys on top of the
+    presentation-agnostic values produced by :func:`build_row_data`.
+    """
+    rows: list[_RowData] = []
+    for rd in row_data:
+        if rd.kind == RowKind.POSITION:
+            assert rd.qty is not None and rd.avg_cost is not None
+            if rd.last is not None:
+                pnl = rd.pnl if rd.pnl is not None else 0.0
+                sign = "+" if pnl >= 0 else ""
+                pnl_cell: str | Text = Text(
+                    f"{sign}{pnl:,.2f}",
+                    style="bold green" if pnl >= 0 else "bold red",
+                )
+                price_cell: str | Text = _format_price_cell(rd.last, rd.session)
+                if rd.chg_pct is not None:
+                    chg_sign = "+" if rd.chg_pct >= 0 else ""
+                    chg_cell: str | Text = Text(
+                        f"{chg_sign}{rd.chg_pct:.2f}%",
+                        style="green" if rd.chg_pct >= 0 else "red",
+                    )
+                    chg_val = rd.chg_pct
+                else:
+                    chg_cell = "--"
+                    chg_val = 0.0
+                mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
+                sort_key: tuple = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    rd.avg_cost,
+                    rd.last,
+                    chg_val,
+                    mkt_value,
+                    pnl,
+                )
+                mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
+            else:
+                price_cell = "N/A"
+                chg_cell = "--"
+                mkt_value_cell = "N/A"
+                pnl_cell = "N/A"
+                sort_key = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    rd.avg_cost,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            display: tuple = (
+                rd.symbol,
+                rd.exchange,
+                str(rd.qty),
+                f"{rd.avg_cost:.2f}",
+                price_cell,
+                chg_cell,
+                mkt_value_cell,
+                pnl_cell,
+            )
+            rows.append(
+                _RowData(sort_key, display, _RowMeta(RowKind.POSITION, rd.symbol))
+            )
+
+        elif rd.kind == RowKind.CASH:
+            assert rd.qty is not None
+            if rd.last is not None:
+                mkt_value_c = rd.mkt_value if rd.mkt_value is not None else 0.0
+                sort_key = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    1.0,
+                    rd.last,
+                    0.0,
+                    mkt_value_c,
+                    0.0,
+                )
+                price_cell_c: str = f"{rd.last:.4f}"
+                mkt_value_cell_c: str = f"{mkt_value_c:,.2f}"
+            else:
+                sort_key = (rd.symbol, rd.exchange, rd.qty, 1.0, 0.0, 0.0, 0.0, 0.0)
+                price_cell_c = "N/A"
+                mkt_value_cell_c = "N/A"
+            display_c: tuple = (
+                rd.symbol,
+                rd.exchange,
+                f"{rd.qty:,.2f}",
+                "1.00",
+                price_cell_c,
+                "--",
+                mkt_value_cell_c,
+                "--",
+            )
+            rows.append(
+                _RowData(sort_key, display_c, _RowMeta(RowKind.CASH, rd.symbol))
+            )
+
+        else:  # WATCHLIST
+            if rd.last is not None:
+                price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
+                if rd.chg_pct is not None:
+                    chg_sign_w = "+" if rd.chg_pct >= 0 else ""
+                    chg_cell_w: str | Text = Text(
+                        f"{chg_sign_w}{rd.chg_pct:.2f}%",
+                        style=f"dim {'green' if rd.chg_pct >= 0 else 'red'}",
+                    )
+                    chg_val_w = rd.chg_pct
+                else:
+                    chg_cell_w = Text("--", style="dim")
+                    chg_val_w = 0.0
+                sort_key_w: tuple = (
+                    rd.symbol,
+                    rd.exchange,
+                    0,
+                    0.0,
+                    rd.last,
+                    chg_val_w,
+                    0.0,
+                    0.0,
+                )
+            else:
+                price_cell_w = Text("N/A", style="dim")
+                chg_cell_w = Text("--", style="dim")
+                sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            display_w: tuple = (
+                Text(rd.symbol, style="dim"),
+                Text(rd.exchange, style="dim"),
+                Text("--", style="dim"),
+                Text("--", style="dim"),
+                price_cell_w,
+                chg_cell_w,
+                Text("--", style="dim"),
+                Text("--", style="dim"),
+            )
+            rows.append(
+                _RowData(sort_key_w, display_w, _RowMeta(RowKind.WATCHLIST, rd.symbol))
+            )
 
     return rows
