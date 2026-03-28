@@ -978,9 +978,9 @@ class PortfolioApp(App[None]):
                 self._show_error(f"{new_symbol} is already in the watchlist")
                 return
             self._show_error("")
-            old_item.symbol = new_symbol
-            old_item.asset_type = result.get("asset_type")
-            old_item.external_id = result.get("external_id")
+            old_item.update(
+                new_symbol, result.get("asset_type"), result.get("external_id")
+            )
             self._save(idx)
             self._populate_tables()
 
@@ -1007,12 +1007,14 @@ class PortfolioApp(App[None]):
                 self._show_error(f"{new_symbol} already exists in this portfolio")
                 return
             self._show_error("")
-            pos.symbol = new_symbol
-            pos.quantity = result["qty"]
-            pos.avg_cost = result["avg_cost"]
-            pos.currency = result["currency"]
-            pos.asset_type = result.get("asset_type")
-            pos.external_id = result.get("external_id")
+            pos.update(
+                new_symbol,
+                result["qty"],
+                result["avg_cost"],
+                result["currency"],
+                result.get("asset_type"),
+                result.get("external_id"),
+            )
             self._save(idx)
             self._populate_tables()
 
