@@ -153,7 +153,7 @@ class Portfolio:
         symbol = symbol.upper()
         return next((p for p in self.positions if p.symbol == symbol), None)
 
-    def add_position(self, symbol: str, quantity: int, avg_cost: float) -> None:
+    def add_position(self, symbol: str, quantity: int | float, avg_cost: float) -> None:
         """Add shares to the portfolio.
 
         If the symbol is already held, quantity is increased and avg_cost is
