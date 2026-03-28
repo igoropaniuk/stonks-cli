@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from stonks_cli._session import Session
 from stonks_cli.fetcher import CryptoFetcher, PriceFetcher
 from stonks_cli.models import Portfolio
 
@@ -16,7 +17,7 @@ class MarketSnapshot:
     """All market data needed to render a portfolio view."""
 
     prices: dict[str, float] = field(default_factory=dict)
-    sessions: dict[str, str] = field(default_factory=dict)
+    sessions: dict[str, Session] = field(default_factory=dict)
     exchange_codes: dict[str, str] = field(default_factory=dict)
     # Keyed by base currency, then by position currency.
     forex_rates: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -76,7 +77,7 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
                 crypto_symbols, external_ids=external_ids
             )
             snap.prices.update(crypto_prices)
-            snap.sessions.update({sym: "regular" for sym in crypto_prices})
+            snap.sessions.update({sym: Session.REGULAR for sym in crypto_prices})
             snap.prev_closes.update(crypto_prev)
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
             logger.warning(
@@ -85,7 +86,7 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
             )
             yf_crypto = fetcher.fetch_prices(crypto_symbols)
             snap.prices.update(yf_crypto)
-            snap.sessions.update({sym: "regular" for sym in yf_crypto})
+            snap.sessions.update({sym: Session.REGULAR for sym in yf_crypto})
             snap.prev_closes.update(fetcher.fetch_previous_closes(crypto_symbols))
         except Exception as exc:  # noqa: BLE001
             logger.error("Unexpected error during CoinGecko fetch: %s", exc)

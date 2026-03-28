@@ -1,14 +1,15 @@
 """CLI formatted output for portfolio show command."""
 
 from stonks_cli._columns import TABLE_COLUMNS
+from stonks_cli._session import Session
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import Portfolio, daily_change_pct, portfolio_total
 
-_SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
+_SESSION_BADGES = {Session.PRE: " PRE", Session.POST: " AH", Session.CLOSED: " CLS"}
 
 
-def _fmt_chg(last: float, prev: float | None, session: str) -> str:
+def _fmt_chg(last: float, prev: float | None, session: Session) -> str:
     pct = daily_change_pct(last, prev, session)
     if pct is None:
         return "--"
@@ -33,7 +34,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
         qty = str(pos.quantity)
         avg_cost = f"{pos.avg_cost:.2f}"
         last_price = prices.get(symbol)
-        session = sessions.get(symbol, "regular")
+        session = sessions.get(symbol, Session.REGULAR)
         badge = _SESSION_BADGES.get(session, "")
         instrument = f"{symbol}{badge}"
         if last_price is None:
@@ -63,7 +64,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
         symbol = item.symbol
         exchange = exchange_label(symbol, exchange_codes.get(symbol), item.asset_type)
         last_price = prices.get(symbol)
-        session = sessions.get(symbol, "regular")
+        session = sessions.get(symbol, Session.REGULAR)
         badge = _SESSION_BADGES.get(session, "")
         instrument = f"{symbol}{badge}"
         if last_price is None:

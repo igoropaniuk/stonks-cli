@@ -295,18 +295,18 @@ def _finite(value) -> float | None:
     return f
 
 
-def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
-    """Return 'pre', 'regular', or 'post' given a bar timestamp and exchange hours."""
+def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> Session:
+    """Return Session.PRE, Session.REGULAR, or Session.POST given a bar timestamp."""
     try:
         t = ts.astimezone(zoneinfo.ZoneInfo(tz_name)).time()
     except (zoneinfo.ZoneInfoNotFoundError, ValueError) as exc:
         logger.debug("Unknown timezone %r for session detection: %s", tz_name, exc)
-        return "regular"
+        return Session.REGULAR
     if t < open_time:
-        return "pre"
+        return Session.PRE
     if t < close_time:
-        return "regular"
-    return "post"
+        return Session.REGULAR
+    return Session.POST
 
 
 def _is_exchange_open(
@@ -902,7 +902,7 @@ class PriceFetcher:
 
         return result
 
-    def current_session(self, symbol: str) -> str:
+    def current_session(self, symbol: str) -> Session:
         """Return the current market session label for *symbol*.
 
         Uses the current wall-clock time rather than a bar timestamp, so it
@@ -942,7 +942,9 @@ class PriceFetcher:
             logger.debug("Cannot read fast_info price for %s: %s", symbol, exc)
             return None
 
-    def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
+    def fetch_extended_prices(
+        self, symbols: list[str]
+    ) -> dict[str, tuple[float, Session]]:
         """Return the best available price for each symbol, including extended hours.
 
         Uses a single batched ``yf.download()`` call with ``prepost=True`` and a
@@ -987,7 +989,7 @@ class PriceFetcher:
         close = data["Close"]
 
         today = pd.Timestamp.now(tz="UTC").normalize()
-        result: dict[str, tuple[float, str]] = {}
+        result: dict[str, tuple[float, Session]] = {}
         for symbol in normalized:
             if symbol not in close.columns:
                 continue
