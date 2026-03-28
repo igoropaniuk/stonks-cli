@@ -27,7 +27,7 @@ class StockDetailScreen(Screen):
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("q", "app.pop_screen", "Back"),
+        Binding("q", "app.pop_screen", "Back", priority=True),
     ]
 
     CSS = """
