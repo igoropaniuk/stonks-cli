@@ -703,6 +703,90 @@ class CryptoFetcher:
         mapping.update(self._resolve_from_api(needs_search))
         return mapping
 
+    def _fetch_simple_price(self, ids: str) -> dict:
+        """Call ``/simple/price`` for a comma-joined string of CoinGecko IDs.
+
+        Raises :class:`httpx.HTTPStatusError` or :class:`httpx.RequestError`
+        on failure; callers handle retries.
+        """
+        resp = self._http.get(
+            "/simple/price",
+            params={
+                "ids": ids,
+                "vs_currencies": "usd",
+                "include_24hr_change": "true",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _fetch_coingecko_batch(self, cg_ids: list[str]) -> dict:
+        """Fetch ``/simple/price`` for *cg_ids* with per-item fallback.
+
+        Tries all IDs in a single batch request.  On failure retries each ID
+        individually so that one bad ID cannot block all other coins.
+
+        Returns the raw JSON dict (CoinGecko ID -> price/change payload).
+        """
+        ids_str = ",".join(cg_ids)
+        result: dict = {}
+        try:
+            result = self._fetch_simple_price(ids_str)
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            # Batch failed -- retry each CoinGecko ID individually so one bad
+            # ID (e.g. a typo in external_id) cannot block all other coins.
+            # A 401 on the batch does not mean global rate-limit; individual
+            # single-ID requests may still succeed.
+            logger.warning(
+                "CoinGecko batch request failed (%s); retrying individually",
+                _coingecko_error_summary(exc),
+            )
+            for cg_id in cg_ids:
+                try:
+                    result.update(self._fetch_simple_price(cg_id))
+                except (httpx.HTTPStatusError, httpx.RequestError) as exc_i:
+                    logger.warning(
+                        "CoinGecko request failed for %s (%s)",
+                        cg_id,
+                        _coingecko_error_summary(exc_i),
+                    )
+                except Exception as exc_i:  # noqa: BLE001
+                    logger.warning(
+                        "Unexpected error during individual CoinGecko fetch for %s: %s",
+                        cg_id,
+                        exc_i,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Unexpected error during CoinGecko batch fetch: %s", exc)
+        return result
+
+    @staticmethod
+    def _parse_coingecko_response(
+        result: dict,
+        id_to_syms: dict[str, list[str]],
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        """Extract ``(prices, prev_closes)`` from a raw ``/simple/price`` response.
+
+        Args:
+            result: Raw JSON dict keyed by CoinGecko ID.
+            id_to_syms: Mapping of CoinGecko ID -> list of portfolio symbols.
+
+        The previous close is derived as ``price / (1 + change_24h / 100)``.
+        """
+        prices: dict[str, float] = {}
+        prev_closes: dict[str, float] = {}
+        for cg_id, item in result.items():
+            usd_price = item.get("usd")
+            change_24h = item.get("usd_24h_change")
+            if usd_price is None:
+                continue
+            price = float(usd_price)
+            for sym in id_to_syms.get(cg_id, []):
+                prices[sym] = price
+                if change_24h is not None:
+                    prev_closes[sym] = price / (1 + float(change_24h) / 100)
+        return prices, prev_closes
+
     def fetch_prices_and_changes(
         self,
         symbols: list[str],
@@ -728,67 +812,9 @@ class CryptoFetcher:
         for sym, cg_id in sym_to_id.items():
             id_to_syms.setdefault(cg_id, []).append(sym)
 
-        # Deduplicated CoinGecko IDs for the batch request.
         all_cg_ids = list(set(sym_to_id.values()))
-        ids_str = ",".join(all_cg_ids)
-
-        def _fetch(ids: str) -> dict:
-            resp = self._http.get(
-                "/simple/price",
-                params={
-                    "ids": ids,
-                    "vs_currencies": "usd",
-                    "include_24hr_change": "true",
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-        result: dict = {}
-        try:
-            result = _fetch(ids_str)
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            # Batch failed -- retry each CoinGecko ID individually so one bad
-            # ID (e.g. a typo in external_id) cannot block all other coins.
-            # A 401 on the batch does not mean global rate-limit; individual
-            # single-ID requests may still succeed.
-            logger.warning(
-                "CoinGecko batch request failed (%s); retrying individually",
-                _coingecko_error_summary(exc),
-            )
-            for cg_id in all_cg_ids:
-                try:
-                    result.update(_fetch(cg_id))
-                except (httpx.HTTPStatusError, httpx.RequestError) as exc_individual:
-                    logger.warning(
-                        "CoinGecko request failed for %s (%s)",
-                        cg_id,
-                        _coingecko_error_summary(exc_individual),
-                    )
-                except Exception as exc_individual:  # noqa: BLE001
-                    logger.warning(
-                        "Unexpected error during individual CoinGecko fetch for %s: %s",
-                        cg_id,
-                        exc_individual,
-                    )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Unexpected error during initial CoinGecko batch fetch: %s", exc
-            )
-
-        prices: dict[str, float] = {}
-        prev_closes: dict[str, float] = {}
-        for cg_id, item in result.items():
-            usd_price = item.get("usd")
-            change_24h = item.get("usd_24h_change")
-            if usd_price is None:
-                continue
-            price = float(usd_price)
-            for sym in id_to_syms.get(cg_id, []):
-                prices[sym] = price
-                if change_24h is not None:
-                    prev_closes[sym] = price / (1 + float(change_24h) / 100)
-        return prices, prev_closes
+        result = self._fetch_coingecko_batch(all_cg_ids)
+        return self._parse_coingecko_response(result, id_to_syms)
 
 
 def _last_close_per_symbol(
