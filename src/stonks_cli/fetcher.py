@@ -797,8 +797,8 @@ def _yf_download_close(
         prepost: Whether to include pre/post-market bars (default False).
 
     Returns:
-        The ``data["Close"]`` DataFrame, or ``None`` if the download failed or
-        returned an empty result.
+        The ``data["Close"]`` DataFrame (always a DataFrame, never a Series),
+        or ``None`` if the download failed or returned an empty result.
     """
     kw: dict = {
         "tickers": symbols,
@@ -818,7 +818,13 @@ def _yf_download_close(
         return None
     if data.empty:
         return None
-    return data["Close"]
+    close = data["Close"]
+    # yfinance returns a Series (not a DataFrame) when a single ticker is
+    # requested and the result has no MultiIndex.  Normalise so callers can
+    # always assume a DataFrame.
+    if isinstance(close, pd.Series):
+        close = close.to_frame(name=symbols[0])
+    return close
 
 
 class PriceFetcher:
@@ -882,12 +888,6 @@ class PriceFetcher:
         )
         if close is None:
             return {}
-
-        if isinstance(close, pd.Series):
-            # yfinance returns a Series (not a DataFrame) when a single ticker
-            # is requested and the result is a flat (non-MultiIndex) DataFrame.
-            # Normalise to a one-column DataFrame keyed by the requested symbol.
-            close = close.to_frame(name=normalized[0])
 
         today = pd.Timestamp("today").normalize()
         result: dict[str, float] = {}
