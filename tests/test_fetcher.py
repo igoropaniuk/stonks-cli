@@ -9,12 +9,8 @@ import httpx
 import pandas as pd
 import pytest
 
-from stonks_cli.fetcher import (
-    CryptoFetcher,
-    ExchangeSession,
-    PriceFetcher,
-    exchange_label,
-)
+from stonks_cli.exchanges import ExchangeSession, exchange_label
+from stonks_cli.fetcher import CryptoFetcher, PriceFetcher
 from stonks_cli.stock_detail import _finite
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
@@ -513,7 +509,7 @@ class TestIsExchangeOpen:
         with patch(
             "stonks_cli.fetcher.ExchangeSession.load_calendar", side_effect=LookupError
         ):
-            with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            with patch("stonks_cli.exchanges.datetime") as mock_dt:
                 mock_now = MagicMock()
                 mock_now.weekday.return_value = 0  # Monday
                 mock_now.time.return_value = dtime(12, 0)
@@ -524,7 +520,7 @@ class TestIsExchangeOpen:
         assert result is True
 
     def test_weekend_returns_false(self):
-        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+        with patch("stonks_cli.exchanges.datetime") as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 6  # Sunday
             mock_dt.now.return_value = mock_now
@@ -532,7 +528,7 @@ class TestIsExchangeOpen:
         assert result is False
 
     def test_weekday_within_hours_returns_true(self):
-        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+        with patch("stonks_cli.exchanges.datetime") as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 1  # Tuesday
             mock_now.time.return_value = dtime(12, 0)
@@ -541,7 +537,7 @@ class TestIsExchangeOpen:
         assert result is True
 
     def test_weekday_outside_hours_returns_false(self):
-        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+        with patch("stonks_cli.exchanges.datetime") as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 1  # Tuesday
             mock_now.time.return_value = dtime(20, 0)
@@ -555,7 +551,7 @@ class TestExchangeCalendarName:
         assert ExchangeSession.calendar_name_for("BTC-USD") is None
 
     def test_us_ticker_returns_us_calendar(self):
-        from stonks_cli.fetcher import _US_EXCHANGE
+        from stonks_cli.exchanges import _US_EXCHANGE
 
         assert ExchangeSession.calendar_name_for("AAPL") == _US_EXCHANGE.calendar_name
 
@@ -617,7 +613,7 @@ class TestIsTradingDay:
         with patch(
             "stonks_cli.fetcher.ExchangeSession.load_calendar", side_effect=LookupError
         ):
-            with patch("stonks_cli.fetcher.datetime") as mock_dt:
+            with patch("stonks_cli.exchanges.datetime") as mock_dt:
                 mock_dt.now.return_value.weekday.return_value = 1  # Tuesday
                 assert (
                     ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS")
@@ -625,12 +621,12 @@ class TestIsTradingDay:
                 )
 
     def test_weekend_returns_false_without_calendar(self):
-        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+        with patch("stonks_cli.exchanges.datetime") as mock_dt:
             mock_dt.now.return_value.weekday.return_value = 6  # Sunday
             assert ExchangeSession.is_trading_day(self._TZ) is False
 
     def test_weekday_returns_true_without_calendar(self):
-        with patch("stonks_cli.fetcher.datetime") as mock_dt:
+        with patch("stonks_cli.exchanges.datetime") as mock_dt:
             mock_dt.now.return_value.weekday.return_value = 2  # Wednesday
             assert ExchangeSession.is_trading_day(self._TZ) is True
 
