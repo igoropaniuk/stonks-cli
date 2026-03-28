@@ -483,6 +483,59 @@ async def test_refresh_prices_missing_symbol_absent_from_prices(
 
 
 @pytest.mark.asyncio
+async def test_refresh_prices_exception_shown_in_error_bar(
+    portfolio: Portfolio,
+) -> None:
+    """An exception in build_market_snapshot is surfaced via the #error bar."""
+    with patch(
+        "stonks_cli.app.build_market_snapshot", side_effect=RuntimeError("network down")
+    ):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+            err = app.query_one("#error", Static)
+            assert err.has_class("visible")
+            assert "network down" in str(err.render())
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_clears_error_bar_on_success(
+    portfolio: Portfolio,
+) -> None:
+    """A successful refresh clears a previously shown error."""
+    snap = MarketSnapshot(
+        prices={"AAPL": 160.0, "NVDA": 90.0},
+        sessions={},
+        exchange_codes={},
+        forex_rates={"USD": {"USD": 1.0}},
+        prev_closes={},
+    )
+
+    with patch(
+        "stonks_cli.app.build_market_snapshot", side_effect=RuntimeError("network down")
+    ):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.call_from_thread = lambda fn, *a, **kw: fn(*a, **kw)
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+            # Confirm error is shown, then run a successful refresh
+            assert app.query_one("#error", Static).has_class("visible")
+
+            with patch("stonks_cli.app.build_market_snapshot", return_value=snap):
+                _REAL_REFRESH_PRICES.__wrapped__(app)
+                await pilot.pause()
+
+            assert not app.query_one("#error", Static).has_class("visible")
+
+
+@pytest.mark.asyncio
 async def test_sort_by_column_header(portfolio: Portfolio) -> None:
     """Clicking a column header sorts the table by that column."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}
