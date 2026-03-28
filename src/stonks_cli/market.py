@@ -87,7 +87,7 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
             snap.prices.update(yf_crypto)
             snap.sessions.update({sym: "regular" for sym in yf_crypto})
             snap.prev_closes.update(fetcher.fetch_previous_closes(crypto_symbols))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error("Unexpected error during CoinGecko fetch: %s", exc)
 
     # --- Forex rates (one dict per base currency) ---

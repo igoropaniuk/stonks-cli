@@ -1029,7 +1029,7 @@ class PriceFetcher:
         def _get(sym: str) -> tuple[str, str | None]:
             try:
                 return sym, yf.Ticker(sym).fast_info.exchange
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Cannot fetch exchange name for %s: %s", sym, exc)
                 return sym, None
 
