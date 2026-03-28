@@ -556,6 +556,8 @@ class PortfolioTableWidget(Widget):
     Call :meth:`refresh_data` to push new portfolio/price data into the widget.
     """
 
+    DEFAULT_CSS = "PortfolioTableWidget { height: auto; }"
+
     def __init__(
         self,
         widget_id: str | None = None,
