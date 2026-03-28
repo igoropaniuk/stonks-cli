@@ -26,6 +26,7 @@ from textual.widgets import (
 )
 from textual.widgets._select import NoSelection
 
+from stonks_cli._columns import TABLE_COLUMNS
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
@@ -38,7 +39,6 @@ from stonks_cli.models import (
     daily_change_pct,
     portfolio_total,
 )
-from stonks_cli.show import _TABLE_COLUMNS
 from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
@@ -621,7 +621,7 @@ class PortfolioTableWidget(Widget):
         yield Static("", id=self._total_id, classes="total")
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
+        self.query_one(DataTable).add_columns(*TABLE_COLUMNS)
 
     def refresh_data(
         self,

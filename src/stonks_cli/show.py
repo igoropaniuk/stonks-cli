@@ -1,21 +1,11 @@
 """CLI formatted output for portfolio show command."""
 
+from stonks_cli._columns import TABLE_COLUMNS
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import Portfolio, daily_change_pct, portfolio_total
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
-
-_TABLE_COLUMNS = (
-    "Instrument",
-    "Exchange",
-    "Qty",
-    "Avg Cost",
-    "Last Price",
-    "Daily Chg",
-    "Mkt Value",
-    "Unrealized P&L",
-)
 
 
 def _fmt_chg(last: float, prev: float | None, session: str) -> str:
@@ -34,7 +24,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
     forex_rates = snap.forex_rates
     prev_closes = snap.prev_closes
 
-    headers = _TABLE_COLUMNS
+    headers = TABLE_COLUMNS
     rows: list[tuple[str, ...]] = []
 
     for pos in portfolio.positions:
