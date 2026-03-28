@@ -30,7 +30,7 @@ from stonks_cli._row_model import RowData, RowKind, build_row_data
 from stonks_cli._session import Session
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.logviewer import LogViewerScreen
-from stonks_cli.market import build_market_snapshot
+from stonks_cli.market import MarketSnapshot, build_market_snapshot
 from stonks_cli.models import (
     CashPosition,
     Portfolio,
@@ -570,11 +570,7 @@ class PortfolioTableWidget(Widget):
         self._row_meta: dict[str, _RowMeta] = {}
         # Cached market data: populated by refresh_data(), reused on sort.
         self._portfolio: Portfolio | None = None
-        self._prices: dict[str, float] = {}
-        self._forex_rates: dict[str, dict[str, float]] = {}
-        self._sessions: dict[str, str] = {}
-        self._prev_closes: dict[str, float] = {}
-        self._exchange_codes: dict[str, str] = {}
+        self._snap: MarketSnapshot = MarketSnapshot()
 
     def compose(self) -> ComposeResult:
         yield DataTable(zebra_stripes=True, cursor_type="row", id=self._table_id)
@@ -583,22 +579,10 @@ class PortfolioTableWidget(Widget):
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
 
-    def refresh_data(
-        self,
-        portfolio: Portfolio,
-        prices: dict[str, float],
-        forex_rates: dict[str, dict[str, float]],
-        sessions: dict[str, str],
-        prev_closes: dict[str, float],
-        exchange_codes: dict[str, str],
-    ) -> None:
+    def refresh_data(self, portfolio: Portfolio, snap: MarketSnapshot) -> None:
         """Push new data into the widget and repaint."""
         self._portfolio = portfolio
-        self._prices = prices
-        self._forex_rates = forex_rates
-        self._sessions = sessions
-        self._prev_closes = prev_closes
-        self._exchange_codes = exchange_codes
+        self._snap = snap
         self._repaint()
 
     def get_row_meta(self) -> _RowMeta | None:
@@ -668,14 +652,14 @@ class PortfolioTableWidget(Widget):
         assert portfolio is not None
         saved_cursor = table.cursor_coordinate
         table.clear()
-        rates = self._forex_rates.get(portfolio.base_currency, {})
+        rates = self._snap.forex_rates.get(portfolio.base_currency, {})
         rows = _to_tui_rows(
             build_row_data(
                 portfolio,
-                self._prices,
-                self._sessions,
-                self._prev_closes,
-                self._exchange_codes,
+                self._snap.prices,
+                self._snap.sessions,
+                self._snap.prev_closes,
+                self._snap.exchange_codes,
                 rates,
             )
         )
@@ -685,8 +669,8 @@ class PortfolioTableWidget(Widget):
     def _update_total(self) -> None:
         portfolio = self._portfolio
         assert portfolio is not None
-        rates = self._forex_rates.get(portfolio.base_currency, {})
-        total = portfolio_total(portfolio, self._prices, rates)
+        rates = self._snap.forex_rates.get(portfolio.base_currency, {})
+        total = portfolio_total(portfolio, self._snap.prices, rates)
         base = portfolio.base_currency
         widget = self.query_one(Static)
         if total is None:
@@ -781,8 +765,8 @@ class PortfolioApp(App[None]):
     def __init__(
         self,
         portfolios: list[Portfolio],
-        prices: dict[str, float],
-        forex_rates: dict[str, dict[str, float]],
+        prices: dict[str, float] | None = None,
+        forex_rates: dict[str, dict[str, float]] | None = None,
         sessions: dict[str, str] | None = None,
         prev_closes: dict[str, float] | None = None,
         refresh_interval: float = DEFAULT_REFRESH_INTERVAL,
@@ -790,11 +774,12 @@ class PortfolioApp(App[None]):
     ) -> None:
         super().__init__()
         self.portfolios = portfolios
-        self.prices = prices
-        self.forex_rates = forex_rates
-        self.sessions = sessions or {}
-        self.prev_closes: dict[str, float] = prev_closes or {}
-        self.exchange_codes: dict[str, str] = {}
+        self._snap = MarketSnapshot(
+            prices=prices or {},
+            forex_rates=forex_rates or {},
+            sessions=sessions or {},
+            prev_closes=prev_closes or {},
+        )
         self.refresh_interval = refresh_interval
         self.stores = stores or []
         self._refresh_lock = threading.Lock()
@@ -1124,7 +1109,7 @@ class PortfolioApp(App[None]):
     def _populate_tables(self) -> None:
         try:
             status = self.query_one("#status", Static)
-            if not self.prices:
+            if not self._snap.prices:
                 status.update("Obtaining market data...")
             else:
                 status.update("")
@@ -1153,14 +1138,7 @@ class PortfolioApp(App[None]):
     def _refresh_widget(
         self, widget: PortfolioTableWidget, portfolio: Portfolio
     ) -> None:
-        widget.refresh_data(
-            portfolio,
-            self.prices,
-            self.forex_rates,
-            self.sessions,
-            self.prev_closes,
-            self.exchange_codes,
-        )
+        widget.refresh_data(portfolio, self._snap)
 
     def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
         """Return the _RowMeta for the row currently under the cursor, or None."""
@@ -1187,31 +1165,9 @@ class PortfolioApp(App[None]):
 
     def _do_refresh_prices(self) -> None:
         snap = build_market_snapshot(self.portfolios)
-        self.call_from_thread(
-            self._apply_prices,
-            snap.prices,
-            snap.forex_rates,
-            snap.sessions,
-            snap.exchange_codes,
-            snap.prev_closes,
-        )
+        self.call_from_thread(self._apply_snapshot, snap)
 
-    def _apply_prices(
-        self,
-        prices: dict[str, float],
-        forex_rates: dict[str, dict[str, float]] | None = None,
-        sessions: dict[str, str] | None = None,
-        exchange_codes: dict[str, str] | None = None,
-        prev_closes: dict[str, float] | None = None,
-    ) -> None:
-        self.prices = prices
-        if forex_rates is not None:
-            self.forex_rates = forex_rates
-        if sessions is not None:
-            self.sessions = sessions
-        if exchange_codes is not None:
-            self.exchange_codes = exchange_codes
-        if prev_closes is not None:
-            self.prev_closes = prev_closes
+    def _apply_snapshot(self, snap: MarketSnapshot) -> None:
+        self._snap = snap
         self._show_error("")
         self._populate_tables()

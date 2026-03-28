@@ -113,8 +113,8 @@ async def test_missing_price_shows_na(portfolio: Portfolio) -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
-    """Calling _apply_prices() with new data re-renders the table."""
+async def test_apply_snapshot_updates_table(portfolio: Portfolio) -> None:
+    """Calling _apply_snapshot() with new data re-renders the table."""
     app = PortfolioApp(
         portfolios=[portfolio],
         prices={"AAPL": 160.0, "NVDA": 90.0},
@@ -123,7 +123,9 @@ async def test_apply_prices_updates_table(portfolio: Portfolio) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        app._apply_prices({"AAPL": 200.0, "NVDA": 50.0})
+        app._apply_snapshot(
+            MarketSnapshot(prices={"AAPL": 200.0, "NVDA": 50.0}, forex_rates=USD_RATES)
+        )
         await pilot.pause()
         table = app.query_one(DataTable)
         assert str(table.get_cell_at((0, _COL_LAST))) == "200.00"
@@ -368,45 +370,48 @@ async def test_cash_position_without_rate_shows_na() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_prices_with_all_optional_args(portfolio: Portfolio) -> None:
-    """_apply_prices updates sessions and exchange_codes when provided."""
+async def test_apply_snapshot_sets_all_fields(portfolio: Portfolio) -> None:
+    """_apply_snapshot stores the full snapshot and triggers re-render."""
     app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        app._apply_prices(
-            {"AAPL": 170.0},
-            forex_rates=USD_RATES,
-            sessions={"AAPL": "pre"},
-            exchange_codes={"AAPL": "NMS"},
+        app._apply_snapshot(
+            MarketSnapshot(
+                prices={"AAPL": 170.0},
+                forex_rates=USD_RATES,
+                sessions={"AAPL": "pre"},
+                exchange_codes={"AAPL": "NMS"},
+            )
         )
         await pilot.pause()
-        assert app.sessions == {"AAPL": "pre"}
-        assert app.exchange_codes == {"AAPL": "NMS"}
+        assert app._snap.sessions == {"AAPL": "pre"}
+        assert app._snap.exchange_codes == {"AAPL": "NMS"}
         table = app.query_one(DataTable)
         assert "PRE" in str(table.get_cell_at((0, _COL_LAST)))
 
 
 @pytest.mark.asyncio
-async def test_apply_prices_without_optional_args_preserves_state(
+async def test_apply_snapshot_replaces_snap_atomically(
     portfolio: Portfolio,
 ) -> None:
-    """_apply_prices called with only prices leaves existing sessions/codes intact."""
+    """_apply_snapshot replaces the entire stored snapshot."""
     app = PortfolioApp(
         portfolios=[portfolio],
         prices={},
         forex_rates=USD_RATES,
         sessions={"AAPL": "post"},
     )
-    app.exchange_codes = {"AAPL": "NMS"}
+    app._snap.exchange_codes = {"AAPL": "NMS"}
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        app._apply_prices({"AAPL": 160.0})
+        new_snap = MarketSnapshot(
+            prices={"AAPL": 160.0}, forex_rates=USD_RATES, sessions={"AAPL": "post"}
+        )
+        app._apply_snapshot(new_snap)
         await pilot.pause()
-        # sessions and exchange_codes unchanged
-        assert app.sessions == {"AAPL": "post"}
-        assert app.exchange_codes == {"AAPL": "NMS"}
+        assert app._snap is new_snap
 
 
 @pytest.mark.asyncio
@@ -429,10 +434,10 @@ async def test_refresh_prices_applies_snapshot(portfolio: Portfolio) -> None:
             await pilot.pause()
 
     mock_bms.assert_called_once_with([portfolio])
-    assert app.prices == {"AAPL": 160.0, "NVDA": 90.0}
-    assert app.sessions == {"AAPL": "regular", "NVDA": "regular"}
-    assert app.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
-    assert app.prev_closes == {"AAPL": 155.0, "NVDA": 85.0}
+    assert app._snap.prices == {"AAPL": 160.0, "NVDA": 90.0}
+    assert app._snap.sessions == {"AAPL": "regular", "NVDA": "regular"}
+    assert app._snap.exchange_codes == {"AAPL": "NMS", "NVDA": "NMS"}
+    assert app._snap.prev_closes == {"AAPL": 155.0, "NVDA": 85.0}
 
 
 @pytest.mark.asyncio
@@ -479,7 +484,7 @@ async def test_refresh_prices_missing_symbol_absent_from_prices(
             _REAL_REFRESH_PRICES.__wrapped__(app)
             await pilot.pause()
 
-    assert "NVDA" not in app.prices
+    assert "NVDA" not in app._snap.prices
 
 
 @pytest.mark.asyncio
