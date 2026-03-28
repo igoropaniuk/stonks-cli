@@ -470,6 +470,14 @@ _cg_coin_list_loaded: bool = False
 _cg_lock = threading.Lock()
 
 
+def _crypto_base(symbol: str) -> str:
+    """Return the uppercase base ticker from a Yahoo-style crypto symbol.
+
+    ``"BTC-USD"`` -> ``"BTC"``, ``"eth-usd"`` -> ``"ETH"``.
+    """
+    return symbol.upper().split("-")[0]
+
+
 def _coingecko_error_summary(exc: BaseException) -> str:
     """Return a one-line summary for a CoinGecko HTTP exception."""
     if isinstance(exc, httpx.HTTPStatusError):
@@ -594,7 +602,7 @@ class CryptoFetcher:
         unresolved: list[str] = []
         for sym in symbols:
             upper = sym.upper()
-            base = upper.split("-")[0]
+            base = _crypto_base(sym)
             if upper in ext:
                 mapping[sym] = ext[upper]
             elif base in _cg_symbol_to_id:
@@ -622,7 +630,7 @@ class CryptoFetcher:
         mapping: dict[str, str] = {}
         needs_search: list[str] = []
         for sym in symbols:
-            base = sym.upper().split("-")[0]
+            base = _crypto_base(sym)
             if base in _cg_symbol_to_id:
                 mapping[sym] = _cg_symbol_to_id[base]
             else:
@@ -644,7 +652,7 @@ class CryptoFetcher:
         """
         mapping: dict[str, str] = {}
         for sym in symbols:
-            base = sym.upper().split("-")[0]
+            base = _crypto_base(sym)
             cg_id = self._resolve_via_search(base)
             if cg_id:
                 _cg_symbol_to_id[base] = cg_id
