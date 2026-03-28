@@ -1051,6 +1051,26 @@ class PortfolioApp(App[None]):
         self._render_rows(table, portfolio)
         self._update_total_widget(total_widget, portfolio)
 
+    def _apply_sort(self, tid: str, rows: list[_RowData]) -> list[_RowData]:
+        """Return *rows* sorted by the active column for *tid*, if any."""
+        if tid not in self._sort_column:
+            return rows
+        col = self._sort_column[tid]
+        return sorted(
+            rows,
+            key=lambda r: r[0][col],
+            reverse=self._sort_reverse.get(tid, False),
+        )
+
+    def _write_rows(self, table: DataTable, tid: str, rows: list[_RowData]) -> None:
+        """Flush *rows* into *table*, rebuilding row-metadata for *tid*."""
+        for key in [k for k in self._row_meta if k[0] == tid]:
+            del self._row_meta[key]
+        for _, cells, meta in rows:
+            rkey = f"{meta.kind.name}:{meta.symbol}"
+            table.add_row(*cells, key=rkey)
+            self._row_meta[(tid, rkey)] = meta
+
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
         saved_cursor = table.cursor_coordinate
         table.clear()
@@ -1076,19 +1096,7 @@ class PortfolioApp(App[None]):
             )
         )
 
-        if tid in self._sort_column:
-            col = self._sort_column[tid]
-            rows.sort(
-                key=lambda r: r[0][col], reverse=self._sort_reverse.get(tid, False)
-            )
-
-        # Rebuild per-table row metadata and write rows with explicit keys.
-        for key in [k for k in self._row_meta if k[0] == tid]:
-            del self._row_meta[key]
-        for _, cells, meta in rows:
-            rkey = f"{meta.kind.name}:{meta.symbol}"
-            table.add_row(*cells, key=rkey)
-            self._row_meta[(tid, rkey)] = meta
+        self._write_rows(table, tid, self._apply_sort(tid, rows))
         table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
 
     def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
