@@ -434,44 +434,6 @@ class ExchangeSession:
         return session
 
 
-# ---------------------------------------------------------------------------
-# Backward-compatible shims -- kept so that existing callers and tests that
-# import or patch these names continue to work.  New code should use the
-# ExchangeSession static methods directly.
-# ---------------------------------------------------------------------------
-
-
-def _load_calendar(name: str):
-    return ExchangeSession.load_calendar(name)
-
-
-def _market_session(ts, tz_name: str, open_time: dtime, close_time: dtime) -> str:
-    return ExchangeSession.market_session(ts, tz_name, open_time, close_time)
-
-
-def _is_exchange_open(
-    tz_name: str,
-    open_time: dtime,
-    close_time: dtime,
-    calendar_name: str | None = None,
-) -> bool:
-    return ExchangeSession.is_exchange_open(
-        tz_name, open_time, close_time, calendar_name
-    )
-
-
-def _is_trading_day(tz_name: str, calendar_name: str | None = None) -> bool:
-    return ExchangeSession.is_trading_day(tz_name, calendar_name)
-
-
-def _exchange_calendar_name(symbol: str) -> str | None:
-    return ExchangeSession.calendar_name_for(symbol)
-
-
-def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
-    return ExchangeSession.hours_for(symbol)
-
-
 # Module-level cache: base symbol (uppercase, e.g. "BTC") -> CoinGecko ID.
 # Populated lazily by CryptoFetcher._ensure_coin_list() (bulk) and
 # _resolve_via_search() (per-symbol fallback).
