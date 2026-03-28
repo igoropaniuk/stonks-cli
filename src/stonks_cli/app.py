@@ -697,6 +697,48 @@ class PortfolioTableWidget(Widget):
             )
 
 
+def _do_add_equity(result: _EquityResult, portfolio: Portfolio) -> None:
+    """Apply an add-equity form result to *portfolio*."""
+    is_new = portfolio.get_position(result["symbol"]) is None
+    portfolio.add_position(result["symbol"], result["qty"], result["avg_cost"])
+    if is_new:
+        pos = portfolio.get_position(result["symbol"])
+        if pos:
+            pos.currency = result["currency"]
+            pos.asset_type = result.get("asset_type")
+            pos.external_id = result.get("external_id")
+
+
+def _do_add_cash(result: _CashResult, portfolio: Portfolio) -> str | None:
+    """Apply an add-cash form result to *portfolio*; return an error string or None."""
+    try:
+        portfolio.add_cash(result["currency"], result["amount"])
+    except ValueError as exc:
+        logger.warning(
+            "Failed to add cash %s %.2f: %s",
+            result["currency"],
+            result["amount"],
+            exc,
+        )
+        return str(exc)
+    return None
+
+
+def _do_add_watch(result: _WatchResult, portfolio: Portfolio) -> str | None:
+    """Apply an add-watch form result to *portfolio*; return an error string or None."""
+    symbol = result["symbol"]
+    if any(w.symbol == symbol for w in portfolio.watchlist):
+        return f"{symbol} is already in the watchlist"
+    portfolio.watchlist.append(
+        WatchlistItem(
+            symbol,
+            asset_type=result.get("asset_type"),
+            external_id=result.get("external_id"),
+        )
+    )
+    return None
+
+
 class PortfolioApp(App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
@@ -840,17 +882,7 @@ class PortfolioApp(App[None]):
                 def on_equity(result: _EquityResult | None) -> None:
                     if result is None:
                         return
-                    portfolio = self.portfolios[idx]
-                    is_new = portfolio.get_position(result["symbol"]) is None
-                    portfolio.add_position(
-                        result["symbol"], result["qty"], result["avg_cost"]
-                    )
-                    if is_new:
-                        pos = portfolio.get_position(result["symbol"])
-                        if pos:
-                            pos.currency = result["currency"]
-                            pos.asset_type = result.get("asset_type")
-                            pos.external_id = result.get("external_id")
+                    _do_add_equity(result, self.portfolios[idx])
                     self._save(idx)
                     self._populate_tables()
 
@@ -863,18 +895,9 @@ class PortfolioApp(App[None]):
                 def on_cash(result: _CashResult | None) -> None:
                     if result is None:
                         return
-                    try:
-                        self.portfolios[idx].add_cash(
-                            result["currency"], result["amount"]
-                        )
-                    except ValueError as exc:
-                        logger.warning(
-                            "Failed to add cash %s %.2f: %s",
-                            result["currency"],
-                            result["amount"],
-                            exc,
-                        )
-                        self._show_error(str(exc))
+                    err = _do_add_cash(result, self.portfolios[idx])
+                    if err:
+                        self._show_error(err)
                         return
                     self._show_error("")
                     self._save(idx)
@@ -889,18 +912,10 @@ class PortfolioApp(App[None]):
                 def on_watch(result: _WatchResult | None) -> None:
                     if result is None:
                         return
-                    symbol = result["symbol"]
-                    portfolio = self.portfolios[idx]
-                    if any(w.symbol == symbol for w in portfolio.watchlist):
-                        self._show_error(f"{symbol} is already in the watchlist")
+                    err = _do_add_watch(result, self.portfolios[idx])
+                    if err:
+                        self._show_error(err)
                         return
-                    portfolio.watchlist.append(
-                        WatchlistItem(
-                            symbol,
-                            asset_type=result.get("asset_type"),
-                            external_id=result.get("external_id"),
-                        )
-                    )
                     self._show_error("")
                     self._save(idx)
                     self._populate_tables()
