@@ -6,6 +6,17 @@ from stonks_cli.models import Portfolio, daily_change_pct, portfolio_total
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
 
+_TABLE_COLUMNS = (
+    "Instrument",
+    "Exchange",
+    "Qty",
+    "Avg Cost",
+    "Last Price",
+    "Daily Chg",
+    "Mkt Value",
+    "Unrealized P&L",
+)
+
 
 def _fmt_chg(last: float, prev: float | None, session: str) -> str:
     pct = daily_change_pct(last, prev, session)
@@ -23,17 +34,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
     forex_rates = snap.forex_rates
     prev_closes = snap.prev_closes
 
-    headers = (
-        "Instrument",
-        "Exchange",
-        "Qty",
-        "Avg Cost",
-        "Last Price",
-        "Daily chg",
-        "Mkt Value",
-        "Unrealized P&L",
-    )
-
+    headers = _TABLE_COLUMNS
     rows: list[tuple[str, ...]] = []
 
     for pos in portfolio.positions:
