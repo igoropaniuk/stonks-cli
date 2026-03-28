@@ -83,7 +83,10 @@ def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
     portfolio.add_position(symbol, quantity, price)
     store.save(portfolio)
     pos = portfolio.get_position(symbol)
-    assert pos is not None
+    if pos is None:
+        raise click.ClickException(
+            f"Position '{symbol.upper()}' not found after adding"
+        )
     click.echo(
         f"Added {quantity} * {symbol.upper()} @ {price:.2f}  "
         f"(position: {pos.quantity} shares, avg cost {pos.avg_cost:.2f})"
@@ -144,7 +147,10 @@ def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
     portfolio.add_cash(currency, amount)
     store.save(portfolio)
     cash = portfolio.get_cash(currency)
-    assert cash is not None
+    if cash is None:
+        raise click.ClickException(
+            f"Cash position '{currency.upper()}' not found after adding"
+        )
     click.echo(f"Added {amount:.2f} {currency.upper()}  (total: {cash.amount:.2f})")
 
 
