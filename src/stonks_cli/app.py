@@ -4,7 +4,6 @@ import logging
 import threading
 from enum import Enum, auto
 from typing import Any, NamedTuple, TypedDict
-from typing import Any, NamedTuple, TypedDict
 
 from rich.text import Text
 from textual import work
@@ -30,7 +29,9 @@ from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import (
+    CashPosition,
     Portfolio,
+    Position,
     WatchlistItem,
     daily_change_pct,
     portfolio_total,
@@ -604,6 +605,108 @@ class PortfolioApp(App):
 
         self.push_screen(_TypeSelectScreen(portfolio_name=pname), on_type)
 
+    def _edit_cash(
+        self, portfolio: Portfolio, idx: int, pname: str, cash_pos: CashPosition
+    ) -> None:
+        """Push the cash-edit form and apply the result."""
+
+        def on_cash_edit(result: dict[str, Any] | None) -> None:
+            if result is None:
+                return
+            new_currency = result["currency"]
+            if (
+                new_currency != cash_pos.currency
+                and portfolio.get_cash(new_currency) is not None
+            ):
+                self._show_error(f"A {new_currency} cash position already exists")
+                return
+            portfolio.cash.remove(cash_pos)
+            try:
+                portfolio.add_cash(new_currency, result["amount"])
+            except ValueError as exc:
+                logger.warning("Failed to edit cash position: %s", exc)
+                portfolio.cash.append(cash_pos)
+                self._show_error(str(exc))
+                return
+            self._show_error("")
+            self._save(idx)
+            self._populate_tables()
+
+        self.push_screen(
+            _CashFormScreen(
+                title=f"[{pname}] Edit Cash Position",
+                currency=cash_pos.currency,
+                amount=str(cash_pos.amount),
+            ),
+            on_cash_edit,
+        )
+
+    def _edit_watch(
+        self, portfolio: Portfolio, idx: int, pname: str, old_item: WatchlistItem
+    ) -> None:
+        """Push the watchlist-edit form and apply the result."""
+
+        def on_watch_edit(result: dict[str, Any] | None) -> None:
+            if result is None:
+                return
+            new_symbol = result["symbol"]
+            if new_symbol != old_item.symbol and any(
+                w.symbol == new_symbol for w in portfolio.watchlist
+            ):
+                self._show_error(f"{new_symbol} is already in the watchlist")
+                return
+            self._show_error("")
+            old_item.symbol = new_symbol
+            old_item.asset_type = result.get("asset_type")
+            old_item.external_id = result.get("external_id")
+            self._save(idx)
+            self._populate_tables()
+
+        self.push_screen(
+            _WatchFormScreen(
+                title=f"[{pname}] Edit Watch Item",
+                symbol=old_item.symbol,
+                asset_type=old_item.asset_type,
+                external_id=old_item.external_id or "",
+            ),
+            on_watch_edit,
+        )
+
+    def _edit_position(
+        self, portfolio: Portfolio, idx: int, pname: str, pos: Position
+    ) -> None:
+        """Push the equity-edit form and apply the result."""
+
+        def on_equity_edit(result: dict[str, Any] | None) -> None:
+            if result is None:
+                return
+            new_symbol = result["symbol"]
+            if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
+                self._show_error(f"{new_symbol} already exists in this portfolio")
+                return
+            self._show_error("")
+            pos.symbol = new_symbol
+            pos.quantity = result["qty"]
+            pos.avg_cost = result["avg_cost"]
+            pos.currency = result["currency"]
+            pos.asset_type = result.get("asset_type")
+            pos.external_id = result.get("external_id")
+            self._save(idx)
+            self._populate_tables()
+
+        self.push_screen(
+            _EquityFormScreen(
+                title=f"[{pname}] Edit Equity Position",
+                symbol=pos.symbol,
+                qty=str(pos.quantity),
+                avg_cost=str(pos.avg_cost),
+                currency=pos.currency,
+                asset_type=pos.asset_type,
+                external_id=pos.external_id or "",
+            ),
+            on_equity_edit,
+        )
+
     def action_edit(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
@@ -615,99 +718,25 @@ class PortfolioApp(App):
         if meta is None:
             return
         identifier = meta.symbol
-        is_cash = meta.kind == _RowKind.CASH
-        is_watch = meta.kind == _RowKind.WATCHLIST
 
-        if is_cash:
+        if meta.kind == _RowKind.CASH:
             cash_pos = portfolio.get_cash(identifier)
             if cash_pos is None:
                 return
-
-            def on_cash_edit(result: dict[str, Any] | None) -> None:
-                if result is None:
-                    return
-                portfolio.cash.remove(cash_pos)
-                try:
-                    portfolio.add_cash(result["currency"], result["amount"])
-                except ValueError as exc:
-                    logger.warning("Failed to edit cash position: %s", exc)
-                    portfolio.cash.append(cash_pos)
-                    self._show_error(str(exc))
-                    return
-                self._show_error("")
-                self._save(idx)
-                self._populate_tables()
-
-            self.push_screen(
-                _CashFormScreen(
-                    title=f"[{pname}] Edit Cash Position",
-                    currency=cash_pos.currency,
-                    amount=str(cash_pos.amount),
-                ),
-                on_cash_edit,
+            self._edit_cash(portfolio, idx, pname, cash_pos)
+        elif meta.kind == _RowKind.WATCHLIST:
+            old_item = next(
+                (w for w in portfolio.watchlist if w.symbol == identifier), None
             )
-        elif is_watch:
-            old_item = next(w for w in portfolio.watchlist if w.symbol == identifier)
-
-            def on_watch_edit(result: dict[str, Any] | None) -> None:
-                if result is None:
-                    return
-                new_symbol = result["symbol"]
-                if new_symbol != old_item.symbol and any(
-                    w.symbol == new_symbol for w in portfolio.watchlist
-                ):
-                    self._show_error(f"{new_symbol} is already in the watchlist")
-                    return
-                self._show_error("")
-                old_item.symbol = new_symbol
-                old_item.asset_type = result.get("asset_type")
-                old_item.external_id = result.get("external_id")
-                self._save(idx)
-                self._populate_tables()
-
-            self.push_screen(
-                _WatchFormScreen(
-                    title=f"[{pname}] Edit Watch Item",
-                    symbol=old_item.symbol,
-                    asset_type=old_item.asset_type,
-                    external_id=old_item.external_id or "",
-                ),
-                on_watch_edit,
-            )
+            if old_item is None:
+                logger.warning("Could not find watchlist item %s to edit", identifier)
+                return
+            self._edit_watch(portfolio, idx, pname, old_item)
         else:
             pos = portfolio.get_position(identifier)
             if pos is None:
                 return
-
-            def on_equity_edit(result: dict[str, Any] | None) -> None:
-                if result is None:
-                    return
-                new_symbol = result["symbol"]
-                if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
-                    self._show_error(f"{new_symbol} already exists in this portfolio")
-                    return
-                self._show_error("")
-                pos.symbol = new_symbol
-                pos.quantity = result["qty"]
-                pos.avg_cost = result["avg_cost"]
-                pos.currency = result["currency"]
-                pos.asset_type = result.get("asset_type")
-                pos.external_id = result.get("external_id")
-                self._save(idx)
-                self._populate_tables()
-
-            self.push_screen(
-                _EquityFormScreen(
-                    title=f"[{pname}] Edit Equity Position",
-                    symbol=pos.symbol,
-                    qty=str(pos.quantity),
-                    avg_cost=str(pos.avg_cost),
-                    currency=pos.currency,
-                    asset_type=pos.asset_type,
-                    external_id=pos.external_id or "",
-                ),
-                on_equity_edit,
-            )
+            self._edit_position(portfolio, idx, pname, pos)
 
     def action_remove(self) -> None:
         active = self._get_active_table_and_index()
