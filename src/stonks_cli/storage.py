@@ -118,7 +118,7 @@ class PortfolioStore:
             ) from exc
 
         base_currency = section.get("base_currency", "USD")
-        name = section.get("name", "")
+        name = section.get("name") or None
 
         return Portfolio(
             positions=positions,
@@ -136,7 +136,7 @@ class PortfolioStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "portfolio": {
-                "name": portfolio.name,
+                **({"name": portfolio.name} if portfolio.name else {}),
                 "base_currency": portfolio.base_currency,
                 "positions": [
                     {

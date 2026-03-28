@@ -146,8 +146,8 @@ class TestPortfolio:
     def test_base_currency_normalised_to_uppercase(self):
         assert Portfolio(base_currency="eur").base_currency == "EUR"
 
-    def test_default_name_is_empty(self):
-        assert Portfolio().name == ""
+    def test_default_name_is_none(self):
+        assert Portfolio().name is None
 
     def test_name_preserved(self):
         assert Portfolio(name="Work").name == "Work"
