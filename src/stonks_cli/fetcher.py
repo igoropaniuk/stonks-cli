@@ -17,6 +17,7 @@ import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
 from stonks_cli._session import Session
+from stonks_cli.stock_detail import StockDetail  # re-export for backward compat
 
 logger = logging.getLogger(__name__)
 
@@ -460,10 +461,6 @@ def _exchange_calendar_name(symbol: str) -> str | None:
 def _exchange_hours(symbol: str) -> tuple[str, dtime, dtime] | None:
     return ExchangeSession.hours_for(symbol)
 
-
-# Backward-compatible re-export: callers that import StockDetail from
-# stonks_cli.fetcher continue to work after the move to stock_detail.
-from stonks_cli.stock_detail import StockDetail  # noqa: E402
 
 # Module-level cache: base symbol (uppercase, e.g. "BTC") -> CoinGecko ID.
 # Populated lazily by CryptoFetcher._ensure_coin_list() (bulk) and
