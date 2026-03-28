@@ -64,7 +64,7 @@ class TestAdd:
     def test_output_shows_updated_position(self, runner, portfolio_file):
         invoke(runner, portfolio_file, "add", "AAPL", "100", "100.0")
         result = invoke(runner, portfolio_file, "add", "AAPL", "100", "200.0")
-        assert "200 shares" in result.output
+        assert "200.0 shares" in result.output
         assert "150.00" in result.output  # new avg cost
 
     def test_creates_portfolio_file_if_missing(self, runner, portfolio_file):
@@ -105,7 +105,7 @@ class TestRemove:
         invoke(runner, portfolio_file, "add", "AAPL", "50", "150.0")
         result = invoke(runner, portfolio_file, "remove", "AAPL", "100")
         assert result.exit_code != 0
-        assert "50 held" in result.output
+        assert "50.0 held" in result.output
 
 
 # ---------------------------------------------------------------------------
