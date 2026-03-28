@@ -3,7 +3,8 @@
 import logging
 import threading
 from enum import Enum, auto
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
 from rich.text import Text
 from textual import work
@@ -22,6 +23,7 @@ from textual.widgets import (
     Select,
     Static,
 )
+from textual.widgets._select import NoSelection
 
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import exchange_label
@@ -49,6 +51,26 @@ class _RowMeta(NamedTuple):
     symbol: str  # ticker for position/watchlist, currency code for cash
 
 
+class _EquityResult(TypedDict):
+    symbol: str
+    qty: float
+    avg_cost: float
+    currency: str
+    asset_type: str | None
+    external_id: str | None
+
+
+class _CashResult(TypedDict):
+    currency: str
+    amount: float
+
+
+class _WatchResult(TypedDict):
+    symbol: str
+    asset_type: str | None
+    external_id: str | None
+
+
 # ---------------------------------------------------------------------------
 # Modal screens
 # ---------------------------------------------------------------------------
@@ -69,7 +91,7 @@ _MODAL_CSS = """
 """
 
 
-class _BaseFormScreen(ModalScreen[dict | None]):
+class _BaseFormScreen(ModalScreen[dict[str, Any] | None]):
     """Shared boilerplate for add/edit form dialogs.
 
     Subclasses must implement :meth:`_submit`.  CSS is generated
@@ -190,7 +212,10 @@ class _EquityFormScreen(_BaseFormScreen):
         qty_str = self.query_one("#qty", Input).value.strip()
         avg_cost_str = self.query_one("#avg_cost", Input).value.strip()
         currency = self.query_one("#currency", Input).value.strip().upper() or "USD"
-        asset_type = self.query_one("#asset_type", Select).value
+        asset_type_val = self.query_one("#asset_type", Select).value
+        asset_type: str | None = (
+            None if isinstance(asset_type_val, NoSelection) else asset_type_val
+        )
         external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
         if not symbol:
@@ -211,14 +236,14 @@ class _EquityFormScreen(_BaseFormScreen):
             err.update("Avg cost must be a positive number")
             return
         self.dismiss(
-            {
-                "symbol": symbol,
-                "qty": qty,
-                "avg_cost": avg_cost,
-                "currency": currency,
-                "asset_type": asset_type,
-                "external_id": external_id,
-            }
+            _EquityResult(  # type: ignore[arg-type]
+                symbol=symbol,
+                qty=qty,
+                avg_cost=avg_cost,
+                currency=currency,
+                asset_type=asset_type,
+                external_id=external_id,
+            )
         )
 
 
@@ -261,7 +286,7 @@ class _CashFormScreen(_BaseFormScreen):
         except ValueError:
             err.update("Amount must be a positive number")
             return
-        self.dismiss({"currency": currency, "amount": amount})
+        self.dismiss(_CashResult(currency=currency, amount=amount))  # type: ignore[arg-type]
 
 
 class _WatchFormScreen(_BaseFormScreen):
@@ -304,18 +329,17 @@ class _WatchFormScreen(_BaseFormScreen):
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
-        asset_type = self.query_one("#asset_type", Select).value
+        asset_type_val = self.query_one("#asset_type", Select).value
+        asset_type: str | None = (
+            None if isinstance(asset_type_val, NoSelection) else asset_type_val
+        )
         external_id = self.query_one("#external_id", Input).value.strip() or None
         err = self.query_one("#error", Label)
         if not symbol:
             err.update("Symbol is required")
             return
         self.dismiss(
-            {
-                "symbol": symbol,
-                "asset_type": asset_type,
-                "external_id": external_id,
-            }
+            _WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)  # type: ignore[arg-type]
         )
 
 
@@ -505,7 +529,7 @@ class PortfolioApp(App):
         def on_type(pos_type: str | None) -> None:
             if pos_type == "equity":
 
-                def on_equity(result: dict | None) -> None:
+                def on_equity(result: dict[str, Any] | None) -> None:
                     if result is None:
                         return
                     portfolio = self.portfolios[idx]
@@ -528,7 +552,7 @@ class PortfolioApp(App):
                 )
             elif pos_type == "cash":
 
-                def on_cash(result: dict | None) -> None:
+                def on_cash(result: dict[str, Any] | None) -> None:
                     if result is None:
                         return
                     try:
@@ -554,7 +578,7 @@ class PortfolioApp(App):
                 )
             elif pos_type == "watch":
 
-                def on_watch(result: dict | None) -> None:
+                def on_watch(result: dict[str, Any] | None) -> None:
                     if result is None:
                         return
                     symbol = result["symbol"]
@@ -599,7 +623,7 @@ class PortfolioApp(App):
             if cash_pos is None:
                 return
 
-            def on_cash_edit(result: dict | None) -> None:
+            def on_cash_edit(result: dict[str, Any] | None) -> None:
                 if result is None:
                     return
                 portfolio.cash.remove(cash_pos)
@@ -625,7 +649,7 @@ class PortfolioApp(App):
         elif is_watch:
             old_item = next(w for w in portfolio.watchlist if w.symbol == identifier)
 
-            def on_watch_edit(result: dict | None) -> None:
+            def on_watch_edit(result: dict[str, Any] | None) -> None:
                 if result is None:
                     return
                 new_symbol = result["symbol"]
@@ -655,7 +679,7 @@ class PortfolioApp(App):
             if pos is None:
                 return
 
-            def on_equity_edit(result: dict | None) -> None:
+            def on_equity_edit(result: dict[str, Any] | None) -> None:
                 if result is None:
                     return
                 new_symbol = result["symbol"]
