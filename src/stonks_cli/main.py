@@ -1,7 +1,7 @@
 """CLI entry point for the stonks portfolio tracker."""
 
 import logging
-from pathlib import Path
+from collections.abc import Callable
 
 import click
 
@@ -9,6 +9,7 @@ from stonks_cli import __version__
 from stonks_cli.app import DEFAULT_REFRESH_INTERVAL, PortfolioApp
 from stonks_cli.log import setup_logging
 from stonks_cli.market import build_market_snapshot
+from stonks_cli.models import Portfolio
 from stonks_cli.show import format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
@@ -17,19 +18,14 @@ from stonks_cli.storage import (
 )
 
 
-def _resolve_portfolio_path(name_or_path: str | None) -> Path | None:
-    """Resolve the -p value to a Path.
-
-    A plain name with no path separators and no extension is treated as a
-    shorthand for ``~/.config/stonks/<name>.yaml``.  Anything else is used
-    as-is.
-    """
-    if name_or_path is None:
-        return None
-    p = Path(name_or_path)
-    if p.parent == Path(".") and p.suffix == "":
-        return PORTFOLIO_CONFIG_DIR / f"{name_or_path}.yaml"
-    return p
+def _load_mutate_save(
+    store: PortfolioStore, fn: Callable[[Portfolio], None]
+) -> Portfolio:
+    """Load *store*, apply *fn*, persist, and return the mutated portfolio."""
+    portfolio = store.load()
+    fn(portfolio)
+    store.save(portfolio)
+    return portfolio
 
 
 @click.group(invoke_without_command=True)
@@ -64,7 +60,9 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
             click.echo(f"No portfolio found. Created sample portfolio at {dest}")
         stores = [PortfolioStore()]
     else:
-        stores = [PortfolioStore(path=_resolve_portfolio_path(p)) for p in portfolio]
+        stores = [
+            PortfolioStore(path=PortfolioStore.resolve_path(p)) for p in portfolio
+        ]
     ctx.obj["stores"] = stores
     ctx.obj["store"] = stores[0]
     if ctx.invoked_subcommand is None:
@@ -79,9 +77,9 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
 def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
     """Add QUANTITY shares of SYMBOL at PRICE to the portfolio."""
     store: PortfolioStore = ctx.obj["store"]
-    portfolio = store.load()
-    portfolio.add_position(symbol, quantity, price)
-    store.save(portfolio)
+    portfolio = _load_mutate_save(
+        store, lambda p: p.add_position(symbol, quantity, price)
+    )
     pos = portfolio.get_position(symbol)
     if pos is None:
         raise click.ClickException(
@@ -100,12 +98,10 @@ def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
 def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
     """Remove QUANTITY shares of SYMBOL from the portfolio."""
     store: PortfolioStore = ctx.obj["store"]
-    portfolio = store.load()
     try:
-        portfolio.remove_position(symbol, quantity)
+        _load_mutate_save(store, lambda p: p.remove_position(symbol, quantity))
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    store.save(portfolio)
     click.echo(f"Removed {quantity} * {symbol.upper()}")
 
 
@@ -143,9 +139,7 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
 def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
     """Add AMOUNT of CURRENCY cash to the portfolio."""
     store: PortfolioStore = ctx.obj["store"]
-    portfolio = store.load()
-    portfolio.add_cash(currency, amount)
-    store.save(portfolio)
+    portfolio = _load_mutate_save(store, lambda p: p.add_cash(currency, amount))
     cash = portfolio.get_cash(currency)
     if cash is None:
         raise click.ClickException(
@@ -161,12 +155,10 @@ def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
 def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
     """Remove AMOUNT of CURRENCY cash from the portfolio."""
     store: PortfolioStore = ctx.obj["store"]
-    portfolio = store.load()
     try:
-        portfolio.remove_cash(currency, amount)
+        _load_mutate_save(store, lambda p: p.remove_cash(currency, amount))
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    store.save(portfolio)
     click.echo(f"Removed {amount:.2f} {currency.upper()}")
 
 
