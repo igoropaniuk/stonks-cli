@@ -45,14 +45,17 @@ def _parse_watchlist_item(w: dict) -> WatchlistItem:
 
 
 def _serialize_position(p: Position) -> dict:
-    return {
+    data: dict = {
         "symbol": p.symbol,
         "quantity": p.quantity,
         "avg_cost": round(p.avg_cost, 6),
         "currency": p.currency,
-        **({"asset_type": p.asset_type} if p.asset_type else {}),
-        **({"external_id": p.external_id} if p.external_id else {}),
     }
+    if p.asset_type:
+        data["asset_type"] = p.asset_type
+    if p.external_id:
+        data["external_id"] = p.external_id
+    return data
 
 
 def _serialize_cash(c: CashPosition) -> dict:
@@ -60,11 +63,12 @@ def _serialize_cash(c: CashPosition) -> dict:
 
 
 def _serialize_watchlist_item(w: WatchlistItem) -> dict:
-    return {
-        "symbol": w.symbol,
-        **({"asset_type": w.asset_type} if w.asset_type else {}),
-        **({"external_id": w.external_id} if w.external_id else {}),
-    }
+    data: dict = {"symbol": w.symbol}
+    if w.asset_type:
+        data["asset_type"] = w.asset_type
+    if w.external_id:
+        data["external_id"] = w.external_id
+    return data
 
 
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
