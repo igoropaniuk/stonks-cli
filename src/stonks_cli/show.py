@@ -1,100 +1,104 @@
 """CLI formatted output for portfolio show command."""
 
 from stonks_cli._columns import _TABLE_COLUMNS
-from stonks_cli.fetcher import exchange_label
+from stonks_cli._row_model import RowKind, build_row_data
 from stonks_cli.market import MarketSnapshot
-from stonks_cli.models import Portfolio, daily_change_pct, portfolio_total
+from stonks_cli.models import Portfolio, portfolio_total
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
 
 
-def _fmt_chg(last: float, prev: float | None, session: str) -> str:
-    pct = daily_change_pct(last, prev, session)
+def _fmt_chg(pct: float | None) -> str:
+    """Format a pre-computed change percentage as a display string."""
     if pct is None:
         return "--"
     sign = "+" if pct >= 0 else ""
     return f"{sign}{pct:.2f}%"
 
 
-def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
-    """Build a plain-text table for a single portfolio."""
-    prices = snap.prices
-    sessions = snap.sessions
-    exchange_codes = snap.exchange_codes
-    forex_rates = snap.forex_rates
-    prev_closes = snap.prev_closes
-
-    headers = _TABLE_COLUMNS
+def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str, ...]]:
+    """Build plain-string row tuples for all portfolio items."""
+    rates = snap.forex_rates.get(portfolio.base_currency, {})
     rows: list[tuple[str, ...]] = []
 
-    for pos in portfolio.positions:
-        symbol = pos.symbol
-        exchange = exchange_label(symbol, exchange_codes.get(symbol), pos.asset_type)
-        qty = str(pos.quantity)
-        avg_cost = f"{pos.avg_cost:.2f}"
-        last_price = prices.get(symbol)
-        session = sessions.get(symbol, "regular")
-        badge = _SESSION_BADGES.get(session, "")
-        instrument = f"{symbol}{badge}"
-        if last_price is None:
-            rows.append(
-                (instrument, exchange, qty, avg_cost, "N/A", "--", "N/A", "N/A")
-            )
-        else:
-            last_price_str = f"{last_price:.2f}"
-            daily_chg_str = _fmt_chg(last_price, prev_closes.get(symbol), session)
-            mkt_value_str = f"{last_price * pos.quantity:,.2f}"
-            pnl = (last_price - pos.avg_cost) * pos.quantity
-            pnl_str = f"{pnl:+,.2f}"
+    for rd in build_row_data(
+        portfolio,
+        snap.prices,
+        snap.sessions,
+        snap.prev_closes,
+        snap.exchange_codes,
+        rates,
+    ):
+        badge = _SESSION_BADGES.get(rd.session, "")
+        if rd.kind == RowKind.POSITION:
+            assert rd.qty is not None and rd.avg_cost is not None
+            instrument = f"{rd.symbol}{badge}"
+            if rd.last is None:
+                rows.append(
+                    (
+                        instrument,
+                        rd.exchange,
+                        str(rd.qty),
+                        f"{rd.avg_cost:.2f}",
+                        "N/A",
+                        "--",
+                        "N/A",
+                        "N/A",
+                    )
+                )
+            else:
+                rows.append(
+                    (
+                        instrument,
+                        rd.exchange,
+                        str(rd.qty),
+                        f"{rd.avg_cost:.2f}",
+                        f"{rd.last:.2f}",
+                        _fmt_chg(rd.chg_pct),
+                        f"{rd.mkt_value:,.2f}",
+                        f"{rd.pnl:+,.2f}",
+                    )
+                )
+        elif rd.kind == RowKind.WATCHLIST:
+            instrument = f"{rd.symbol}{badge}"
             rows.append(
                 (
                     instrument,
-                    exchange,
-                    qty,
-                    avg_cost,
-                    last_price_str,
-                    daily_chg_str,
-                    mkt_value_str,
-                    pnl_str,
+                    rd.exchange,
+                    "-",
+                    "-",
+                    "N/A" if rd.last is None else f"{rd.last:.2f}",
+                    _fmt_chg(rd.chg_pct),
+                    "-",
+                    "-",
+                )
+            )
+        else:  # CASH
+            assert rd.qty is not None
+            rate = rd.last if rd.last is not None else 1.0
+            rows.append(
+                (
+                    f"{rd.symbol} Cash",
+                    "-",
+                    f"{rd.qty:,.2f}",
+                    "1.00",
+                    f"{rate:.4f}",
+                    "--",
+                    f"{rd.mkt_value:,.2f}" if rd.mkt_value is not None else "N/A",
+                    "-",
                 )
             )
 
-    for item in portfolio.watchlist:
-        symbol = item.symbol
-        exchange = exchange_label(symbol, exchange_codes.get(symbol), item.asset_type)
-        last_price = prices.get(symbol)
-        session = sessions.get(symbol, "regular")
-        badge = _SESSION_BADGES.get(session, "")
-        instrument = f"{symbol}{badge}"
-        if last_price is None:
-            daily_chg_str = "--"
-            last_price_str = "N/A"
-        else:
-            last_price_str = f"{last_price:.2f}"
-            daily_chg_str = _fmt_chg(last_price, prev_closes.get(symbol), session)
-        rows.append(
-            (instrument, exchange, "-", "-", last_price_str, daily_chg_str, "-", "-")
-        )
+    return rows
 
-    for cash_pos in portfolio.cash:
-        currency = cash_pos.currency
-        amount = cash_pos.amount
-        rates = forex_rates.get(portfolio.base_currency, {})
-        rate = rates.get(currency, 1.0)
-        converted = amount * rate
-        rows.append(
-            (
-                f"{currency} Cash",
-                "-",
-                f"{amount:,.2f}",
-                "1.00",
-                f"{rate:.4f}",
-                "--",
-                f"{converted:,.2f}",
-                "-",
-            )
-        )
 
+def _render_table(
+    headers: tuple[str, ...],
+    rows: list[tuple[str, ...]],
+    total_label: str,
+    total_str: str,
+) -> str:
+    """Render a fixed-width text table with a right-aligned total line."""
     col_widths = [len(h) for h in headers]
     for row in rows:
         for i, cell in enumerate(row):
@@ -102,24 +106,31 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
 
     header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
     lines = [header_line, "-" * len(header_line)]
-
     for row in rows:
         lines.append("  ".join(cell.ljust(w) for cell, w in zip(row, col_widths)))
 
-    rates = forex_rates.get(portfolio.base_currency, {})
-    total = portfolio_total(portfolio, prices, rates)
-    total_str = "N/A" if total is None else f"{total:,.2f}"
-
-    total_label = f"Total ({portfolio.base_currency})"
     # Align total value under the Mkt Value column.
     mkt_value_idx = headers.index("Mkt Value")
     pre_width = sum(col_widths[:mkt_value_idx]) + mkt_value_idx * 2
-    total_line = (
+    lines.append(
         total_label
         + " "
         * (pre_width + col_widths[mkt_value_idx] - len(total_label) - len(total_str))
         + total_str
     )
-    lines.append(total_line)
 
     return "\n".join(lines)
+
+
+def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
+    """Build a plain-text table for a single portfolio."""
+    rows = _collect_rows(portfolio, snap)
+    rates = snap.forex_rates.get(portfolio.base_currency, {})
+    total = portfolio_total(portfolio, snap.prices, rates)
+    total_str = "N/A" if total is None else f"{total:,.2f}"
+    return _render_table(
+        _TABLE_COLUMNS,
+        rows,
+        f"Total ({portfolio.base_currency})",
+        total_str,
+    )
