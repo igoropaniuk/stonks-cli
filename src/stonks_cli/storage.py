@@ -10,6 +10,63 @@ from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Parse helpers (YAML dict -> model instance)
+# ---------------------------------------------------------------------------
+
+
+def _parse_position(p: dict) -> Position:
+    return Position(
+        symbol=p["symbol"],
+        quantity=p["quantity"],
+        avg_cost=p["avg_cost"],
+        currency=p.get("currency", "USD"),
+        asset_type=p.get("asset_type"),
+        external_id=p.get("external_id"),
+    )
+
+
+def _parse_cash(c: dict) -> CashPosition:
+    return CashPosition(currency=c["currency"], amount=c["amount"])
+
+
+def _parse_watchlist_item(w: dict) -> WatchlistItem:
+    return WatchlistItem(
+        symbol=w["symbol"],
+        asset_type=w.get("asset_type"),
+        external_id=w.get("external_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Serialize helpers (model instance -> YAML dict)
+# ---------------------------------------------------------------------------
+
+
+def _serialize_position(p: Position) -> dict:
+    return {
+        "symbol": p.symbol,
+        "quantity": p.quantity,
+        "avg_cost": round(p.avg_cost, 6),
+        "currency": p.currency,
+        **({"asset_type": p.asset_type} if p.asset_type else {}),
+        **({"external_id": p.external_id} if p.external_id else {}),
+    }
+
+
+def _serialize_cash(c: CashPosition) -> dict:
+    return {"currency": c.currency, "amount": round(c.amount, 2)}
+
+
+def _serialize_watchlist_item(w: WatchlistItem) -> dict:
+    return {
+        "symbol": w.symbol,
+        **({"asset_type": w.asset_type} if w.asset_type else {}),
+        **({"external_id": w.external_id} if w.external_id else {}),
+    }
+
+
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
 
@@ -41,6 +98,21 @@ class PortfolioStore:
         path: Path to the portfolio file.
               Defaults to ``~/.config/stonks/portfolio.yaml``.
     """
+
+    @classmethod
+    def resolve_path(cls, name_or_path: str | None) -> Path | None:
+        """Resolve a ``-p`` value to a Path.
+
+        A plain name with no path separators and no extension is treated as a
+        shorthand for ``~/.config/stonks/<name>.yaml``.  Anything else is
+        used as-is.  Returns ``None`` when *name_or_path* is ``None``.
+        """
+        if name_or_path is None:
+            return None
+        p = Path(name_or_path)
+        if p.parent == Path(".") and p.suffix == "":
+            return PORTFOLIO_CONFIG_DIR / f"{name_or_path}.yaml"
+        return p
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or DEFAULT_PORTFOLIO_PATH
@@ -74,43 +146,22 @@ class PortfolioStore:
             ) from exc
 
         try:
-            raw_positions = section.get("positions") or []
-            positions = [
-                Position(
-                    symbol=p["symbol"],
-                    quantity=p["quantity"],
-                    avg_cost=p["avg_cost"],
-                    currency=p.get("currency", "USD"),
-                    asset_type=p.get("asset_type"),
-                    external_id=p.get("external_id"),
-                )
-                for p in raw_positions
-            ]
+            positions = [_parse_position(p) for p in section.get("positions") or []]
         except (KeyError, TypeError) as exc:
             raise ValueError(
                 f"Invalid position entry in {self.path}: missing required field {exc}"
             ) from exc
 
         try:
-            raw_cash = section.get("cash") or []
-            cash = [
-                CashPosition(currency=c["currency"], amount=c["amount"])
-                for c in raw_cash
-            ]
+            cash = [_parse_cash(c) for c in section.get("cash") or []]
         except (KeyError, TypeError) as exc:
             raise ValueError(
                 f"Invalid cash entry in {self.path}: missing required field {exc}"
             ) from exc
 
         try:
-            raw_watchlist = section.get("watchlist") or []
             watchlist = [
-                WatchlistItem(
-                    symbol=w["symbol"],
-                    asset_type=w.get("asset_type"),
-                    external_id=w.get("external_id"),
-                )
-                for w in raw_watchlist
+                _parse_watchlist_item(w) for w in section.get("watchlist") or []
             ]
         except (KeyError, TypeError) as exc:
             raise ValueError(
@@ -138,31 +189,10 @@ class PortfolioStore:
             "portfolio": {
                 **({"name": portfolio.name} if portfolio.name else {}),
                 "base_currency": portfolio.base_currency,
-                "positions": [
-                    {
-                        "symbol": p.symbol,
-                        "quantity": p.quantity,
-                        "avg_cost": round(p.avg_cost, 6),
-                        "currency": p.currency,
-                        **({"asset_type": p.asset_type} if p.asset_type else {}),
-                        **({"external_id": p.external_id} if p.external_id else {}),
-                    }
-                    for p in portfolio.positions
-                ],
-                "cash": [
-                    {
-                        "currency": c.currency,
-                        "amount": round(c.amount, 2),
-                    }
-                    for c in portfolio.cash
-                ],
+                "positions": [_serialize_position(p) for p in portfolio.positions],
+                "cash": [_serialize_cash(c) for c in portfolio.cash],
                 "watchlist": [
-                    {
-                        "symbol": w.symbol,
-                        **({"asset_type": w.asset_type} if w.asset_type else {}),
-                        **({"external_id": w.external_id} if w.external_id else {}),
-                    }
-                    for w in portfolio.watchlist
+                    _serialize_watchlist_item(w) for w in portfolio.watchlist
                 ],
             }
         }

@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from stonks_cli import __version__
-from stonks_cli.main import _resolve_portfolio_path, main
+from stonks_cli.main import main
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position
 from stonks_cli.show import format_show_table
@@ -253,20 +253,20 @@ class TestRemoveCash:
 
 class TestResolvePortfolioPath:
     def test_none_returns_none(self):
-        assert _resolve_portfolio_path(None) is None
+        assert PortfolioStore.resolve_path(None) is None
 
     def test_plain_name_resolves_to_config_dir(self):
-        result = _resolve_portfolio_path("work")
+        result = PortfolioStore.resolve_path("work")
         assert result == PORTFOLIO_CONFIG_DIR / "work.yaml"
 
     def test_name_with_extension_used_as_is(self):
-        assert _resolve_portfolio_path("work.yaml") == Path("work.yaml")
+        assert PortfolioStore.resolve_path("work.yaml") == Path("work.yaml")
 
     def test_path_with_separator_used_as_is(self):
-        assert _resolve_portfolio_path("/tmp/my.yaml") == Path("/tmp/my.yaml")
+        assert PortfolioStore.resolve_path("/tmp/my.yaml") == Path("/tmp/my.yaml")
 
     def test_relative_path_used_as_is(self):
-        assert _resolve_portfolio_path("subdir/work") == Path("subdir/work")
+        assert PortfolioStore.resolve_path("subdir/work") == Path("subdir/work")
 
 
 # ---------------------------------------------------------------------------
