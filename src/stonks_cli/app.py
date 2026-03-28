@@ -3,7 +3,7 @@
 import logging
 import threading
 from enum import Enum, auto
-from typing import Any, NamedTuple, TypedDict
+from typing import Any, NamedTuple, TypedDict, TypeVar
 
 from rich.text import Text
 from textual import work
@@ -55,6 +55,17 @@ class _RowMeta(NamedTuple):
 
 DEFAULT_REFRESH_INTERVAL: float = 60.0
 
+_FormResultT = TypeVar("_FormResultT")
+
+
+class _RowData(NamedTuple):
+    """One table row: sort key, display cells, and row metadata."""
+
+    sort_key: tuple[Any, ...]
+    cells: tuple[str | Text, ...]
+    meta: _RowMeta
+
+
 _ROW_KIND_LABELS: dict[_RowKind, str] = {
     _RowKind.POSITION: "position",
     _RowKind.CASH: "cash",
@@ -102,7 +113,7 @@ _MODAL_CSS = """
 """
 
 
-class _BaseFormScreen(ModalScreen[dict[str, Any] | None]):
+class _BaseFormScreen(ModalScreen[_FormResultT | None]):
     """Shared boilerplate for add/edit form dialogs.
 
     Subclasses must implement :meth:`_submit`.  CSS is generated
@@ -168,7 +179,7 @@ _ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
 ]
 
 
-class _EquityFormScreen(_BaseFormScreen):
+class _EquityFormScreen(_BaseFormScreen[_EquityResult]):
     """Form for adding or editing an equity position."""
 
     def __init__(
@@ -247,7 +258,7 @@ class _EquityFormScreen(_BaseFormScreen):
             err.update("Avg cost must be a positive number")
             return
         self.dismiss(
-            _EquityResult(  # type: ignore[arg-type]
+            _EquityResult(
                 symbol=symbol,
                 qty=qty,
                 avg_cost=avg_cost,
@@ -258,7 +269,7 @@ class _EquityFormScreen(_BaseFormScreen):
         )
 
 
-class _CashFormScreen(_BaseFormScreen):
+class _CashFormScreen(_BaseFormScreen[_CashResult]):
     """Form for adding or editing a cash position."""
 
     def __init__(
@@ -297,10 +308,10 @@ class _CashFormScreen(_BaseFormScreen):
         except ValueError:
             err.update("Amount must be a positive number")
             return
-        self.dismiss(_CashResult(currency=currency, amount=amount))  # type: ignore[arg-type]
+        self.dismiss(_CashResult(currency=currency, amount=amount))
 
 
-class _WatchFormScreen(_BaseFormScreen):
+class _WatchFormScreen(_BaseFormScreen[_WatchResult]):
     """Form for adding or editing a watchlist item."""
 
     def __init__(
@@ -350,7 +361,7 @@ class _WatchFormScreen(_BaseFormScreen):
             err.update("Symbol is required")
             return
         self.dismiss(
-            _WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)  # type: ignore[arg-type]
+            _WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)
         )
 
 
@@ -380,7 +391,7 @@ class _ConfirmScreen(ModalScreen[bool]):
             self.dismiss(False)
 
 
-class PortfolioApp(App):
+class PortfolioApp(App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
     TITLE = "Stonks"
@@ -530,7 +541,7 @@ class PortfolioApp(App):
         def on_type(pos_type: str | None) -> None:
             if pos_type == "equity":
 
-                def on_equity(result: dict[str, Any] | None) -> None:
+                def on_equity(result: _EquityResult | None) -> None:
                     if result is None:
                         return
                     portfolio = self.portfolios[idx]
@@ -553,7 +564,7 @@ class PortfolioApp(App):
                 )
             elif pos_type == "cash":
 
-                def on_cash(result: dict[str, Any] | None) -> None:
+                def on_cash(result: _CashResult | None) -> None:
                     if result is None:
                         return
                     try:
@@ -579,7 +590,7 @@ class PortfolioApp(App):
                 )
             elif pos_type == "watch":
 
-                def on_watch(result: dict[str, Any] | None) -> None:
+                def on_watch(result: _WatchResult | None) -> None:
                     if result is None:
                         return
                     symbol = result["symbol"]
@@ -610,7 +621,7 @@ class PortfolioApp(App):
     ) -> None:
         """Push the cash-edit form and apply the result."""
 
-        def on_cash_edit(result: dict[str, Any] | None) -> None:
+        def on_cash_edit(result: _CashResult | None) -> None:
             if result is None:
                 return
             new_currency = result["currency"]
@@ -646,7 +657,7 @@ class PortfolioApp(App):
     ) -> None:
         """Push the watchlist-edit form and apply the result."""
 
-        def on_watch_edit(result: dict[str, Any] | None) -> None:
+        def on_watch_edit(result: _WatchResult | None) -> None:
             if result is None:
                 return
             new_symbol = result["symbol"]
@@ -677,7 +688,7 @@ class PortfolioApp(App):
     ) -> None:
         """Push the equity-edit form and apply the result."""
 
-        def on_equity_edit(result: dict[str, Any] | None) -> None:
+        def on_equity_edit(result: _EquityResult | None) -> None:
             if result is None:
                 return
             new_symbol = result["symbol"]
@@ -877,9 +888,9 @@ class PortfolioApp(App):
         self,
         portfolio: Portfolio,
         rates: dict[str, float],
-    ) -> list[tuple[tuple, tuple, _RowMeta]]:
-        """Build (sort_key, display_cells, meta) triples for held positions."""
-        rows: list[tuple[tuple, tuple, _RowMeta]] = []
+    ) -> list[_RowData]:
+        """Build _RowData triples for held positions."""
+        rows: list[_RowData] = []
         for pos in portfolio.positions:
             label = exchange_label(
                 pos.symbol, self.exchange_codes.get(pos.symbol), pos.asset_type
@@ -938,16 +949,18 @@ class PortfolioApp(App):
                     "N/A",
                     "N/A",
                 )
-            rows.append((sort_key, display, _RowMeta(_RowKind.POSITION, pos.symbol)))
+            rows.append(
+                _RowData(sort_key, display, _RowMeta(_RowKind.POSITION, pos.symbol))
+            )
         return rows
 
     def _render_cash_rows(
         self,
         portfolio: Portfolio,
         rates: dict[str, float],
-    ) -> list[tuple[tuple, tuple, _RowMeta]]:
-        """Build (sort_key, display_cells, meta) triples for cash positions."""
-        rows: list[tuple[tuple, tuple, _RowMeta]] = []
+    ) -> list[_RowData]:
+        """Build _RowData triples for cash positions."""
+        rows: list[_RowData] = []
         for cash_pos in portfolio.cash:
             rate = rates.get(cash_pos.currency)
             if rate is not None:
@@ -998,15 +1011,17 @@ class PortfolioApp(App):
                     "N/A",
                     "--",
                 )
-            rows.append((sort_key, display, _RowMeta(_RowKind.CASH, cash_pos.currency)))
+            rows.append(
+                _RowData(sort_key, display, _RowMeta(_RowKind.CASH, cash_pos.currency))
+            )
         return rows
 
     def _render_watchlist_rows(
         self,
         portfolio: Portfolio,
-    ) -> list[tuple[tuple, tuple, _RowMeta]]:
-        """Build (sort_key, display_cells, meta) triples for watchlist items."""
-        rows: list[tuple[tuple, tuple, _RowMeta]] = []
+    ) -> list[_RowData]:
+        """Build _RowData triples for watchlist items."""
+        rows: list[_RowData] = []
         for watch in portfolio.watchlist:
             label = exchange_label(
                 watch.symbol, self.exchange_codes.get(watch.symbol), watch.asset_type
@@ -1040,7 +1055,9 @@ class PortfolioApp(App):
                     Text("--", style="dim"),
                     Text("--", style="dim"),
                 )
-            rows.append((sort_key, display, _RowMeta(_RowKind.WATCHLIST, watch.symbol)))
+            rows.append(
+                _RowData(sort_key, display, _RowMeta(_RowKind.WATCHLIST, watch.symbol))
+            )
         return rows
 
     def _render_rows(self, table: DataTable, portfolio: Portfolio) -> None:
