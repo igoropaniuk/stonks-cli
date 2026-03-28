@@ -1098,7 +1098,7 @@ class PortfolioApp(App):
             return
         try:
             self._do_refresh_prices()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error("Price refresh failed: %s", exc, exc_info=True)
             self.call_from_thread(self._show_error, f"Price refresh failed: {exc}")
         finally:
