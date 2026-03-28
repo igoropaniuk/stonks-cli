@@ -54,6 +54,29 @@ class Position:
         if self.asset_type is not None:
             self.asset_type = self.asset_type.lower()
 
+    def update(
+        self,
+        symbol: str,
+        quantity: int | float,
+        avg_cost: float,
+        currency: str,
+        asset_type: str | None = None,
+        external_id: str | None = None,
+    ) -> None:
+        """Update all fields with the same normalisation as __post_init__."""
+        if not symbol:
+            raise ValueError("Symbol cannot be empty")
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        if avg_cost <= 0:
+            raise ValueError("Average cost must be positive")
+        self.symbol = symbol.upper()
+        self.quantity = quantity
+        self.avg_cost = avg_cost
+        self.currency = currency
+        self.asset_type = asset_type.lower() if asset_type is not None else None
+        self.external_id = external_id
+
     def market_value(self, last_price: float) -> float:
         """Return total market value at the given price."""
         return self.quantity * last_price
@@ -81,6 +104,19 @@ class WatchlistItem:
         self.symbol = self.symbol.upper()
         if self.asset_type is not None:
             self.asset_type = self.asset_type.lower()
+
+    def update(
+        self,
+        symbol: str,
+        asset_type: str | None = None,
+        external_id: str | None = None,
+    ) -> None:
+        """Update all fields with the same normalisation as __post_init__."""
+        if not symbol:
+            raise ValueError("Symbol cannot be empty")
+        self.symbol = symbol.upper()
+        self.asset_type = asset_type.lower() if asset_type is not None else None
+        self.external_id = external_id
 
 
 @dataclass
