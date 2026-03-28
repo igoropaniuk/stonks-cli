@@ -26,6 +26,7 @@ from textual.widgets import (
 )
 from textual.widgets._select import NoSelection
 
+from stonks_cli._columns import _TABLE_COLUMNS
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.fetcher import exchange_label
 from stonks_cli.logviewer import LogViewerScreen
@@ -38,7 +39,6 @@ from stonks_cli.models import (
     daily_change_pct,
     portfolio_total,
 )
-from stonks_cli.show import _TABLE_COLUMNS
 from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
