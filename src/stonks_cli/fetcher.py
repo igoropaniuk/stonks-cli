@@ -773,6 +773,31 @@ class CryptoFetcher:
         return prices, prev_closes
 
 
+def _last_close_per_symbol(
+    close: "pd.DataFrame",
+    symbols: list[str],
+) -> dict[str, float]:
+    """Return the last non-NaN close value for each symbol in *close*.
+
+    Args:
+        close: DataFrame returned by :func:`_yf_download_close` (columns are
+            ticker symbols, index is a datetime).
+        symbols: Symbols to extract; those absent from *close* are skipped.
+
+    Returns:
+        Mapping of symbol -> ``float(series.iloc[-1])`` for every symbol that
+        has at least one non-NaN row.
+    """
+    result: dict[str, float] = {}
+    for sym in symbols:
+        if sym not in close.columns:
+            continue
+        series = close[sym].dropna()
+        if not series.empty:
+            result[sym] = float(series.iloc[-1])
+    return result
+
+
 def _yf_download_close(
     symbols: list[str],
     *,
@@ -856,16 +881,7 @@ class PriceFetcher:
         close = _yf_download_close(normalized, period="1d", description="price")
         if close is None:
             return {}
-
-        result: dict[str, float] = {}
-        for symbol in normalized:
-            if symbol not in close.columns:
-                continue
-            series = close[symbol].dropna()
-            if not series.empty:
-                result[symbol] = float(series.iloc[-1])
-
-        return result
+        return _last_close_per_symbol(close, normalized)
 
     def fetch_previous_closes(self, symbols: list[str]) -> dict[str, float]:
         """Return the previous trading day's closing price for each symbol.
@@ -889,20 +905,12 @@ class PriceFetcher:
         if close is None:
             return {}
 
+        # Keep only rows strictly before today so we always get the
+        # last *completed* trading day's close, regardless of whether
+        # yfinance already includes a partial row for today.
         today = pd.Timestamp("today").normalize()
-        result: dict[str, float] = {}
-        for symbol in normalized:
-            if symbol not in close.columns:
-                continue
-            series = close[symbol].dropna()
-            # Keep only rows strictly before today so we always get the
-            # last *completed* trading day's close, regardless of whether
-            # yfinance already includes a partial row for today.
-            before_today = series[series.index.normalize() < today]
-            if not before_today.empty:
-                result[symbol] = float(before_today.iloc[-1])
-
-        return result
+        filtered = close[close.index.normalize() < today]
+        return _last_close_per_symbol(filtered, normalized)
 
     def current_session(self, symbol: str) -> str:
         """Return the current market session label for *symbol*.
@@ -1048,13 +1056,10 @@ class PriceFetcher:
         if close is None:
             return rates
 
+        last = _last_close_per_symbol(close, symbols)
         for currency, symbol in zip(non_base, symbols):
-            if symbol not in close.columns:
-                continue
-            series = close[symbol].dropna()
-            if not series.empty:
-                rates[currency] = float(series.iloc[-1])
-
+            if symbol in last:
+                rates[currency] = last[symbol]
         return rates
 
     def fetch_stock_detail(self, symbol: str) -> StockDetail:
