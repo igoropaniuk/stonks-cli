@@ -11,12 +11,9 @@ import pytest
 
 from stonks_cli.fetcher import (
     CryptoFetcher,
+    ExchangeSession,
     PriceFetcher,
-    _exchange_calendar_name,
     _finite,
-    _is_exchange_open,
-    _is_trading_day,
-    _market_session,
     exchange_label,
 )
 
@@ -130,8 +127,8 @@ class TestFetchPrices:
         assert "UNKNOWN" not in prices
 
 
-_OPEN = "stonks_cli.fetcher._is_exchange_open"
-_TRADING_DAY = "stonks_cli.fetcher._is_trading_day"
+_OPEN = "stonks_cli.fetcher.ExchangeSession.is_exchange_open"
+_TRADING_DAY = "stonks_cli.fetcher.ExchangeSession.is_trading_day"
 _CURRENT_SESSION = "stonks_cli.fetcher.PriceFetcher.current_session"
 
 
@@ -466,24 +463,36 @@ class TestMarketSession:
 
     def test_invalid_timezone_returns_regular(self):
         ts = datetime(2026, 3, 10, 12, 0, tzinfo=self._ET)
-        result = _market_session(ts, "Invalid/Timezone", self._OPEN, self._CLOSE)
+        result = ExchangeSession.market_session(
+            ts, "Invalid/Timezone", self._OPEN, self._CLOSE
+        )
         assert result == "regular"
 
     def test_pre_session(self):
         ts = datetime(2026, 3, 10, 7, 0, tzinfo=self._ET)
-        assert _market_session(ts, "America/New_York", self._OPEN, self._CLOSE) == "pre"
+        assert (
+            ExchangeSession.market_session(
+                ts, "America/New_York", self._OPEN, self._CLOSE
+            )
+            == "pre"
+        )
 
     def test_regular_session(self):
         ts = datetime(2026, 3, 10, 12, 0, tzinfo=self._ET)
         assert (
-            _market_session(ts, "America/New_York", self._OPEN, self._CLOSE)
+            ExchangeSession.market_session(
+                ts, "America/New_York", self._OPEN, self._CLOSE
+            )
             == "regular"
         )
 
     def test_post_session(self):
         ts = datetime(2026, 3, 10, 17, 0, tzinfo=self._ET)
         assert (
-            _market_session(ts, "America/New_York", self._OPEN, self._CLOSE) == "post"
+            ExchangeSession.market_session(
+                ts, "America/New_York", self._OPEN, self._CLOSE
+            )
+            == "post"
         )
 
 
@@ -493,19 +502,25 @@ class TestIsExchangeOpen:
     _CLOSE = dtime(16, 0)
 
     def test_calendar_success_returns_calendar_result(self):
-        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+        with patch("stonks_cli.fetcher.ExchangeSession.load_calendar") as mock_cal:
             mock_cal.return_value.is_open_on_minute.return_value = True
-            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE, "XNYS")
+            result = ExchangeSession.is_exchange_open(
+                self._TZ, self._OPEN, self._CLOSE, "XNYS"
+            )
         assert result is True
 
     def test_calendar_exception_falls_back_to_time_check(self):
-        with patch("stonks_cli.fetcher._load_calendar", side_effect=LookupError):
+        with patch(
+            "stonks_cli.fetcher.ExchangeSession.load_calendar", side_effect=LookupError
+        ):
             with patch("stonks_cli.fetcher.datetime") as mock_dt:
                 mock_now = MagicMock()
                 mock_now.weekday.return_value = 0  # Monday
                 mock_now.time.return_value = dtime(12, 0)
                 mock_dt.now.return_value = mock_now
-                result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE, "XNYS")
+                result = ExchangeSession.is_exchange_open(
+                    self._TZ, self._OPEN, self._CLOSE, "XNYS"
+                )
         assert result is True
 
     def test_weekend_returns_false(self):
@@ -513,7 +528,7 @@ class TestIsExchangeOpen:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 6  # Sunday
             mock_dt.now.return_value = mock_now
-            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+            result = ExchangeSession.is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
         assert result is False
 
     def test_weekday_within_hours_returns_true(self):
@@ -522,7 +537,7 @@ class TestIsExchangeOpen:
             mock_now.weekday.return_value = 1  # Tuesday
             mock_now.time.return_value = dtime(12, 0)
             mock_dt.now.return_value = mock_now
-            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+            result = ExchangeSession.is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
         assert result is True
 
     def test_weekday_outside_hours_returns_false(self):
@@ -531,25 +546,25 @@ class TestIsExchangeOpen:
             mock_now.weekday.return_value = 1  # Tuesday
             mock_now.time.return_value = dtime(20, 0)
             mock_dt.now.return_value = mock_now
-            result = _is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
+            result = ExchangeSession.is_exchange_open(self._TZ, self._OPEN, self._CLOSE)
         assert result is False
 
 
 class TestExchangeCalendarName:
     def test_crypto_returns_none(self):
-        assert _exchange_calendar_name("BTC-USD") is None
+        assert ExchangeSession.calendar_name_for("BTC-USD") is None
 
     def test_us_ticker_returns_us_calendar(self):
         from stonks_cli.fetcher import _US_EXCHANGE
 
-        assert _exchange_calendar_name("AAPL") == _US_EXCHANGE.calendar_name
+        assert ExchangeSession.calendar_name_for("AAPL") == _US_EXCHANGE.calendar_name
 
     def test_known_suffix_returns_mic(self):
-        result = _exchange_calendar_name("ASML.AS")
+        result = ExchangeSession.calendar_name_for("ASML.AS")
         assert result is not None  # Amsterdam -> XAMS
 
     def test_unknown_suffix_returns_none(self):
-        assert _exchange_calendar_name("FOO.XX") is None
+        assert ExchangeSession.calendar_name_for("FOO.XX") is None
 
 
 class TestFetchExtendedPricesSkipsEmptySeries:
@@ -585,30 +600,39 @@ class TestIsTradingDay:
     _TZ = "America/New_York"
 
     def test_returns_true_when_calendar_says_session(self):
-        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+        with patch("stonks_cli.fetcher.ExchangeSession.load_calendar") as mock_cal:
             mock_cal.return_value.is_session.return_value = True
-            assert _is_trading_day(self._TZ, calendar_name="XNYS") is True
+            assert (
+                ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS") is True
+            )
 
     def test_returns_false_when_calendar_says_no_session(self):
-        with patch("stonks_cli.fetcher._load_calendar") as mock_cal:
+        with patch("stonks_cli.fetcher.ExchangeSession.load_calendar") as mock_cal:
             mock_cal.return_value.is_session.return_value = False
-            assert _is_trading_day(self._TZ, calendar_name="XNYS") is False
+            assert (
+                ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS") is False
+            )
 
     def test_calendar_exception_falls_through_to_weekday_check(self):
-        with patch("stonks_cli.fetcher._load_calendar", side_effect=LookupError):
+        with patch(
+            "stonks_cli.fetcher.ExchangeSession.load_calendar", side_effect=LookupError
+        ):
             with patch("stonks_cli.fetcher.datetime") as mock_dt:
                 mock_dt.now.return_value.weekday.return_value = 1  # Tuesday
-                assert _is_trading_day(self._TZ, calendar_name="XNYS") is True
+                assert (
+                    ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS")
+                    is True
+                )
 
     def test_weekend_returns_false_without_calendar(self):
         with patch("stonks_cli.fetcher.datetime") as mock_dt:
             mock_dt.now.return_value.weekday.return_value = 6  # Sunday
-            assert _is_trading_day(self._TZ) is False
+            assert ExchangeSession.is_trading_day(self._TZ) is False
 
     def test_weekday_returns_true_without_calendar(self):
         with patch("stonks_cli.fetcher.datetime") as mock_dt:
             mock_dt.now.return_value.weekday.return_value = 2  # Wednesday
-            assert _is_trading_day(self._TZ) is True
+            assert ExchangeSession.is_trading_day(self._TZ) is True
 
 
 def _multi_day_close_df(
@@ -747,7 +771,7 @@ class TestCurrentSession:
         assert fetcher.current_session("AAPL") == "closed"
 
     @patch(_TRADING_DAY, return_value=True)
-    @patch("stonks_cli.fetcher._market_session", return_value="pre")
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="pre")
     def test_trading_day_delegates_to_market_session(
         self, mock_ms, _td, fetcher: PriceFetcher
     ):
@@ -756,18 +780,18 @@ class TestCurrentSession:
         assert mock_ms.called
 
     @patch(_TRADING_DAY, return_value=True)
-    @patch("stonks_cli.fetcher._market_session", return_value="pre")
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="pre")
     def test_non_us_pre_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
         # Non-US exchanges have no extended hours; "pre" should map to "closed"
         assert fetcher.current_session("6758.T") == "closed"
 
     @patch(_TRADING_DAY, return_value=True)
-    @patch("stonks_cli.fetcher._market_session", return_value="post")
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="post")
     def test_non_us_post_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
         assert fetcher.current_session("IWDA.AS") == "closed"
 
     @patch(_TRADING_DAY, return_value=True)
-    @patch("stonks_cli.fetcher._market_session", return_value="regular")
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="regular")
     def test_regular_session_returned_as_regular(self, _ms, _td, fetcher: PriceFetcher):
         # session == "regular" skips the extended-hours guard and returns directly
         assert fetcher.current_session("AAPL") == "regular"
