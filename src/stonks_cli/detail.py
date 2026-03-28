@@ -10,7 +10,7 @@ from textual.screen import Screen
 from textual.widgets import Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
-from stonks_cli.fetcher import PriceFetcher, StockDetail
+from stonks_cli.stock_detail import StockDetail, StockDetailFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class StockDetailScreen(Screen):
     @work(thread=True)
     def _load_detail(self) -> None:
         try:
-            detail = PriceFetcher().fetch_stock_detail(self._symbol)
+            detail = StockDetailFetcher().fetch_stock_detail(self._symbol)
             self.app.call_from_thread(self._apply_detail, detail)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error fetching detail for %s", self._symbol)
