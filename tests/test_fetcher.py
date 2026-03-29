@@ -9,8 +9,9 @@ import httpx
 import pandas as pd
 import pytest
 
+from stonks_cli.crypto_fetcher import CryptoFetcher
 from stonks_cli.exchanges import ExchangeSession, exchange_label
-from stonks_cli.fetcher import CryptoFetcher, PriceFetcher
+from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.stock_detail import _finite
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
@@ -907,7 +908,7 @@ def _make_http_response(data: dict, status_code: int = 200) -> MagicMock:
 
 class TestCryptoFetcherResolveIds:
     def _reset(self):
-        import stonks_cli.fetcher as fm
+        import stonks_cli.crypto_fetcher as fm
 
         fm._cg_symbol_to_id.clear()
         fm._cg_coin_list_loaded = False
@@ -995,7 +996,7 @@ class TestCryptoFetcherPricesAndChanges:
     @staticmethod
     def _seed_cache():
         """Pre-populate the module cache so _resolve_ids skips API calls."""
-        import stonks_cli.fetcher as fm
+        import stonks_cli.crypto_fetcher as fm
 
         fm._cg_symbol_to_id.clear()
         fm._cg_coin_list_loaded = True
