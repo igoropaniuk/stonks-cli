@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from stonks_cli.fetcher import CryptoFetcher, PriceFetcher
+from stonks_cli.crypto_fetcher import CryptoFetcher
+from stonks_cli.fetcher import PriceFetcher
 from stonks_cli.models import Portfolio
 
 logger = logging.getLogger(__name__)
