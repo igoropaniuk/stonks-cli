@@ -1,10 +1,11 @@
 """Tests for the stock detail screen and related fetcher helpers."""
 
 from dataclasses import asdict
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
 import pytest
+from textual.message_pump import NoActiveAppError
 from textual.widgets import DataTable, Label, Static
 
 from stonks_cli.app import PortfolioApp
@@ -275,6 +276,7 @@ class TestStockDetailScreen:
 
     def test_methods_exist(self, screen):
         assert callable(screen._apply_detail)
+        assert callable(screen._call_from_thread_if_running)
         assert callable(screen._show_error)
         assert callable(screen._load_detail)
         assert callable(screen._mount_performance)
@@ -330,6 +332,52 @@ class TestStockDetailScreen:
             and d.recommendation_key == "N/A"
         )
         assert not no_data
+
+    def test_call_from_thread_if_running_ignores_missing_active_app(self, screen):
+        mock_app = MagicMock()
+        mock_app.call_from_thread.side_effect = NoActiveAppError()
+
+        with patch.object(
+            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+        ):
+            assert (
+                screen._call_from_thread_if_running(screen._show_error, "boom") is False
+            )
+        mock_app.call_from_thread.assert_called_once_with(screen._show_error, "boom")
+
+    def test_load_detail_ignores_missing_active_app_on_success(self, screen):
+        mock_app = MagicMock()
+        mock_app.call_from_thread.side_effect = NoActiveAppError()
+
+        with patch.object(
+            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+        ):
+            with patch("stonks_cli.detail.StockDetailFetcher") as fetcher_cls:
+                fetcher_cls.return_value.fetch_stock_detail.return_value = (
+                    _MINIMAL_DETAIL
+                )
+                StockDetailScreen._load_detail.__wrapped__(screen)
+
+        mock_app.call_from_thread.assert_called_once_with(
+            screen._apply_detail, _MINIMAL_DETAIL
+        )
+
+    def test_load_detail_ignores_missing_active_app_on_error(self, screen):
+        mock_app = MagicMock()
+        mock_app.call_from_thread.side_effect = NoActiveAppError()
+
+        with patch.object(
+            type(screen), "app", new_callable=PropertyMock, return_value=mock_app
+        ):
+            with patch("stonks_cli.detail.StockDetailFetcher") as fetcher_cls:
+                fetcher_cls.return_value.fetch_stock_detail.side_effect = RuntimeError(
+                    "fetch failed"
+                )
+                StockDetailScreen._load_detail.__wrapped__(screen)
+
+        mock_app.call_from_thread.assert_called_once_with(
+            screen._show_error, "fetch failed"
+        )
 
 
 # ---------------------------------------------------------------------------

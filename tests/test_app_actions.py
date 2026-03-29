@@ -29,7 +29,9 @@ def test_add_equity_sets_metadata_for_new_position() -> None:
 
 
 def test_add_equity_updates_metadata_for_existing_position() -> None:
-    pos = Position("BTC-USD", 1.0, 30000.0, currency="USD", asset_type=None, external_id=None)
+    pos = Position(
+        "BTC-USD", 1.0, 30000.0, currency="USD", asset_type=None, external_id=None
+    )
     portfolio = Portfolio(positions=[pos])
 
     app_actions.add_equity(

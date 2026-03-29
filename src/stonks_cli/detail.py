@@ -6,6 +6,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message_pump import NoActiveAppError
 from textual.screen import Screen
 from textual.widgets import Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
@@ -116,14 +117,35 @@ class StockDetailScreen(Screen):
         self.query_one("#detail-scroll").display = False
         self._load_detail()
 
+    def _call_from_thread_if_running(self, fn, *args) -> bool:
+        """Call *fn* via Textual when the screen is still attached to a running app."""
+        try:
+            self.app.call_from_thread(fn, *args)
+        except NoActiveAppError:
+            logger.debug(
+                "Skipping detail UI callback %s because no active app is available",
+                getattr(fn, "__name__", repr(fn)),
+            )
+            return False
+        except RuntimeError as exc:
+            if exc.args != ("App is not running",):
+                raise
+            logger.debug(
+                "Skipping detail UI callback %s because the app is shutting down",
+                getattr(fn, "__name__", repr(fn)),
+            )
+            return False
+        return True
+
     @work(thread=True)
     def _load_detail(self) -> None:
         try:
             detail = StockDetailFetcher().fetch_stock_detail(self._symbol)
-            self.app.call_from_thread(self._apply_detail, detail)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error fetching detail for %s", self._symbol)
-            self.app.call_from_thread(self._show_error, str(exc))
+            self._call_from_thread_if_running(self._show_error, str(exc))
+            return
+        self._call_from_thread_if_running(self._apply_detail, detail)
 
     def _show_error(self, msg: str) -> None:
         self.query_one("#loading").display = False
