@@ -364,6 +364,25 @@ class PortfolioApp(App[None]):
         else:
             widget.remove_class("visible")
 
+    def _call_from_thread_if_running(self, fn, *args) -> bool:
+        """Call *fn* via Textual when the app loop is still alive.
+
+        Worker threads may finish during shutdown, at which point
+        ``call_from_thread`` raises ``RuntimeError("App is not running")``.
+        Treat that race as a harmless no-op.
+        """
+        try:
+            self.call_from_thread(fn, *args)
+        except RuntimeError as exc:
+            if exc.args != ("App is not running",):
+                raise
+            logger.debug(
+                "Skipping UI callback %s because the app is shutting down",
+                getattr(fn, "__name__", repr(fn)),
+            )
+            return False
+        return True
+
     def action_add(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
@@ -669,13 +688,15 @@ class PortfolioApp(App[None]):
             self._do_refresh_prices()
         except Exception as exc:  # noqa: BLE001
             logger.error("Price refresh failed: %s", exc, exc_info=True)
-            self.call_from_thread(self._show_error, f"Price refresh failed: {exc}")
+            self._call_from_thread_if_running(
+                self._show_error, f"Price refresh failed: {exc}"
+            )
         finally:
             self._refresh_lock.release()
 
     def _do_refresh_prices(self) -> None:
         snap = build_market_snapshot(self.portfolios)
-        self.call_from_thread(self._apply_snapshot, snap)
+        self._call_from_thread_if_running(self._apply_snapshot, snap)
 
     def _apply_snapshot(self, snap: MarketSnapshot) -> None:
         self._snap = snap

@@ -541,6 +541,34 @@ async def test_refresh_prices_clears_error_bar_on_success(
 
 
 @pytest.mark.asyncio
+async def test_refresh_prices_ignores_shutdown_race(portfolio: Portfolio) -> None:
+    """Shutdown-time call_from_thread failures are treated as a harmless race."""
+    snap = MarketSnapshot(
+        prices={"AAPL": 160.0},
+        sessions={"AAPL": "regular"},
+        exchange_codes={},
+        forex_rates={"USD": {"USD": 1.0}},
+        prev_closes={},
+    )
+
+    with patch("stonks_cli.app.build_market_snapshot", return_value=snap):
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            def _raise_not_running(fn, *a, **kw):
+                raise RuntimeError("App is not running")
+
+            app.call_from_thread = _raise_not_running
+
+            # Must not raise even though the UI loop is already considered gone.
+            _REAL_REFRESH_PRICES.__wrapped__(app)
+            await pilot.pause()
+
+    assert app._snap.prices == {}
+
+
+@pytest.mark.asyncio
 async def test_sort_by_column_header(portfolio: Portfolio) -> None:
     """Clicking a column header sorts the table by that column."""
     prices = {"AAPL": 160.0, "NVDA": 90.0}
