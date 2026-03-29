@@ -1,11 +1,10 @@
 """CLI formatted output for portfolio show command."""
 
 from stonks_cli.market import MarketSnapshot
+from stonks_cli.market_session import SESSION_BADGE
 from stonks_cli.models import Portfolio, portfolio_total
 from stonks_cli.table_columns import _TABLE_COLUMNS
 from stonks_cli.table_rows import RowKind, build_row_data
-
-_SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
 
 
 def _fmt_chg(pct: float | None) -> str:
@@ -14,6 +13,14 @@ def _fmt_chg(pct: float | None) -> str:
         return "--"
     sign = "+" if pct >= 0 else ""
     return f"{sign}{pct:.2f}%"
+
+
+def _fmt_price(last: float | None, session: str) -> str:
+    """Format the last-price cell with a session badge when applicable."""
+    if last is None:
+        return "N/A"
+    badge = SESSION_BADGE.get(session, "")
+    return f"{last:.2f} {badge}" if badge else f"{last:.2f}"
 
 
 def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str, ...]]:
@@ -29,14 +36,12 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
         snap.exchange_codes,
         rates,
     ):
-        badge = _SESSION_BADGES.get(rd.session, "")
         if rd.kind == RowKind.POSITION:
             assert rd.qty is not None and rd.avg_cost is not None
-            instrument = f"{rd.symbol}{badge}"
             if rd.last is None:
                 rows.append(
                     (
-                        instrument,
+                        rd.symbol,
                         rd.exchange,
                         str(rd.qty),
                         f"{rd.avg_cost:.2f}",
@@ -49,25 +54,24 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
             else:
                 rows.append(
                     (
-                        instrument,
+                        rd.symbol,
                         rd.exchange,
                         str(rd.qty),
                         f"{rd.avg_cost:.2f}",
-                        f"{rd.last:.2f}",
+                        _fmt_price(rd.last, rd.session),
                         _fmt_chg(rd.chg_pct),
                         f"{rd.mkt_value:,.2f}",
                         f"{rd.pnl:+,.2f}",
                     )
                 )
         elif rd.kind == RowKind.WATCHLIST:
-            instrument = f"{rd.symbol}{badge}"
             rows.append(
                 (
-                    instrument,
+                    rd.symbol,
                     rd.exchange,
                     "-",
                     "-",
-                    "N/A" if rd.last is None else f"{rd.last:.2f}",
+                    _fmt_price(rd.last, rd.session),
                     _fmt_chg(rd.chg_pct),
                     "-",
                     "-",

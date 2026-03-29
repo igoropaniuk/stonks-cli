@@ -16,7 +16,7 @@ from typing import Any, NamedTuple
 from rich.text import Text
 
 from stonks_cli.exchanges import exchange_label
-from stonks_cli.market_session import Session
+from stonks_cli.market_session import SESSION_BADGE, Session
 from stonks_cli.models import (
     Portfolio,
     daily_change_pct,
@@ -178,14 +178,19 @@ def _format_chg_cell(
     return Text(label, style=style), chg_pct
 
 
+_SESSION_BADGE_STYLE: dict[str, str] = {
+    Session.PRE: "bold yellow",
+    Session.POST: "bold cyan",
+    Session.CLOSED: "bold red",
+}
+
+
 def _format_price_cell(last: float, session: str) -> Text | str:
     """Return a price cell with a session badge appended when applicable."""
-    if session == Session.PRE:
-        return Text(f"{last:.2f} ").append("PRE", style="bold yellow")
-    if session == Session.POST:
-        return Text(f"{last:.2f} ").append("AH", style="bold cyan")
-    if session == Session.CLOSED:
-        return Text(f"{last:.2f} ").append("CLS", style="bold red")
+    badge = SESSION_BADGE.get(session)
+    if badge:
+        style = _SESSION_BADGE_STYLE.get(session, "")
+        return Text(f"{last:.2f} ").append(badge, style=style)
     return f"{last:.2f}"
 
 
