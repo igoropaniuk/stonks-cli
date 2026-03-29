@@ -60,6 +60,7 @@ from stonks_cli.forms import (  # noqa: E402
 
 _AddFormFactory = Callable[[], Any]
 _AddResultHandler = Callable[[Any], None]
+_ActiveSelection = tuple[Portfolio, int, str, _RowMeta]
 
 
 class PortfolioTableWidget(Widget):
@@ -550,6 +551,18 @@ class PortfolioApp(App[None]):
         self._remove_selected_item(portfolio, kind, identifier)
         self._save_and_refresh(idx)
 
+    def _get_active_selection(self) -> _ActiveSelection | None:
+        """Return the currently selected portfolio context, or None."""
+        active = self._get_active_table_and_index()
+        if active is None:
+            return None
+        table, idx = active
+        meta = self._get_row_meta(table)
+        if meta is None:
+            return None
+        portfolio = self.portfolios[idx]
+        return portfolio, idx, self._pname(idx), meta
+
     def action_add(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
@@ -605,45 +618,37 @@ class PortfolioApp(App[None]):
             lambda result: self._handle_edit_position(portfolio, idx, pos, result),
         )
 
-    def action_edit(self) -> None:
-        active = self._get_active_table_and_index()
-        if active is None:
-            return
-        table, idx = active
-        portfolio = self.portfolios[idx]
-        pname = self._pname(idx)
-        meta = self._get_row_meta(table)
-        if meta is None:
-            return
+    def _dispatch_edit_selection(self, selection: _ActiveSelection) -> None:
+        """Open the correct edit flow for the selected row."""
+        portfolio, idx, pname, meta = selection
         identifier = meta.symbol
-
         if meta.kind == RowKind.CASH:
             cash_pos = portfolio.get_cash(identifier)
             if cash_pos is None:
                 return
             self._edit_cash(portfolio, idx, pname, cash_pos)
-        elif meta.kind == RowKind.WATCHLIST:
+            return
+        if meta.kind == RowKind.WATCHLIST:
             old_item = self._watch_item(portfolio, identifier)
             if old_item is None:
                 logger.warning("Could not find watchlist item %s to edit", identifier)
                 return
             self._edit_watch(portfolio, idx, pname, old_item)
-        else:
-            pos = portfolio.get_position(identifier)
-            if pos is None:
-                return
-            self._edit_position(portfolio, idx, pname, pos)
+            return
+        pos = portfolio.get_position(identifier)
+        if pos is None:
+            return
+        self._edit_position(portfolio, idx, pname, pos)
 
-    def action_remove(self) -> None:
-        active = self._get_active_table_and_index()
-        if active is None:
+    def action_edit(self) -> None:
+        selection = self._get_active_selection()
+        if selection is None:
             return
-        table, idx = active
-        portfolio = self.portfolios[idx]
-        pname = self._pname(idx)
-        meta = self._get_row_meta(table)
-        if meta is None:
-            return
+        self._dispatch_edit_selection(selection)
+
+    def _prompt_remove_selection(self, selection: _ActiveSelection) -> None:
+        """Open the remove confirmation dialog for the selected row."""
+        portfolio, idx, pname, meta = selection
         identifier = meta.symbol
         kind = _ROW_KIND_LABELS[meta.kind]
         self.push_screen(
@@ -652,6 +657,12 @@ class PortfolioApp(App[None]):
                 portfolio, idx, meta.kind, identifier, confirmed
             ),
         )
+
+    def action_remove(self) -> None:
+        selection = self._get_active_selection()
+        if selection is None:
+            return
+        self._prompt_remove_selection(selection)
 
     # ------------------------------------------------------------------
     # Log viewer
