@@ -8,6 +8,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.message_pump import NoActiveAppError
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
@@ -21,6 +22,14 @@ _COLOR_BUY = (50, 205, 50)
 _COLOR_HOLD = (255, 165, 0)
 _COLOR_SELL = (255, 69, 0)
 _COLOR_STRONG_SELL = (139, 0, 0)
+
+
+def _kv_row(container: Widget, label: str, value: str) -> None:
+    """Mount a single label/value row into *container*."""
+    row = Horizontal(classes="kv-row")
+    container.mount(row)
+    row.mount(Static(label, classes="kv-label"))
+    row.mount(Static(value, classes="kv-value"))
 
 
 class StockDetailScreen(Screen):
@@ -174,7 +183,7 @@ class StockDetailScreen(Screen):
     # Section builders
     # ------------------------------------------------------------------
 
-    def _mount_performance(self, parent, d: StockDetail) -> None:
+    def _mount_performance(self, parent: Widget, d: StockDetail) -> None:
         if not d.performance:
             return
         parent.mount(Label("  Performance Overview", classes="section-title"))
@@ -206,7 +215,7 @@ class StockDetailScreen(Screen):
             sp_row.mount(Static("S&P 500", classes="kv-label"))
             sp_row.mount(Static(sp_ret, classes=sp_cls))
 
-    def _mount_price_chart(self, parent, d: StockDetail) -> None:
+    def _mount_price_chart(self, parent: Widget, d: StockDetail) -> None:
         if not d.price_histories:
             return
         for label, (dates, closes) in d.price_histories.items():
@@ -227,7 +236,7 @@ class StockDetailScreen(Screen):
             plt.ylabel("Price")
             plt.title("")
 
-    def _mount_summary(self, parent, d: StockDetail) -> None:
+    def _mount_summary(self, parent: Widget, d: StockDetail) -> None:
         parent.mount(Label("  Financial Summary", classes="section-title"))
         items = list(d.summary.items())
         mid = (len(items) + 1) // 2
@@ -243,77 +252,75 @@ class StockDetailScreen(Screen):
         grid.mount(right)
 
         for label, value in left_items:
-            row = Horizontal(classes="kv-row")
-            left.mount(row)
-            row.mount(Static(label, classes="kv-label"))
-            row.mount(Static(value, classes="kv-value"))
+            _kv_row(left, label, value)
 
         for label, value in right_items:
-            row = Horizontal(classes="kv-row")
-            right.mount(row)
-            row.mount(Static(label, classes="kv-label"))
-            row.mount(Static(value, classes="kv-value"))
+            _kv_row(right, label, value)
 
-    def _mount_earnings(self, parent, d: StockDetail) -> None:
+    def _mount_earnings(self, parent: Widget, d: StockDetail) -> None:
         if not d.eps_quarters and not d.rev_quarters:
             return
         parent.mount(Label("  Earnings Trends", classes="section-title"))
+        self._mount_eps_chart(parent, d)
+        self._mount_rev_chart(parent, d)
 
-        # EPS chart
-        if d.eps_quarters:
-            eps_chart = PlotextPlot(classes="price-chart")
-            parent.mount(eps_chart)
-            plt = eps_chart.plt
-            n = len(d.eps_quarters)
-            actual = [v if v is not None else 0.0 for v in d.eps_actual]
-            estimate = [v if v is not None else 0.0 for v in d.eps_estimate]
-            labels = list(d.eps_quarters)
+    def _mount_eps_chart(self, parent: Widget, d: StockDetail) -> None:
+        if not d.eps_quarters:
+            return
+        eps_chart = PlotextPlot(classes="price-chart")
+        parent.mount(eps_chart)
+        plt = eps_chart.plt
+        n = len(d.eps_quarters)
+        actual = [v if v is not None else 0.0 for v in d.eps_actual]
+        estimate = [v if v is not None else 0.0 for v in d.eps_estimate]
+        labels = list(d.eps_quarters)
 
-            # Add next quarter estimate if available
-            if d.next_eps_estimate is not None:
-                labels.append("Next(est)")
-                actual.append(0.0)
-                estimate.append(d.next_eps_estimate)
-                n += 1
+        # Add next quarter estimate if available
+        if d.next_eps_estimate is not None:
+            labels.append("Next(est)")
+            actual.append(0.0)
+            estimate.append(d.next_eps_estimate)
+            n += 1
 
-            x = list(range(1, n + 1))
-            plt.bar(x, actual, label="Actual EPS", width=0.4)
-            plt.bar(x, estimate, label="Estimate", width=0.4)
-            plt.xticks(x, labels)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
-            plt.title("Earnings Per Share")
+        x = list(range(1, n + 1))
+        plt.bar(x, actual, label="Actual EPS", width=0.4)
+        plt.bar(x, estimate, label="Estimate", width=0.4)
+        plt.xticks(x, labels)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
+        plt.title("Earnings Per Share")
 
-            # Annotate bars: actual on top, estimate below
-            for i in range(n):
-                a = actual[i]
-                e = estimate[i]
-                top = max(abs(a), abs(e), 0.01)
-                if a != 0.0:
-                    plt.text(f"A:{a:.2f}", x=i + 1, y=top)
-                if e != 0.0:
-                    plt.text(f"E:{e:.2f}", x=i + 1, y=top - abs(top) * 0.6)
+        # Annotate bars: actual on top, estimate below
+        for i in range(n):
+            a = actual[i]
+            e = estimate[i]
+            top = max(abs(a), abs(e), 0.01)
+            if a != 0.0:
+                plt.text(f"A:{a:.2f}", x=i + 1, y=top)
+            if e != 0.0:
+                plt.text(f"E:{e:.2f}", x=i + 1, y=top - abs(top) * 0.6)
 
-        # Revenue vs Earnings chart
-        if d.rev_quarters:
-            rev_chart = PlotextPlot(classes="price-chart")
-            parent.mount(rev_chart)
-            plt = rev_chart.plt
-            n = len(d.rev_quarters)
-            x = list(range(1, n + 1))
-            plt.bar(x, d.rev_values, label="Revenue ($B)", width=0.4)
-            plt.bar(x, d.earn_values, label="Net Income ($B)", width=0.4)
-            plt.xticks(x, d.rev_quarters)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
-            plt.title("Revenue vs Earnings")
+    def _mount_rev_chart(self, parent: Widget, d: StockDetail) -> None:
+        if not d.rev_quarters:
+            return
+        rev_chart = PlotextPlot(classes="price-chart")
+        parent.mount(rev_chart)
+        plt = rev_chart.plt
+        n = len(d.rev_quarters)
+        x = list(range(1, n + 1))
+        plt.bar(x, d.rev_values, label="Revenue ($B)", width=0.4)
+        plt.bar(x, d.earn_values, label="Net Income ($B)", width=0.4)
+        plt.xticks(x, d.rev_quarters)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
+        plt.title("Revenue vs Earnings")
 
-            # Annotate: revenue on top, net income below
-            for i in range(n):
-                rv = d.rev_values[i]
-                ev = d.earn_values[i]
-                if rv != 0.0:
-                    plt.text(f"R:{rv:.1f}B", x=i + 1, y=rv)
-                if ev != 0.0:
-                    plt.text(f"NI:{ev:.1f}B", x=i + 1, y=rv * 0.2)
+        # Annotate: revenue on top, net income below
+        for i in range(n):
+            rv = d.rev_values[i]
+            ev = d.earn_values[i]
+            if rv != 0.0:
+                plt.text(f"R:{rv:.1f}B", x=i + 1, y=rv)
+            if ev != 0.0:
+                plt.text(f"NI:{ev:.1f}B", x=i + 1, y=rv * 0.2)
 
-    def _mount_analyst(self, parent, d: StockDetail) -> None:
+    def _mount_analyst(self, parent: Widget, d: StockDetail) -> None:
         no_data = (
             not d.price_targets
             and not d.recommendations
@@ -370,7 +377,7 @@ class StockDetailScreen(Screen):
             plt.yticks([], [])  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
             plt.title("Analyst Recommendations")
 
-    def _mount_statistics(self, parent, d: StockDetail) -> None:
+    def _mount_statistics(self, parent: Widget, d: StockDetail) -> None:
         if not d.valuation and not d.financials:
             return
         parent.mount(Label("  Statistics", classes="section-title"))
@@ -382,17 +389,11 @@ class StockDetailScreen(Screen):
             row.mount(col)
             col.mount(Static("[b]Valuation Measures[/b]"))
             for label, value in d.valuation.items():
-                r = Horizontal(classes="kv-row")
-                col.mount(r)
-                r.mount(Static(label, classes="kv-label"))
-                r.mount(Static(value, classes="kv-value"))
+                _kv_row(col, label, value)
 
         if d.financials:
             col = Vertical(classes="stats-col")
             row.mount(col)
             col.mount(Static("[b]Financial Highlights[/b]"))
             for label, value in d.financials.items():
-                r = Horizontal(classes="kv-row")
-                col.mount(r)
-                r.mount(Static(label, classes="kv-label"))
-                r.mount(Static(value, classes="kv-value"))
+                _kv_row(col, label, value)
