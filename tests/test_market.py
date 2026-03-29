@@ -28,21 +28,17 @@ def _make_portfolio(
 
 
 def _make_fetcher_mock(
-    extended: dict | None = None,
+    best_equity_prices: dict | None = None,
     prices: dict | None = None,
-    price_single: float | None = None,
     exchange_names: dict | None = None,
     prev_closes: dict | None = None,
-    current_session: str = "regular",
     forex_rates: dict | None = None,
 ) -> MagicMock:
     m = MagicMock()
-    m.fetch_extended_prices.return_value = extended or {}
+    m.fetch_best_equity_prices.return_value = best_equity_prices or {}
     m.fetch_prices.return_value = prices or {}
-    m.fetch_price_single.return_value = price_single
     m.fetch_exchange_names.return_value = exchange_names or {}
     m.fetch_previous_closes.return_value = prev_closes or {}
-    m.current_session.return_value = current_session
     m.fetch_forex_rates.return_value = forex_rates or {}
     return m
 
@@ -66,7 +62,7 @@ class TestBuildMarketSnapshot:
         pos = Position(symbol="AAPL", quantity=10, avg_cost=150.0)
         portfolio = _make_portfolio(positions=[pos])
         fetcher = _make_fetcher_mock(
-            extended={"AAPL": (175.0, "regular")},
+            best_equity_prices={"AAPL": (175.0, "regular")},
             exchange_names={"AAPL": "NMS"},
             prev_closes={"AAPL": 172.0},
         )
@@ -77,44 +73,37 @@ class TestBuildMarketSnapshot:
         assert snap.sessions["AAPL"] == "regular"
         assert snap.exchange_codes["AAPL"] == "NMS"
         assert snap.prev_closes["AAPL"] == 172.0
-        fetcher.fetch_prices.assert_not_called()
+        fetcher.fetch_best_equity_prices.assert_called_once_with(["AAPL"])
 
     def test_equity_batch_fallback(self) -> None:
         pos = Position(symbol="MSFT", quantity=5, avg_cost=300.0)
         portfolio = _make_portfolio(positions=[pos])
         fetcher = _make_fetcher_mock(
-            extended={},  # extended misses MSFT
-            prices={"MSFT": 310.0},
+            best_equity_prices={"MSFT": (310.0, "regular")},
             exchange_names={"MSFT": "NMS"},
-            prev_closes={},
-            current_session="regular",
         )
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
             snap = build_market_snapshot([portfolio])
 
         assert snap.prices["MSFT"] == 310.0
-        fetcher.fetch_prices.assert_called_once_with(["MSFT"])
+        assert snap.sessions["MSFT"] == "regular"
 
     def test_equity_single_fallback(self) -> None:
         pos = Position(symbol="TSLA", quantity=2, avg_cost=200.0)
         portfolio = _make_portfolio(positions=[pos])
         fetcher = _make_fetcher_mock(
-            extended={},
-            prices={},  # batch also misses
-            price_single=250.0,
-            current_session="post",
+            best_equity_prices={"TSLA": (250.0, "post")},
         )
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
             snap = build_market_snapshot([portfolio])
 
         assert snap.prices["TSLA"] == 250.0
         assert snap.sessions["TSLA"] == "post"
-        fetcher.fetch_price_single.assert_called_once_with("TSLA")
 
     def test_equity_single_fallback_none(self) -> None:
         pos = Position(symbol="DEAD", quantity=1, avg_cost=1.0)
         portfolio = _make_portfolio(positions=[pos])
-        fetcher = _make_fetcher_mock(extended={}, prices={}, price_single=None)
+        fetcher = _make_fetcher_mock(best_equity_prices={})
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
             snap = build_market_snapshot([portfolio])
 
@@ -220,7 +209,7 @@ class TestBuildMarketSnapshot:
         cash = CashPosition(currency="EUR", amount=1000.0)
         portfolio = _make_portfolio(positions=[pos], cash=[cash], base_currency="USD")
         fetcher = _make_fetcher_mock(
-            extended={"LVMH.PA": (750.0, "regular")},
+            best_equity_prices={"LVMH.PA": (750.0, "regular")},
             forex_rates={"EUR": 1.08},
         )
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
@@ -232,7 +221,7 @@ class TestBuildMarketSnapshot:
     def test_watchlist_symbols_included(self) -> None:
         item = WatchlistItem(symbol="NVDA")
         portfolio = _make_portfolio(watchlist=[item])
-        fetcher = _make_fetcher_mock(extended={"NVDA": (900.0, "regular")})
+        fetcher = _make_fetcher_mock(best_equity_prices={"NVDA": (900.0, "regular")})
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
             snap = build_market_snapshot([portfolio])
 
