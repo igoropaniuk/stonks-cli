@@ -22,15 +22,6 @@ from textual.widgets import (
 )
 
 from stonks_cli import app_actions
-from stonks_cli._columns import _TABLE_COLUMNS
-from stonks_cli._row_model import (
-    _ROW_KIND_LABELS,
-    RowKind,
-    _RowData,
-    _RowMeta,
-    _to_tui_rows,
-    build_row_data,
-)
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import MarketSnapshot, build_market_snapshot
@@ -42,6 +33,15 @@ from stonks_cli.models import (
     portfolio_total,
 )
 from stonks_cli.storage import PortfolioStore
+from stonks_cli.table_columns import _TABLE_COLUMNS
+from stonks_cli.table_rows import (
+    _ROW_KIND_LABELS,
+    RowKind,
+    _RowData,
+    _RowMeta,
+    _to_tui_rows,
+    build_row_data,
+)
 
 logger = logging.getLogger(__name__)
 

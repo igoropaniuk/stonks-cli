@@ -10,7 +10,7 @@ from functools import lru_cache
 import exchange_calendars as xcals  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 
-from stonks_cli._session import Session
+from stonks_cli.market_session import Session
 
 logger = logging.getLogger(__name__)
 

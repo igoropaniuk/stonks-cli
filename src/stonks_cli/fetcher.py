@@ -10,8 +10,8 @@ import httpx
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
-from stonks_cli._session import Session
 from stonks_cli.exchanges import ExchangeSession
+from stonks_cli.market_session import Session
 from stonks_cli.stock_detail import StockDetail  # re-export for backward compat
 
 logger = logging.getLogger(__name__)

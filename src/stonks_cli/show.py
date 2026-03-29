@@ -1,9 +1,9 @@
 """CLI formatted output for portfolio show command."""
 
-from stonks_cli._columns import _TABLE_COLUMNS
-from stonks_cli._row_model import RowKind, build_row_data
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import Portfolio, portfolio_total
+from stonks_cli.table_columns import _TABLE_COLUMNS
+from stonks_cli.table_rows import RowKind, build_row_data
 
 _SESSION_BADGES = {"pre": " PRE", "post": " AH", "closed": " CLS"}
 
