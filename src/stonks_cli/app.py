@@ -2,6 +2,8 @@
 
 import logging
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from rich.text import Text
 from textual import work
@@ -55,6 +57,9 @@ from stonks_cli.forms import (  # noqa: E402
     _WatchFormScreen,
     _WatchResult,
 )
+
+_AddFormFactory = Callable[[], Any]
+_AddResultHandler = Callable[[Any], None]
 
 
 class PortfolioTableWidget(Widget):
@@ -347,6 +352,11 @@ class PortfolioApp(App[None]):
         if idx < len(self.stores):
             self.stores[idx].save(self.portfolios[idx])
 
+    def _save_and_refresh(self, idx: int) -> None:
+        """Persist portfolio *idx* and repaint the tables."""
+        self._save(idx)
+        self._populate_tables()
+
     def _pname(self, idx: int) -> str:
         """Return a display name for portfolio *idx*."""
         p = self.portfolios[idx]
@@ -383,63 +393,90 @@ class PortfolioApp(App[None]):
             return False
         return True
 
+    def _watch_item(self, portfolio: Portfolio, symbol: str) -> WatchlistItem | None:
+        """Return the watchlist item for *symbol*, or None if absent."""
+        return next((w for w in portfolio.watchlist if w.symbol == symbol), None)
+
+    def _show_mutation_error(self, err: str | None) -> bool:
+        """Show *err* and return False, or clear the error bar and return True."""
+        if err:
+            self._show_error(err)
+            return False
+        self._show_error("")
+        return True
+
+    def _handle_add_equity(self, idx: int, result: _EquityResult | None) -> None:
+        if result is None:
+            return
+        _do_add_equity(result, self.portfolios[idx])
+        self._save_and_refresh(idx)
+
+    def _handle_add_cash(self, idx: int, result: _CashResult | None) -> None:
+        if result is None:
+            return
+        err = _do_add_cash(result, self.portfolios[idx])
+        if not self._show_mutation_error(err):
+            return
+        self._save_and_refresh(idx)
+
+    def _handle_add_watch(self, idx: int, result: _WatchResult | None) -> None:
+        if result is None:
+            return
+        err = _do_add_watch(result, self.portfolios[idx])
+        if not self._show_mutation_error(err):
+            return
+        self._save_and_refresh(idx)
+
+    def _push_add_form(self, pos_type: str | None, idx: int, pname: str) -> None:
+        """Open the selected add-form flow for portfolio *idx*."""
+        handlers: dict[str, tuple[_AddFormFactory, _AddResultHandler]] = {
+            "equity": (
+                lambda: _EquityFormScreen(title=f"[{pname}] Add Equity Position"),
+                lambda result: self._handle_add_equity(idx, result),
+            ),
+            "cash": (
+                lambda: _CashFormScreen(title=f"[{pname}] Add Cash Position"),
+                lambda result: self._handle_add_cash(idx, result),
+            ),
+            "watch": (
+                lambda: _WatchFormScreen(title=f"[{pname}] Add Watch Item"),
+                lambda result: self._handle_add_watch(idx, result),
+            ),
+        }
+        screen_and_handler = handlers.get(pos_type or "")
+        if screen_and_handler is None:
+            return
+        make_screen, handler = screen_and_handler
+        self.push_screen(make_screen(), handler)
+
+    def _remove_selected_item(
+        self, portfolio: Portfolio, kind: RowKind, identifier: str
+    ) -> None:
+        """Remove the selected item from *portfolio* when it still exists."""
+        if kind == RowKind.CASH:
+            cash_pos = portfolio.get_cash(identifier)
+            if cash_pos:
+                portfolio.cash.remove(cash_pos)
+            return
+        if kind == RowKind.WATCHLIST:
+            item = self._watch_item(portfolio, identifier)
+            if item:
+                portfolio.watchlist.remove(item)
+            return
+        pos = portfolio.get_position(identifier)
+        if pos:
+            portfolio.positions.remove(pos)
+
     def action_add(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
             return
         _, idx = active
         pname = self._pname(idx)
-
-        def on_type(pos_type: str | None) -> None:
-            if pos_type == "equity":
-
-                def on_equity(result: _EquityResult | None) -> None:
-                    if result is None:
-                        return
-                    _do_add_equity(result, self.portfolios[idx])
-                    self._save(idx)
-                    self._populate_tables()
-
-                self.push_screen(
-                    _EquityFormScreen(title=f"[{pname}] Add Equity Position"),
-                    on_equity,
-                )
-            elif pos_type == "cash":
-
-                def on_cash(result: _CashResult | None) -> None:
-                    if result is None:
-                        return
-                    err = _do_add_cash(result, self.portfolios[idx])
-                    if err:
-                        self._show_error(err)
-                        return
-                    self._show_error("")
-                    self._save(idx)
-                    self._populate_tables()
-
-                self.push_screen(
-                    _CashFormScreen(title=f"[{pname}] Add Cash Position"),
-                    on_cash,
-                )
-            elif pos_type == "watch":
-
-                def on_watch(result: _WatchResult | None) -> None:
-                    if result is None:
-                        return
-                    err = _do_add_watch(result, self.portfolios[idx])
-                    if err:
-                        self._show_error(err)
-                        return
-                    self._show_error("")
-                    self._save(idx)
-                    self._populate_tables()
-
-                self.push_screen(
-                    _WatchFormScreen(title=f"[{pname}] Add Watch Item"),
-                    on_watch,
-                )
-
-        self.push_screen(_TypeSelectScreen(portfolio_name=pname), on_type)
+        self.push_screen(
+            _TypeSelectScreen(portfolio_name=pname),
+            lambda pos_type: self._push_add_form(pos_type, idx, pname),
+        )
 
     def _edit_cash(
         self, portfolio: Portfolio, idx: int, pname: str, cash_pos: CashPosition
@@ -465,8 +502,7 @@ class PortfolioApp(App[None]):
                 self._show_error(str(exc))
                 return
             self._show_error("")
-            self._save(idx)
-            self._populate_tables()
+            self._save_and_refresh(idx)
 
         self.push_screen(
             _CashFormScreen(
@@ -495,8 +531,7 @@ class PortfolioApp(App[None]):
             old_item.update(
                 new_symbol, result.get("asset_type"), result.get("external_id")
             )
-            self._save(idx)
-            self._populate_tables()
+            self._save_and_refresh(idx)
 
         self.push_screen(
             _WatchFormScreen(
@@ -529,8 +564,7 @@ class PortfolioApp(App[None]):
                 result.get("asset_type"),
                 result.get("external_id"),
             )
-            self._save(idx)
-            self._populate_tables()
+            self._save_and_refresh(idx)
 
         self.push_screen(
             _EquityFormScreen(
@@ -563,9 +597,7 @@ class PortfolioApp(App[None]):
                 return
             self._edit_cash(portfolio, idx, pname, cash_pos)
         elif meta.kind == RowKind.WATCHLIST:
-            old_item = next(
-                (w for w in portfolio.watchlist if w.symbol == identifier), None
-            )
+            old_item = self._watch_item(portfolio, identifier)
             if old_item is None:
                 logger.warning("Could not find watchlist item %s to edit", identifier)
                 return
@@ -592,22 +624,8 @@ class PortfolioApp(App[None]):
         def on_confirm(confirmed: bool | None) -> None:
             if not confirmed:
                 return
-            if meta.kind == RowKind.CASH:
-                cash_pos = portfolio.get_cash(identifier)
-                if cash_pos:
-                    portfolio.cash.remove(cash_pos)
-            elif meta.kind == RowKind.WATCHLIST:
-                item = next(
-                    (w for w in portfolio.watchlist if w.symbol == identifier), None
-                )
-                if item:
-                    portfolio.watchlist.remove(item)
-            else:
-                pos = portfolio.get_position(identifier)
-                if pos:
-                    portfolio.positions.remove(pos)
-            self._save(idx)
-            self._populate_tables()
+            self._remove_selected_item(portfolio, meta.kind, identifier)
+            self._save_and_refresh(idx)
 
         self.push_screen(
             _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
