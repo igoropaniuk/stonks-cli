@@ -21,6 +21,7 @@ from textual.widgets import (
     Static,
 )
 
+from stonks_cli import app_actions
 from stonks_cli._columns import _TABLE_COLUMNS
 from stonks_cli._row_model import (
     _ROW_KIND_LABELS,
@@ -197,48 +198,6 @@ class PortfolioTableWidget(Widget):
             )
 
 
-def _do_add_equity(result: _EquityResult, portfolio: Portfolio) -> None:
-    """Apply an add-equity form result to *portfolio*."""
-    is_new = portfolio.get_position(result["symbol"]) is None
-    portfolio.add_position(result["symbol"], result["qty"], result["avg_cost"])
-    if is_new:
-        pos = portfolio.get_position(result["symbol"])
-        if pos:
-            pos.currency = result["currency"]
-            pos.asset_type = result.get("asset_type")
-            pos.external_id = result.get("external_id")
-
-
-def _do_add_cash(result: _CashResult, portfolio: Portfolio) -> str | None:
-    """Apply an add-cash form result to *portfolio*; return an error string or None."""
-    try:
-        portfolio.add_cash(result["currency"], result["amount"])
-    except ValueError as exc:
-        logger.warning(
-            "Failed to add cash %s %.2f: %s",
-            result["currency"],
-            result["amount"],
-            exc,
-        )
-        return str(exc)
-    return None
-
-
-def _do_add_watch(result: _WatchResult, portfolio: Portfolio) -> str | None:
-    """Apply an add-watch form result to *portfolio*; return an error string or None."""
-    symbol = result["symbol"]
-    if any(w.symbol == symbol for w in portfolio.watchlist):
-        return f"{symbol} is already in the watchlist"
-    portfolio.watchlist.append(
-        WatchlistItem(
-            symbol,
-            asset_type=result.get("asset_type"),
-            external_id=result.get("external_id"),
-        )
-    )
-    return None
-
-
 class PortfolioApp(App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
@@ -394,10 +353,6 @@ class PortfolioApp(App[None]):
             return False
         return True
 
-    def _watch_item(self, portfolio: Portfolio, symbol: str) -> WatchlistItem | None:
-        """Return the watchlist item for *symbol*, or None if absent."""
-        return next((w for w in portfolio.watchlist if w.symbol == symbol), None)
-
     def _show_mutation_error(self, err: str | None) -> bool:
         """Show *err* and return False, or clear the error bar and return True."""
         if err:
@@ -409,13 +364,15 @@ class PortfolioApp(App[None]):
     def _handle_add_equity(self, idx: int, result: _EquityResult | None) -> None:
         if result is None:
             return
-        _do_add_equity(result, self.portfolios[idx])
+        err = app_actions.add_equity(result, self.portfolios[idx])
+        if not self._show_mutation_error(err):
+            return
         self._save_and_refresh(idx)
 
     def _handle_add_cash(self, idx: int, result: _CashResult | None) -> None:
         if result is None:
             return
-        err = _do_add_cash(result, self.portfolios[idx])
+        err = app_actions.add_cash(result, self.portfolios[idx])
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
@@ -423,7 +380,7 @@ class PortfolioApp(App[None]):
     def _handle_add_watch(self, idx: int, result: _WatchResult | None) -> None:
         if result is None:
             return
-        err = _do_add_watch(result, self.portfolios[idx])
+        err = app_actions.add_watch(result, self.portfolios[idx])
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
@@ -450,32 +407,6 @@ class PortfolioApp(App[None]):
         make_screen, handler = screen_and_handler
         self.push_screen(make_screen(), handler)
 
-    def _remove_selected_item(
-        self, portfolio: Portfolio, kind: RowKind, identifier: str
-    ) -> None:
-        """Remove the selected item from *portfolio* when it still exists."""
-        handlers: dict[RowKind, Callable[[Portfolio, str], None]] = {
-            RowKind.CASH: self._remove_cash_item,
-            RowKind.WATCHLIST: self._remove_watch_item,
-            RowKind.POSITION: self._remove_position_item,
-        }
-        handlers[kind](portfolio, identifier)
-
-    def _remove_cash_item(self, portfolio: Portfolio, identifier: str) -> None:
-        cash_pos = portfolio.get_cash(identifier)
-        if cash_pos:
-            portfolio.cash.remove(cash_pos)
-
-    def _remove_watch_item(self, portfolio: Portfolio, identifier: str) -> None:
-        item = self._watch_item(portfolio, identifier)
-        if item:
-            portfolio.watchlist.remove(item)
-
-    def _remove_position_item(self, portfolio: Portfolio, identifier: str) -> None:
-        pos = portfolio.get_position(identifier)
-        if pos:
-            portfolio.positions.remove(pos)
-
     def _handle_edit_cash(
         self,
         portfolio: Portfolio,
@@ -485,22 +416,9 @@ class PortfolioApp(App[None]):
     ) -> None:
         if result is None:
             return
-        new_currency = result["currency"]
-        if (
-            new_currency != cash_pos.currency
-            and portfolio.get_cash(new_currency) is not None
-        ):
-            self._show_error(f"A {new_currency} cash position already exists")
+        err = app_actions.edit_cash(portfolio, cash_pos, result)
+        if not self._show_mutation_error(err):
             return
-        portfolio.cash.remove(cash_pos)
-        try:
-            portfolio.add_cash(new_currency, result["amount"])
-        except ValueError as exc:
-            logger.warning("Failed to edit cash position: %s", exc)
-            portfolio.cash.append(cash_pos)
-            self._show_error(str(exc))
-            return
-        self._show_error("")
         self._save_and_refresh(idx)
 
     def _handle_edit_watch(
@@ -512,14 +430,9 @@ class PortfolioApp(App[None]):
     ) -> None:
         if result is None:
             return
-        new_symbol = result["symbol"]
-        if new_symbol != old_item.symbol and any(
-            w.symbol == new_symbol for w in portfolio.watchlist
-        ):
-            self._show_error(f"{new_symbol} is already in the watchlist")
+        err = app_actions.edit_watch(portfolio, old_item, result)
+        if not self._show_mutation_error(err):
             return
-        self._show_error("")
-        old_item.update(new_symbol, result.get("asset_type"), result.get("external_id"))
         self._save_and_refresh(idx)
 
     def _handle_edit_position(
@@ -531,19 +444,9 @@ class PortfolioApp(App[None]):
     ) -> None:
         if result is None:
             return
-        new_symbol = result["symbol"]
-        if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
-            self._show_error(f"{new_symbol} already exists in this portfolio")
+        err = app_actions.edit_position(portfolio, pos, result)
+        if not self._show_mutation_error(err):
             return
-        self._show_error("")
-        pos.update(
-            new_symbol,
-            result["qty"],
-            result["avg_cost"],
-            result["currency"],
-            result.get("asset_type"),
-            result.get("external_id"),
-        )
         self._save_and_refresh(idx)
 
     def _handle_remove_confirmation(
@@ -556,7 +459,7 @@ class PortfolioApp(App[None]):
     ) -> None:
         if not confirmed:
             return
-        self._remove_selected_item(portfolio, kind, identifier)
+        app_actions.remove_selected_item(portfolio, kind, identifier)
         self._save_and_refresh(idx)
 
     def _get_active_selection(self) -> _ActiveSelection | None:
@@ -637,7 +540,7 @@ class PortfolioApp(App[None]):
     def _dispatch_edit_watch(
         self, portfolio: Portfolio, idx: int, pname: str, identifier: str
     ) -> None:
-        old_item = self._watch_item(portfolio, identifier)
+        old_item = app_actions.watch_item(portfolio, identifier)
         if old_item is None:
             logger.warning("Could not find watchlist item %s to edit", identifier)
             return
