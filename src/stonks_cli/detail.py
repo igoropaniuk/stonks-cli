@@ -229,9 +229,19 @@ class StockDetailScreen(Screen):
             plt.plot(x, closes, marker="braille")
             step = max(1, len(x) // 6)
             tick_x = x[::step]
-            # HH:MM for intraday, MM-DD for daily data
-            trim = label == "1 Day"
-            tick_labels = [dates[i] if trim else dates[i][5:] for i in tick_x]
+            # Slice YYYY-MM-DD dates to an appropriate granularity per period:
+            #   1 Day   -> HH:MM   (already formatted that way by stock_detail)
+            #   1 Month -> MM-DD   ([5:])
+            #   1 Year  -> YYYY-MM ([:7])
+            #   5 Years -> YYYY    ([:4])
+            if label == "1 Day":
+                tick_labels = [dates[i] for i in tick_x]
+            elif label == "5 Years":
+                tick_labels = [dates[i][:4] for i in tick_x]
+            elif label == "1 Year":
+                tick_labels = [dates[i][:7] for i in tick_x]
+            else:
+                tick_labels = [dates[i][5:] for i in tick_x]
             plt.xticks(tick_x, tick_labels)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
             plt.ylabel("Price")
             plt.title("")
