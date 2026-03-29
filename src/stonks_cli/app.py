@@ -3,6 +3,7 @@
 import logging
 import threading
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from rich.text import Text
@@ -60,8 +61,8 @@ from stonks_cli.forms import (  # noqa: E402
 )
 
 _AddFormFactory = Callable[[], Any]
-_AddResultHandler = Callable[[Any], None]
 _ActiveSelection = tuple[Portfolio, int, str, _RowMeta]
+_ScreenCallback = Callable[[Any], None]
 
 
 class PortfolioTableWidget(Widget):
@@ -387,18 +388,18 @@ class PortfolioApp(App[None]):
 
     def _push_add_form(self, pos_type: str | None, idx: int, pname: str) -> None:
         """Open the selected add-form flow for portfolio *idx*."""
-        handlers: dict[str, tuple[_AddFormFactory, _AddResultHandler]] = {
+        handlers: dict[str, tuple[_AddFormFactory, _ScreenCallback]] = {
             "equity": (
                 lambda: _EquityFormScreen(title=f"[{pname}] Add Equity Position"),
-                lambda result: self._handle_add_equity(idx, result),
+                partial(self._handle_add_equity, idx),
             ),
             "cash": (
                 lambda: _CashFormScreen(title=f"[{pname}] Add Cash Position"),
-                lambda result: self._handle_add_cash(idx, result),
+                partial(self._handle_add_cash, idx),
             ),
             "watch": (
                 lambda: _WatchFormScreen(title=f"[{pname}] Add Watch Item"),
-                lambda result: self._handle_add_watch(idx, result),
+                partial(self._handle_add_watch, idx),
             ),
         }
         screen_and_handler = handlers.get(pos_type or "")
@@ -482,7 +483,7 @@ class PortfolioApp(App[None]):
         pname = self._pname(idx)
         self.push_screen(
             _TypeSelectScreen(portfolio_name=pname),
-            lambda pos_type: self._push_add_form(pos_type, idx, pname),
+            partial(self._push_add_form, idx=idx, pname=pname),
         )
 
     def _edit_cash(
@@ -495,7 +496,7 @@ class PortfolioApp(App[None]):
                 currency=cash_pos.currency,
                 amount=str(cash_pos.amount),
             ),
-            lambda result: self._handle_edit_cash(portfolio, idx, cash_pos, result),
+            partial(self._handle_edit_cash, portfolio, idx, cash_pos),
         )
 
     def _edit_watch(
@@ -509,7 +510,7 @@ class PortfolioApp(App[None]):
                 asset_type=old_item.asset_type,
                 external_id=old_item.external_id or "",
             ),
-            lambda result: self._handle_edit_watch(portfolio, idx, old_item, result),
+            partial(self._handle_edit_watch, portfolio, idx, old_item),
         )
 
     def _edit_position(
@@ -526,7 +527,7 @@ class PortfolioApp(App[None]):
                 asset_type=pos.asset_type,
                 external_id=pos.external_id or "",
             ),
-            lambda result: self._handle_edit_position(portfolio, idx, pos, result),
+            partial(self._handle_edit_position, portfolio, idx, pos),
         )
 
     def _dispatch_edit_cash(
@@ -577,8 +578,12 @@ class PortfolioApp(App[None]):
         kind = _ROW_KIND_LABELS[meta.kind]
         self.push_screen(
             _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"),
-            lambda confirmed: self._handle_remove_confirmation(
-                portfolio, idx, meta.kind, identifier, confirmed
+            partial(
+                self._handle_remove_confirmation,
+                portfolio,
+                idx,
+                meta.kind,
+                identifier,
             ),
         )
 
