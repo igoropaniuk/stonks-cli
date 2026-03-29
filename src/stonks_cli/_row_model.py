@@ -164,6 +164,20 @@ _ROW_KIND_LABELS: dict[RowKind, str] = {
 }
 
 
+def _format_chg_cell(
+    chg_pct: float | None, dim: bool = False
+) -> tuple[Text | str, float]:
+    """Return ``(display_cell, sort_value)`` for the daily change column."""
+    if chg_pct is None:
+        cell: Text | str = Text("--", style="dim") if dim else "--"
+        return cell, 0.0
+    sign = "+" if chg_pct >= 0 else ""
+    label = f"{sign}{chg_pct:.2f}%"
+    color = "green" if chg_pct >= 0 else "red"
+    style = f"dim {color}" if dim else color
+    return Text(label, style=style), chg_pct
+
+
 def _format_price_cell(last: float, session: str) -> Text | str:
     """Return a price cell with a session badge appended when applicable."""
     if session == Session.PRE:
@@ -193,16 +207,8 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     style="bold green" if pnl >= 0 else "bold red",
                 )
                 price_cell: str | Text = _format_price_cell(rd.last, rd.session)
-                if rd.chg_pct is not None:
-                    chg_sign = "+" if rd.chg_pct >= 0 else ""
-                    chg_cell: str | Text = Text(
-                        f"{chg_sign}{rd.chg_pct:.2f}%",
-                        style="green" if rd.chg_pct >= 0 else "red",
-                    )
-                    chg_val = rd.chg_pct
-                else:
-                    chg_cell = "--"
-                    chg_val = 0.0
+                chg_cell: str | Text
+                chg_cell, chg_val = _format_chg_cell(rd.chg_pct)
                 mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
                 sort_key: tuple = (
                     rd.symbol,
@@ -281,16 +287,8 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
         else:  # WATCHLIST
             if rd.last is not None:
                 price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
-                if rd.chg_pct is not None:
-                    chg_sign_w = "+" if rd.chg_pct >= 0 else ""
-                    chg_cell_w: str | Text = Text(
-                        f"{chg_sign_w}{rd.chg_pct:.2f}%",
-                        style=f"dim {'green' if rd.chg_pct >= 0 else 'red'}",
-                    )
-                    chg_val_w = rd.chg_pct
-                else:
-                    chg_cell_w = Text("--", style="dim")
-                    chg_val_w = 0.0
+                chg_cell_w: str | Text
+                chg_cell_w, chg_val_w = _format_chg_cell(rd.chg_pct, dim=True)
                 sort_key_w: tuple = (
                     rd.symbol,
                     rd.exchange,
