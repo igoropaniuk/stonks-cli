@@ -454,16 +454,24 @@ class PortfolioApp(App[None]):
         self, portfolio: Portfolio, kind: RowKind, identifier: str
     ) -> None:
         """Remove the selected item from *portfolio* when it still exists."""
-        if kind == RowKind.CASH:
-            cash_pos = portfolio.get_cash(identifier)
-            if cash_pos:
-                portfolio.cash.remove(cash_pos)
-            return
-        if kind == RowKind.WATCHLIST:
-            item = self._watch_item(portfolio, identifier)
-            if item:
-                portfolio.watchlist.remove(item)
-            return
+        handlers: dict[RowKind, Callable[[Portfolio, str], None]] = {
+            RowKind.CASH: self._remove_cash_item,
+            RowKind.WATCHLIST: self._remove_watch_item,
+            RowKind.POSITION: self._remove_position_item,
+        }
+        handlers[kind](portfolio, identifier)
+
+    def _remove_cash_item(self, portfolio: Portfolio, identifier: str) -> None:
+        cash_pos = portfolio.get_cash(identifier)
+        if cash_pos:
+            portfolio.cash.remove(cash_pos)
+
+    def _remove_watch_item(self, portfolio: Portfolio, identifier: str) -> None:
+        item = self._watch_item(portfolio, identifier)
+        if item:
+            portfolio.watchlist.remove(item)
+
+    def _remove_position_item(self, portfolio: Portfolio, identifier: str) -> None:
         pos = portfolio.get_position(identifier)
         if pos:
             portfolio.positions.remove(pos)
@@ -618,27 +626,40 @@ class PortfolioApp(App[None]):
             lambda result: self._handle_edit_position(portfolio, idx, pos, result),
         )
 
-    def _dispatch_edit_selection(self, selection: _ActiveSelection) -> None:
-        """Open the correct edit flow for the selected row."""
-        portfolio, idx, pname, meta = selection
-        identifier = meta.symbol
-        if meta.kind == RowKind.CASH:
-            cash_pos = portfolio.get_cash(identifier)
-            if cash_pos is None:
-                return
-            self._edit_cash(portfolio, idx, pname, cash_pos)
+    def _dispatch_edit_cash(
+        self, portfolio: Portfolio, idx: int, pname: str, identifier: str
+    ) -> None:
+        cash_pos = portfolio.get_cash(identifier)
+        if cash_pos is None:
             return
-        if meta.kind == RowKind.WATCHLIST:
-            old_item = self._watch_item(portfolio, identifier)
-            if old_item is None:
-                logger.warning("Could not find watchlist item %s to edit", identifier)
-                return
-            self._edit_watch(portfolio, idx, pname, old_item)
+        self._edit_cash(portfolio, idx, pname, cash_pos)
+
+    def _dispatch_edit_watch(
+        self, portfolio: Portfolio, idx: int, pname: str, identifier: str
+    ) -> None:
+        old_item = self._watch_item(portfolio, identifier)
+        if old_item is None:
+            logger.warning("Could not find watchlist item %s to edit", identifier)
             return
+        self._edit_watch(portfolio, idx, pname, old_item)
+
+    def _dispatch_edit_position(
+        self, portfolio: Portfolio, idx: int, pname: str, identifier: str
+    ) -> None:
         pos = portfolio.get_position(identifier)
         if pos is None:
             return
         self._edit_position(portfolio, idx, pname, pos)
+
+    def _dispatch_edit_selection(self, selection: _ActiveSelection) -> None:
+        """Open the correct edit flow for the selected row."""
+        portfolio, idx, pname, meta = selection
+        handlers: dict[RowKind, Callable[[Portfolio, int, str, str], None]] = {
+            RowKind.CASH: self._dispatch_edit_cash,
+            RowKind.WATCHLIST: self._dispatch_edit_watch,
+            RowKind.POSITION: self._dispatch_edit_position,
+        }
+        handlers[meta.kind](portfolio, idx, pname, meta.symbol)
 
     def action_edit(self) -> None:
         selection = self._get_active_selection()
