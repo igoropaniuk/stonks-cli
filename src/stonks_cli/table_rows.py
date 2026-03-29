@@ -15,8 +15,8 @@ from typing import Any, NamedTuple
 
 from rich.text import Text
 
-from stonks_cli._session import Session
 from stonks_cli.exchanges import exchange_label
+from stonks_cli.market_session import Session
 from stonks_cli.models import (
     Portfolio,
     daily_change_pct,

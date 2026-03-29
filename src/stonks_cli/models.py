@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from stonks_cli._session import Session
+from stonks_cli.market_session import Session
 
 
 @dataclass

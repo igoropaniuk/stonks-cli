@@ -2,9 +2,9 @@
 
 import logging
 
-from stonks_cli._row_model import RowKind
 from stonks_cli.forms import _CashResult, _EquityResult, _WatchResult
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
+from stonks_cli.table_rows import RowKind
 
 logger = logging.getLogger(__name__)
 
