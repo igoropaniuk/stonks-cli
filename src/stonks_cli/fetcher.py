@@ -583,6 +583,46 @@ class PriceFetcher:
 
         return result
 
+    def fetch_best_equity_prices(
+        self, symbols: list[str]
+    ) -> dict[str, tuple[float, str]]:
+        """Return the best available price and session for each equity symbol.
+
+        Applies a 3-tier yfinance fallback strategy:
+        1. Extended-hours batch (``prepost=True``, 1-minute bars)
+        2. Regular daily batch for symbols still missing after tier 1
+        3. Individual ``fast_info`` lookup for any remaining symbols
+
+        Args:
+            symbols: List of ticker symbols (e.g. ['AAPL', 'NVDA']).
+
+        Returns:
+            Mapping of uppercase symbol -> (price, session).
+        """
+        if not symbols:
+            return {}
+
+        result: dict[str, tuple[float, str]] = {}
+
+        # Tier 1: extended-hours batch.
+        result.update(self.fetch_extended_prices(symbols))
+
+        # Tier 2: regular daily batch for symbols still missing.
+        missing = [s for s in symbols if s.upper() not in result]
+        if missing:
+            batch = self.fetch_prices(missing)
+            for sym, price in batch.items():
+                result[sym] = (price, self.current_session(sym))
+
+        # Tier 3: individual fast_info for any still-missing symbols.
+        still_missing = [s for s in symbols if s.upper() not in result]
+        for sym in still_missing:
+            single = self.fetch_price_single(sym)
+            if single is not None:
+                result[sym.upper()] = (single, self.current_session(sym))
+
+        return result
+
     def fetch_exchange_names(self, symbols: list[str]) -> dict[str, str]:
         """Return yfinance exchange codes for all equity symbols (US and non-US).
 

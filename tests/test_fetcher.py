@@ -827,6 +827,70 @@ class TestFetchPriceSingle:
             mock_ticker.assert_called_once_with("AAPL")
 
 
+class TestFetchBestEquityPrices:
+    def test_empty_returns_empty(self, fetcher: PriceFetcher):
+        assert fetcher.fetch_best_equity_prices([]) == {}
+
+    def test_all_found_in_extended(self, fetcher: PriceFetcher):
+        fetcher.fetch_extended_prices = MagicMock(
+            return_value={"AAPL": (175.0, "regular")}
+        )
+        fetcher.fetch_prices = MagicMock(return_value={})
+        fetcher.fetch_price_single = MagicMock(return_value=None)
+
+        result = fetcher.fetch_best_equity_prices(["AAPL"])
+
+        assert result == {"AAPL": (175.0, "regular")}
+        fetcher.fetch_prices.assert_not_called()
+        fetcher.fetch_price_single.assert_not_called()
+
+    def test_batch_fallback_for_missing(self, fetcher: PriceFetcher):
+        fetcher.fetch_extended_prices = MagicMock(return_value={})
+        fetcher.fetch_prices = MagicMock(return_value={"MSFT": 310.0})
+        fetcher.current_session = MagicMock(return_value="regular")
+        fetcher.fetch_price_single = MagicMock(return_value=None)
+
+        result = fetcher.fetch_best_equity_prices(["MSFT"])
+
+        assert result == {"MSFT": (310.0, "regular")}
+        fetcher.fetch_prices.assert_called_once_with(["MSFT"])
+        fetcher.fetch_price_single.assert_not_called()
+
+    def test_single_fallback_for_missing(self, fetcher: PriceFetcher):
+        fetcher.fetch_extended_prices = MagicMock(return_value={})
+        fetcher.fetch_prices = MagicMock(return_value={})
+        fetcher.fetch_price_single = MagicMock(return_value=250.0)
+        fetcher.current_session = MagicMock(return_value="post")
+
+        result = fetcher.fetch_best_equity_prices(["TSLA"])
+
+        assert result == {"TSLA": (250.0, "post")}
+        fetcher.fetch_price_single.assert_called_once_with("TSLA")
+
+    def test_single_fallback_none_omitted(self, fetcher: PriceFetcher):
+        fetcher.fetch_extended_prices = MagicMock(return_value={})
+        fetcher.fetch_prices = MagicMock(return_value={})
+        fetcher.fetch_price_single = MagicMock(return_value=None)
+
+        result = fetcher.fetch_best_equity_prices(["DEAD"])
+
+        assert "DEAD" not in result
+
+    def test_mixed_tiers(self, fetcher: PriceFetcher):
+        fetcher.fetch_extended_prices = MagicMock(
+            return_value={"AAPL": (175.0, "regular")}
+        )
+        fetcher.fetch_prices = MagicMock(return_value={"MSFT": 310.0})
+        fetcher.fetch_price_single = MagicMock(return_value=250.0)
+        fetcher.current_session = MagicMock(return_value="post")
+
+        result = fetcher.fetch_best_equity_prices(["AAPL", "MSFT", "TSLA"])
+
+        assert result["AAPL"] == (175.0, "regular")
+        assert result["MSFT"] == (310.0, "post")
+        assert result["TSLA"] == (250.0, "post")
+
+
 def _make_http_response(data: dict, status_code: int = 200) -> MagicMock:
     """Return a mock httpx.Response that returns *data* from .json()."""
     resp = MagicMock(spec=httpx.Response)
