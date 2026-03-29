@@ -514,6 +514,8 @@ class TestShow:
         result = invoke(runner, portfolio_file, "show")
 
         assert "PRE" in result.output
+        assert "AAPL PRE" not in result.output
+        assert "155.00 PRE" in result.output
 
     @patch("stonks_cli.main.build_market_snapshot")
     def test_session_badge_post(self, mock_fetch, runner, portfolio_file):
@@ -528,6 +530,8 @@ class TestShow:
         result = invoke(runner, portfolio_file, "show")
 
         assert "AH" in result.output
+        assert "AAPL AH" not in result.output
+        assert "155.00 AH" in result.output
 
     @patch("stonks_cli.main.build_market_snapshot")
     def test_session_badge_closed(self, mock_fetch, runner, portfolio_file):
@@ -542,6 +546,8 @@ class TestShow:
         result = invoke(runner, portfolio_file, "show")
 
         assert "CLS" in result.output
+        assert "AAPL CLS" not in result.output
+        assert "155.00 CLS" in result.output
 
     @patch("stonks_cli.main.build_market_snapshot")
     def test_multi_portfolio(self, mock_fetch, runner, tmp_path):

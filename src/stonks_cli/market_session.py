@@ -13,3 +13,11 @@ class Session(str, Enum):
     REGULAR = "regular"
     POST = "post"
     CLOSED = "closed"
+
+
+# Human-readable badge label for each non-regular session.
+SESSION_BADGE: dict[str, str] = {
+    Session.PRE: "PRE",
+    Session.POST: "AH",
+    Session.CLOSED: "CLS",
+}
