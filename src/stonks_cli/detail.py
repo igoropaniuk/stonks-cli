@@ -1,6 +1,7 @@
 """Stock detail screen with charts and financial data."""
 
 import logging
+import math
 
 from textual import work
 from textual.app import ComposeResult
@@ -22,6 +23,41 @@ _COLOR_BUY = (50, 205, 50)
 _COLOR_HOLD = (255, 165, 0)
 _COLOR_SELL = (255, 69, 0)
 _COLOR_STRONG_SELL = (139, 0, 0)
+
+
+def _nice_yticks(values: list[float], n: int = 6) -> tuple[list[float], list[str]]:
+    """Return (tick_values, tick_labels) with ~n rounded y-axis positions.
+
+    Picks the "nice" step (1/2/5/10 × magnitude) closest to the raw step,
+    so labels are always human-readable integers or short decimals.
+    """
+    if not values:
+        return [], []
+    if n < 2:
+        raise ValueError(f"n must be at least 2, got {n}")
+    lo, hi = min(values), max(values)
+    if lo >= hi:
+        v = round(lo)
+        return [v], [str(v)]
+    raw_step = (hi - lo) / (n - 1)
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    step = min(
+        (f * magnitude for f in (1, 2, 5, 10)),
+        key=lambda s: abs(s - raw_step),
+    )
+    lo_tick = math.floor(lo / step) * step
+    hi_tick = math.ceil(hi / step) * step
+    ticks: list[float] = []
+    v = lo_tick
+    while v <= hi_tick + step * 1e-9:
+        ticks.append(round(v, 8))
+        v += step
+    if step >= 1:
+        labels = [str(int(t)) for t in ticks]
+    else:
+        decimals = max(0, -math.floor(math.log10(step)))
+        labels = [f"{t:.{decimals}f}" for t in ticks]
+    return ticks, labels
 
 
 def _kv_row(container: Widget, label: str, value: str) -> None:
@@ -229,20 +265,22 @@ class StockDetailScreen(Screen):
             plt.plot(x, closes, marker="braille")
             step = max(1, len(x) // 6)
             tick_x = x[::step]
-            # Slice YYYY-MM-DD dates to an appropriate granularity per period:
-            #   1 Day   -> HH:MM   (already formatted that way by stock_detail)
-            #   1 Month -> MM-DD   ([5:])
-            #   1 Year  -> YYYY-MM ([:7])
-            #   5 Years -> YYYY    ([:4])
-            if label == "1 Day":
-                tick_labels = [dates[i] for i in tick_x]
-            elif label == "5 Years":
-                tick_labels = [dates[i][:4] for i in tick_x]
-            elif label == "1 Year":
-                tick_labels = [dates[i][:7] for i in tick_x]
-            else:
-                tick_labels = [dates[i][5:] for i in tick_x]
+            # Map each period label to its date-slice function.
+            # 1 Day uses HH:MM (already formatted by stock_detail).
+            # All others slice YYYY-MM-DD to an appropriate granularity.
+            # Unrecognised periods fall back to MM-DD ([5:]).
+            _date_slicer = {
+                "1 Day": lambda d: d,
+                "1 Month": lambda d: d[5:],
+                "1 Year": lambda d: d[:7],
+                "5 Years": lambda d: d[:4],
+            }
+            slicer = _date_slicer.get(label, lambda d: d[5:])
+            tick_labels = [slicer(dates[i]) for i in tick_x]
             plt.xticks(tick_x, tick_labels)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
+            ytick_vals, ytick_labels = _nice_yticks(closes)
+            plt.ylim(ytick_vals[0], ytick_vals[-1])
+            plt.yticks(ytick_vals, ytick_labels)  # type: ignore[arg-type]
             plt.ylabel("Price")
             plt.title("")
 
@@ -296,6 +334,9 @@ class StockDetailScreen(Screen):
         plt.bar(x, actual, label="Actual EPS", width=0.4)
         plt.bar(x, estimate, label="Estimate", width=0.4)
         plt.xticks(x, labels)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
+        ytick_vals, ytick_labels = _nice_yticks(actual + estimate)
+        plt.ylim(ytick_vals[0], ytick_vals[-1])
+        plt.yticks(ytick_vals, ytick_labels)  # type: ignore[arg-type]
         plt.title("Earnings Per Share")
 
         # Annotate bars: actual on top, estimate below
@@ -319,6 +360,9 @@ class StockDetailScreen(Screen):
         plt.bar(x, d.rev_values, label="Revenue ($B)", width=0.4)
         plt.bar(x, d.earn_values, label="Net Income ($B)", width=0.4)
         plt.xticks(x, d.rev_quarters)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
+        ytick_vals, ytick_labels = _nice_yticks(d.rev_values + d.earn_values)
+        plt.ylim(ytick_vals[0], ytick_vals[-1])
+        plt.yticks(ytick_vals, ytick_labels)  # type: ignore[arg-type]
         plt.title("Revenue vs Earnings")
 
         # Annotate: revenue on top, net income below
