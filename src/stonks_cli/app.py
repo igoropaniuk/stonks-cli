@@ -467,6 +467,89 @@ class PortfolioApp(App[None]):
         if pos:
             portfolio.positions.remove(pos)
 
+    def _handle_edit_cash(
+        self,
+        portfolio: Portfolio,
+        idx: int,
+        cash_pos: CashPosition,
+        result: _CashResult | None,
+    ) -> None:
+        if result is None:
+            return
+        new_currency = result["currency"]
+        if (
+            new_currency != cash_pos.currency
+            and portfolio.get_cash(new_currency) is not None
+        ):
+            self._show_error(f"A {new_currency} cash position already exists")
+            return
+        portfolio.cash.remove(cash_pos)
+        try:
+            portfolio.add_cash(new_currency, result["amount"])
+        except ValueError as exc:
+            logger.warning("Failed to edit cash position: %s", exc)
+            portfolio.cash.append(cash_pos)
+            self._show_error(str(exc))
+            return
+        self._show_error("")
+        self._save_and_refresh(idx)
+
+    def _handle_edit_watch(
+        self,
+        portfolio: Portfolio,
+        idx: int,
+        old_item: WatchlistItem,
+        result: _WatchResult | None,
+    ) -> None:
+        if result is None:
+            return
+        new_symbol = result["symbol"]
+        if new_symbol != old_item.symbol and any(
+            w.symbol == new_symbol for w in portfolio.watchlist
+        ):
+            self._show_error(f"{new_symbol} is already in the watchlist")
+            return
+        self._show_error("")
+        old_item.update(new_symbol, result.get("asset_type"), result.get("external_id"))
+        self._save_and_refresh(idx)
+
+    def _handle_edit_position(
+        self,
+        portfolio: Portfolio,
+        idx: int,
+        pos: Position,
+        result: _EquityResult | None,
+    ) -> None:
+        if result is None:
+            return
+        new_symbol = result["symbol"]
+        if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
+            self._show_error(f"{new_symbol} already exists in this portfolio")
+            return
+        self._show_error("")
+        pos.update(
+            new_symbol,
+            result["qty"],
+            result["avg_cost"],
+            result["currency"],
+            result.get("asset_type"),
+            result.get("external_id"),
+        )
+        self._save_and_refresh(idx)
+
+    def _handle_remove_confirmation(
+        self,
+        portfolio: Portfolio,
+        idx: int,
+        kind: RowKind,
+        identifier: str,
+        confirmed: bool | None,
+    ) -> None:
+        if not confirmed:
+            return
+        self._remove_selected_item(portfolio, kind, identifier)
+        self._save_and_refresh(idx)
+
     def action_add(self) -> None:
         active = self._get_active_table_and_index()
         if active is None:
@@ -482,57 +565,19 @@ class PortfolioApp(App[None]):
         self, portfolio: Portfolio, idx: int, pname: str, cash_pos: CashPosition
     ) -> None:
         """Push the cash-edit form and apply the result."""
-
-        def on_cash_edit(result: _CashResult | None) -> None:
-            if result is None:
-                return
-            new_currency = result["currency"]
-            if (
-                new_currency != cash_pos.currency
-                and portfolio.get_cash(new_currency) is not None
-            ):
-                self._show_error(f"A {new_currency} cash position already exists")
-                return
-            portfolio.cash.remove(cash_pos)
-            try:
-                portfolio.add_cash(new_currency, result["amount"])
-            except ValueError as exc:
-                logger.warning("Failed to edit cash position: %s", exc)
-                portfolio.cash.append(cash_pos)
-                self._show_error(str(exc))
-                return
-            self._show_error("")
-            self._save_and_refresh(idx)
-
         self.push_screen(
             _CashFormScreen(
                 title=f"[{pname}] Edit Cash Position",
                 currency=cash_pos.currency,
                 amount=str(cash_pos.amount),
             ),
-            on_cash_edit,
+            lambda result: self._handle_edit_cash(portfolio, idx, cash_pos, result),
         )
 
     def _edit_watch(
         self, portfolio: Portfolio, idx: int, pname: str, old_item: WatchlistItem
     ) -> None:
         """Push the watchlist-edit form and apply the result."""
-
-        def on_watch_edit(result: _WatchResult | None) -> None:
-            if result is None:
-                return
-            new_symbol = result["symbol"]
-            if new_symbol != old_item.symbol and any(
-                w.symbol == new_symbol for w in portfolio.watchlist
-            ):
-                self._show_error(f"{new_symbol} is already in the watchlist")
-                return
-            self._show_error("")
-            old_item.update(
-                new_symbol, result.get("asset_type"), result.get("external_id")
-            )
-            self._save_and_refresh(idx)
-
         self.push_screen(
             _WatchFormScreen(
                 title=f"[{pname}] Edit Watch Item",
@@ -540,32 +585,13 @@ class PortfolioApp(App[None]):
                 asset_type=old_item.asset_type,
                 external_id=old_item.external_id or "",
             ),
-            on_watch_edit,
+            lambda result: self._handle_edit_watch(portfolio, idx, old_item, result),
         )
 
     def _edit_position(
         self, portfolio: Portfolio, idx: int, pname: str, pos: Position
     ) -> None:
         """Push the equity-edit form and apply the result."""
-
-        def on_equity_edit(result: _EquityResult | None) -> None:
-            if result is None:
-                return
-            new_symbol = result["symbol"]
-            if new_symbol != pos.symbol and portfolio.get_position(new_symbol):
-                self._show_error(f"{new_symbol} already exists in this portfolio")
-                return
-            self._show_error("")
-            pos.update(
-                new_symbol,
-                result["qty"],
-                result["avg_cost"],
-                result["currency"],
-                result.get("asset_type"),
-                result.get("external_id"),
-            )
-            self._save_and_refresh(idx)
-
         self.push_screen(
             _EquityFormScreen(
                 title=f"[{pname}] Edit Equity Position",
@@ -576,7 +602,7 @@ class PortfolioApp(App[None]):
                 asset_type=pos.asset_type,
                 external_id=pos.external_id or "",
             ),
-            on_equity_edit,
+            lambda result: self._handle_edit_position(portfolio, idx, pos, result),
         )
 
     def action_edit(self) -> None:
@@ -620,15 +646,11 @@ class PortfolioApp(App[None]):
             return
         identifier = meta.symbol
         kind = _ROW_KIND_LABELS[meta.kind]
-
-        def on_confirm(confirmed: bool | None) -> None:
-            if not confirmed:
-                return
-            self._remove_selected_item(portfolio, meta.kind, identifier)
-            self._save_and_refresh(idx)
-
         self.push_screen(
-            _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"), on_confirm
+            _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"),
+            lambda confirmed: self._handle_remove_confirmation(
+                portfolio, idx, meta.kind, identifier, confirmed
+            ),
         )
 
     # ------------------------------------------------------------------
