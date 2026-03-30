@@ -196,6 +196,22 @@ def show(ctx: click.Context) -> None:
             click.echo()
 
 
+@main.command()
+@click.argument("symbol")
+def detail(symbol: str) -> None:
+    """Print detailed financial information for SYMBOL to stdout."""
+    from stonks_cli.show_detail import format_detail
+    from stonks_cli.stock_detail import StockDetailFetcher
+
+    try:
+        d = StockDetailFetcher().fetch_stock_detail(symbol)
+    except Exception as exc:
+        raise click.ClickException(
+            f"Failed to fetch detail for {symbol.upper()}: {exc}"
+        )
+    click.echo(format_detail(d))
+
+
 @main.command("list")
 def list_portfolios() -> None:
     """List all portfolios in ~/.config/stonks/."""
