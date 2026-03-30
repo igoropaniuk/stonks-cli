@@ -630,6 +630,55 @@ class TestShow:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# detail
+# ---------------------------------------------------------------------------
+
+
+class TestDetail:
+    @patch("stonks_cli.stock_detail.StockDetailFetcher")
+    @patch("stonks_cli.show_detail.format_detail", return_value="AAPL detail output")
+    def test_detail_prints_output(self, mock_fmt, mock_fetcher_cls, runner):
+        result = runner.invoke(main, ["detail", "AAPL"])
+        assert result.exit_code == 0
+        assert "AAPL detail output" in result.output
+
+    @patch("stonks_cli.stock_detail.StockDetailFetcher")
+    @patch("stonks_cli.show_detail.format_detail")
+    def test_detail_calls_fetcher_with_symbol(self, mock_fmt, mock_fetcher_cls, runner):
+        mock_fmt.return_value = "output"
+        runner.invoke(main, ["detail", "MSFT"])
+        mock_fetcher_cls.return_value.fetch_stock_detail.assert_called_once_with("MSFT")
+
+    @patch("stonks_cli.stock_detail.StockDetailFetcher")
+    @patch("stonks_cli.show_detail.format_detail")
+    def test_detail_passes_fetched_data_to_formatter(
+        self, mock_fmt, mock_fetcher_cls, runner
+    ):
+        sentinel = object()
+        mock_fetcher_cls.return_value.fetch_stock_detail.return_value = sentinel
+        mock_fmt.return_value = "out"
+        runner.invoke(main, ["detail", "IBM"])
+        mock_fmt.assert_called_once_with(sentinel)
+
+    @patch("stonks_cli.stock_detail.StockDetailFetcher")
+    @patch("stonks_cli.show_detail.format_detail")
+    def test_detail_fetch_error_shows_click_exception(
+        self, mock_fmt, mock_fetcher_cls, runner
+    ):
+        mock_fetcher_cls.return_value.fetch_stock_detail.side_effect = RuntimeError(
+            "timeout"
+        )
+        result = runner.invoke(main, ["detail", "AAPL"])
+        assert result.exit_code != 0
+        assert "Failed to fetch detail for AAPL" in result.output
+
+
+# ---------------------------------------------------------------------------
+# format_show_table unit tests
+# ---------------------------------------------------------------------------
+
+
 class TestFormatShowTable:
     def test_columns_are_aligned(self):
         portfolio = Portfolio(
