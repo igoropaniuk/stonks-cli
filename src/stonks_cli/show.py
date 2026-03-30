@@ -4,7 +4,7 @@ from stonks_cli.market import MarketSnapshot
 from stonks_cli.market_session import SESSION_BADGE
 from stonks_cli.models import Portfolio, portfolio_total
 from stonks_cli.table_columns import _TABLE_COLUMNS
-from stonks_cli.table_rows import RowKind, build_row_data
+from stonks_cli.table_rows import RowKind, _fmt_qty, build_row_data
 
 
 def _fmt_chg(pct: float | None) -> str:
@@ -43,7 +43,7 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     (
                         rd.symbol,
                         rd.exchange,
-                        str(rd.qty),
+                        _fmt_qty(rd.qty),
                         f"{rd.avg_cost:.2f}",
                         "N/A",
                         "--",
@@ -56,7 +56,7 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     (
                         rd.symbol,
                         rd.exchange,
-                        str(rd.qty),
+                        _fmt_qty(rd.qty),
                         f"{rd.avg_cost:.2f}",
                         _fmt_price(rd.last, rd.session),
                         _fmt_chg(rd.chg_pct),

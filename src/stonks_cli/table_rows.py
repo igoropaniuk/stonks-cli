@@ -164,6 +164,11 @@ _ROW_KIND_LABELS: dict[RowKind, str] = {
 }
 
 
+def _fmt_qty(qty: float) -> str:
+    """Format a position quantity, dropping the decimal point for whole numbers."""
+    return str(int(qty)) if float(qty).is_integer() else str(qty)
+
+
 def _format_chg_cell(
     chg_pct: float | None, dim: bool = False
 ) -> tuple[Text | str, float]:
@@ -244,7 +249,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
             display: tuple = (
                 rd.symbol,
                 rd.exchange,
-                str(rd.qty),
+                _fmt_qty(rd.qty),
                 f"{rd.avg_cost:.2f}",
                 price_cell,
                 chg_cell,
