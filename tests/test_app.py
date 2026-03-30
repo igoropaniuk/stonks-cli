@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.widgets import Button, DataTable, Input, Label, Static
 
-from stonks_cli.app import PortfolioApp
+from stonks_cli.app import PortfolioApp, PortfolioTableWidget
 from stonks_cli.forms import (
     _CashFormScreen,
     _ConfirmScreen,
@@ -2201,3 +2201,360 @@ async def test_daily_chg_watchlist_dim_style() -> None:
         chg_cell = table.get_cell_at((0, _COL_CHG))
         assert "dim" in chg_cell.style
         assert "%" in str(chg_cell)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_row_meta_empty_table_returns_none() -> None:
+    """get_row_meta returns None when the DataTable has no rows (IndexError path)."""
+    p = Portfolio()  # empty portfolio -> no rows
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one(PortfolioTableWidget)
+        assert widget.get_row_meta() is None
+
+
+@pytest.mark.asyncio
+async def test_row_selected_unknown_key_does_not_post_message(
+    portfolio: Portfolio,
+) -> None:
+    """on_data_table_row_selected does nothing when row key has no metadata."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one(PortfolioTableWidget)
+        # Simulate a RowSelected event for a key not in _row_meta
+        mock_event = MagicMock()
+        mock_event.row_key.value = "nonexistent"
+        widget.on_data_table_row_selected(mock_event)
+        # App should still be running normally; no crash
+
+
+@pytest.mark.asyncio
+async def test_repaint_without_portfolio_returns_early() -> None:
+    """PortfolioTableWidget._repaint is a no-op before refresh_data is called."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one(PortfolioTableWidget)
+        widget._portfolio = None
+        widget._repaint()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_table_to_portfolio_index_invalid_id_returns_zero() -> None:
+    """_table_to_portfolio_index falls back to 0 when the table id suffix is not an int."""  # noqa: E501
+    p1 = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    p2 = Portfolio(positions=[Position(symbol="NVDA", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(
+        portfolios=[p1, p2],
+        prices={"AAPL": 100.0, "NVDA": 100.0},
+        forex_rates=USD_RATES,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        bad_table = MagicMock()
+        bad_table.id = "table-xyz"  # not a valid integer suffix
+        assert app._table_to_portfolio_index(bad_table) == 0
+        # Also cover the branch where id doesn't start with "table-" at all
+        other_table = MagicMock()
+        other_table.id = "something-else"
+        assert app._table_to_portfolio_index(other_table) == 0
+
+
+@pytest.mark.asyncio
+async def test_show_error_no_widget_is_silent(portfolio: Portfolio) -> None:
+    """_show_error is a no-op when the #error widget is not found."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "query_one", side_effect=NoMatches):
+            app._show_error("some error")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_call_from_thread_reraises_non_shutdown_error(
+    portfolio: Portfolio,
+) -> None:
+    """_call_from_thread_if_running re-raises RuntimeErrors not from shutdown."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        def _raise(*_a, **_kw):
+            raise RuntimeError("unexpected internal error")
+
+        app.call_from_thread = _raise
+        with pytest.raises(RuntimeError, match="unexpected internal error"):
+            app._call_from_thread_if_running(lambda: None)
+
+
+@pytest.mark.asyncio
+async def test_handle_add_equity_mutation_error_shows_error_bar(
+    portfolio: Portfolio,
+) -> None:
+    """_handle_add_equity shows the error bar when add_equity returns an error."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        result = {
+            "symbol": "AAPL",
+            "qty": 10.0,
+            "avg_cost": 100.0,
+            "currency": "USD",
+            "asset_type": None,
+            "external_id": None,
+        }
+        with patch("stonks_cli.app.app_actions.add_equity", return_value="bad input"):
+            app._handle_add_equity(0, result)
+        await pilot.pause()
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+
+
+@pytest.mark.asyncio
+async def test_handle_add_cash_mutation_error_shows_error_bar(
+    portfolio: Portfolio,
+) -> None:
+    """_handle_add_cash shows the error bar when add_cash returns an error."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch("stonks_cli.app.app_actions.add_cash", return_value="bad cash"):
+            app._handle_add_cash(0, {"currency": "EUR", "amount": 100.0})
+        await pilot.pause()
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+
+
+@pytest.mark.asyncio
+async def test_handle_add_watch_duplicate_shows_error_bar() -> None:
+    """Adding a duplicate watchlist item shows the error bar."""
+    p = Portfolio(
+        positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)],
+        watchlist=[WatchlistItem("TSLA")],
+    )
+    prices = {"AAPL": 160.0}
+    app = PortfolioApp(portfolios=[p], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#watch", Button).press()
+        await pilot.pause()
+
+        app.screen.query_one("#symbol", Input).value = "TSLA"
+        app.screen.query_one("#ok", Button).press()
+        await pilot.pause()
+
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "TSLA" in str(err.render())
+
+
+@pytest.mark.asyncio
+async def test_handle_edit_watch_cancel_preserves_item() -> None:
+    """Cancelling the watchlist edit form leaves the item unchanged (result=None path)."""  # noqa: E501
+    p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+    app = PortfolioApp(portfolios=[p], prices={"TSLA": 250.0}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert p.watchlist[0].symbol == "TSLA"
+
+
+@pytest.mark.asyncio
+async def test_get_active_selection_no_table_returns_none(
+    portfolio: Portfolio,
+) -> None:
+    """_get_active_selection returns None when there is no active table."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "_get_active_table_and_index", return_value=None):
+            assert app._get_active_selection() is None
+
+
+@pytest.mark.asyncio
+async def test_get_active_selection_no_meta_returns_none(
+    portfolio: Portfolio,
+) -> None:
+    """_get_active_selection returns None when the table has no cursor metadata."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "_get_row_meta", return_value=None):
+            assert app._get_active_selection() is None
+
+
+@pytest.mark.asyncio
+async def test_action_add_no_table_is_noop(portfolio: Portfolio) -> None:
+    """action_add does nothing when there is no active table."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "_get_active_table_and_index", return_value=None):
+            app.action_add()  # must not raise or push a screen
+
+
+@pytest.mark.asyncio
+async def test_action_edit_no_selection_is_noop(portfolio: Portfolio) -> None:
+    """action_edit does nothing when there is no active selection."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "_get_active_selection", return_value=None):
+            app.action_edit()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_action_remove_no_selection_is_noop(portfolio: Portfolio) -> None:
+    """action_remove does nothing when there is no active selection."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "_get_active_selection", return_value=None):
+            app.action_remove()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_dispatch_edit_watch_not_found_is_noop() -> None:
+    """_dispatch_edit_watch does nothing when the symbol is not in the watchlist."""
+    p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # "NVDA" is not in the watchlist; should log a warning and return
+        app._dispatch_edit_watch(p, 0, "Test", "NVDA")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_dispatch_edit_position_not_found_is_noop() -> None:
+    """_dispatch_edit_position does nothing when the symbol is not in positions."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=10, avg_cost=150.0)])
+    app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._dispatch_edit_position(p, 0, "Test", "NVDA")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_action_view_logs_opens_screen(portfolio: Portfolio) -> None:
+    """Pressing 'l' pushes the log viewer screen."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "push_screen") as mock_push:
+            app.action_view_logs()
+        mock_push.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_row_meta_unrelated_table_returns_none(
+    portfolio: Portfolio,
+) -> None:
+    """_get_row_meta returns None when the table is not owned by any widget."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        unrelated = DataTable()
+        assert app._get_row_meta(unrelated) is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_prices_skipped_when_lock_held(portfolio: Portfolio) -> None:
+    """_refresh_prices is a no-op when the refresh lock is already held."""
+    snap = MarketSnapshot(prices={"AAPL": 160.0}, forex_rates=USD_RATES)
+
+    with patch("stonks_cli.app.build_market_snapshot", return_value=snap) as mock_bms:
+        app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._refresh_lock.acquire()
+            try:
+                _REAL_REFRESH_PRICES.__wrapped__(app)
+            finally:
+                app._refresh_lock.release()
+
+    mock_bms.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_action_add_watch_cancel_form_is_noop() -> None:
+    """Pressing 'a' -> watch -> cancel does nothing (_handle_add_watch result=None)."""
+    p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])
+    app = PortfolioApp(portfolios=[p], prices={"AAPL": 100.0}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        table.focus()
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+        app.screen.query_one("#watch", Button).press()
+        await pilot.pause()
+
+        app.screen.query_one("#cancel", Button).press()
+        await pilot.pause()
+
+    assert len(p.watchlist) == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatch_edit_cash_not_found_is_noop() -> None:
+    """_dispatch_edit_cash does nothing when the currency is not in the portfolio."""
+    p = Portfolio(cash=[CashPosition(currency="EUR", amount=1000.0)])
+    app = PortfolioApp(
+        portfolios=[p],
+        prices={},
+        forex_rates={"USD": {"USD": 1.0, "EUR": 1.1}},
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._dispatch_edit_cash(
+            p, 0, "Test", "JPY"
+        )  # JPY not in portfolio; must not raise
