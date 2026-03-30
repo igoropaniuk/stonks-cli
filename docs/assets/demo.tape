@@ -5,11 +5,11 @@ Set WindowBar Colorful
 Set Framerate 10
 Set FontSize 15
 Set Width 1000
-Set Height 700
+Set Height 800
 
 Type "stonks"
 Enter
-Sleep 10
+Sleep 12
 Down
 Down
 Down
