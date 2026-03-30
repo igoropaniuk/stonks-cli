@@ -2,13 +2,17 @@
 
 import importlib.resources
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 import yaml
 
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,27 @@ class PortfolioStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or DEFAULT_PORTFOLIO_PATH
 
+    def _parse_section(
+        self, section: dict, key: str, parser: Callable[[dict], T], label: str
+    ) -> list[T]:
+        """Parse a list section from *section[key]* using *parser*.
+
+        Args:
+            section: The ``portfolio:`` mapping from the YAML file.
+            key: Section key (``"positions"``, ``"cash"``, or ``"watchlist"``).
+            parser: Callable that converts a raw dict to the model instance.
+            label: Singular noun used in error messages (e.g. ``"position"``).
+
+        Raises:
+            ValueError: If any entry is missing a required field.
+        """
+        try:
+            return [parser(item) for item in section.get(key) or []]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid {label} entry in {self.path}: missing required field {exc}"
+            ) from exc
+
     def load(self) -> Portfolio:
         """Load the portfolio from disk.
 
@@ -145,38 +170,16 @@ class PortfolioStore:
                 f"expected a mapping at the top level, got {type(data).__name__}"
             ) from exc
 
-        try:
-            positions = [_parse_position(p) for p in section.get("positions") or []]
-        except (KeyError, TypeError) as exc:
-            raise ValueError(
-                f"Invalid position entry in {self.path}: missing required field {exc}"
-            ) from exc
-
-        try:
-            cash = [_parse_cash(c) for c in section.get("cash") or []]
-        except (KeyError, TypeError) as exc:
-            raise ValueError(
-                f"Invalid cash entry in {self.path}: missing required field {exc}"
-            ) from exc
-
-        try:
-            watchlist = [
-                _parse_watchlist_item(w) for w in section.get("watchlist") or []
-            ]
-        except (KeyError, TypeError) as exc:
-            raise ValueError(
-                f"Invalid watchlist entry in {self.path}: missing required field {exc}"
-            ) from exc
-
-        base_currency = section.get("base_currency", "USD")
-        name = section.get("name") or None
-
         return Portfolio(
-            positions=positions,
-            cash=cash,
-            watchlist=watchlist,
-            base_currency=base_currency,
-            name=name,
+            positions=self._parse_section(
+                section, "positions", _parse_position, "position"
+            ),
+            cash=self._parse_section(section, "cash", _parse_cash, "cash"),
+            watchlist=self._parse_section(
+                section, "watchlist", _parse_watchlist_item, "watchlist"
+            ),
+            base_currency=section.get("base_currency", "USD"),
+            name=section.get("name") or None,
         )
 
     def save(self, portfolio: Portfolio) -> None:

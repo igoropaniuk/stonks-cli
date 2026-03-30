@@ -18,6 +18,16 @@ from stonks_cli.storage import (
 )
 
 
+def _load_portfolios(stores: list[PortfolioStore]) -> list[Portfolio]:
+    """Load all portfolios from *stores*."""
+    return [store.load() for store in stores]
+
+
+def _is_empty(portfolios: list[Portfolio]) -> bool:
+    """Return True when every portfolio has no positions, cash, or watchlist items."""
+    return not any(p.positions or p.cash or p.watchlist for p in portfolios)
+
+
 def _load_mutate_save(
     store: PortfolioStore, fn: Callable[[Portfolio], None]
 ) -> Portfolio:
@@ -117,9 +127,9 @@ def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
 def dashboard(ctx: click.Context, refresh: float) -> None:
     """Display the current portfolio with live prices and P&L."""
     stores: list[PortfolioStore] = ctx.obj["stores"]
-    portfolios = [store.load() for store in stores]
+    portfolios = _load_portfolios(stores)
 
-    if not any(p.positions or p.cash or p.watchlist for p in portfolios):
+    if _is_empty(portfolios):
         click.echo("Portfolio is empty.")
         return
 
@@ -167,9 +177,9 @@ def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
 def show(ctx: click.Context) -> None:
     """Print a snapshot of portfolio positions with current prices to stdout."""
     stores: list[PortfolioStore] = ctx.obj["stores"]
-    portfolios = [store.load() for store in stores]
+    portfolios = _load_portfolios(stores)
 
-    if all(not p.positions and not p.cash and not p.watchlist for p in portfolios):
+    if _is_empty(portfolios):
         click.echo("Portfolio is empty.")
         return
 
