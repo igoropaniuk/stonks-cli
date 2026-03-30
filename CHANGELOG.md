@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-03-30
+
+### Fixed
+
+- Detail screen charts now show period-appropriate x-axis labels (days for
+  1 Day, months for 1 Month, years for 5 Years) and rounded y-axis ticks.
+- `stonks show` now correctly displays the session badge (PRE/AH/CLS) next
+  to the last price.
+- `q` key in the detail screen now closes the view even when a scroll widget
+  has focus.
+- Multi-portfolio dashboard layout no longer clips rows at the bottom.
+- Detail screen no longer crashes when a background data fetch completes
+  after the screen has already been dismissed.
+
+### Changed
+
+- Large internal refactor: `fetcher.py` split into focused modules
+  (`crypto_fetcher.py`, `stock_detail.py`, `exchanges.py`, `market.py`)
+  for easier navigation and testing.
+- `app.py` action handlers extracted into dedicated helper modules; form
+  dialogs moved to `forms.py`.
+- Shared view-model layer introduced so the TUI dashboard and `stonks show`
+  command build rows from the same data source.
+- Market session constants replaced with a `Session` enum used consistently
+  across the fetcher, TUI, and CLI.
+- All market-data passed around as a single `MarketSnapshot` object instead
+  of several separate dictionaries.
+
 ## [0.4.1] - 2026-03-28
 
 ### Added
