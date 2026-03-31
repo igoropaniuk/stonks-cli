@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import yfinance as yf
 
@@ -14,15 +14,25 @@ class NewsItem:
     published_at: str  # formatted local time
     url: str
     timestamp: int = field(default=0, compare=False)
+    symbol: str = field(default="", compare=False)
 
 
 class NewsFetcher:
     """Fetches the latest company news for a symbol via yfinance."""
 
     _MAX_ITEMS = 10
+    _MAX_ITEM_AGE = timedelta(days=14)
+
+    @classmethod
+    def _is_recent(cls, item: "NewsItem") -> bool:
+        """Return True when the article timestamp is recent enough to display."""
+        if item.timestamp <= 0:
+            return False
+        cutoff = datetime.now().astimezone() - cls._MAX_ITEM_AGE
+        return item.timestamp >= int(cutoff.timestamp())
 
     @staticmethod
-    def _parse_item(raw: dict) -> NewsItem | None:
+    def _parse_item(raw: dict) -> "NewsItem | None":
         content = raw.get("content", {})
         if not isinstance(content, dict):
             return None
@@ -42,7 +52,7 @@ class NewsFetcher:
             try:
                 dt = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
                 ts = int(dt.timestamp())
-                published = dt.astimezone().strftime("%b %d, %Y  %H:%M")
+                published = dt.astimezone().strftime("%b %d %H:%M")
             except (ValueError, OSError):
                 pass
         return NewsItem(
@@ -53,44 +63,48 @@ class NewsFetcher:
             timestamp=ts,
         )
 
-    def fetch(self, symbol: str, limit: int | None = None) -> list[NewsItem]:
+    def fetch(self, symbol: str, limit: int | None = None) -> list["NewsItem"]:
         limit = self._MAX_ITEMS if limit is None else limit
         raw_list = yf.Ticker(symbol.upper()).news or []
-        seen_urls: set[str] = set()
+        seen_keys: set[str] = set()
         items: list[NewsItem] = []
         for raw in raw_list:
             item = self._parse_item(raw)
             if item is None:
                 continue
-            if item.url:
-                if item.url in seen_urls:
-                    continue
-                seen_urls.add(item.url)
+            if not self._is_recent(item):
+                continue
+            key = item.url or f"{item.timestamp}:{item.headline}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            item.symbol = symbol.upper()
             items.append(item)
         items.sort(key=lambda x: x.timestamp, reverse=True)
         return items[:limit]
 
     def fetch_for_symbols(
         self, symbols: list[str], max_items: int = 10
-    ) -> list[NewsItem]:
+    ) -> list["NewsItem"]:
         """Fetch, deduplicate, and sort news across all symbols.
 
         Returns the *max_items* most recent unique articles sorted by
         timestamp descending.
         """
         unique_symbols = sorted({s.upper() for s in symbols})
-        seen_urls: set[str] = set()
+        seen_keys: set[str] = set()
         all_items: list[NewsItem] = []
 
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             futures = {
                 executor.submit(self.fetch, sym, max_items): sym
                 for sym in unique_symbols
             }
             for future in as_completed(futures):
                 for item in future.result():
-                    if item.url and item.url not in seen_urls:
-                        seen_urls.add(item.url)
+                    key = item.url or f"{item.timestamp}:{item.headline}"
+                    if key not in seen_keys:
+                        seen_keys.add(key)
                         all_items.append(item)
 
         all_items.sort(key=lambda x: x.timestamp, reverse=True)

@@ -1,6 +1,14 @@
 """CLI formatted output for the ``feed`` command and dashboard panel."""
 
+from rich.markup import escape
+
 from stonks_cli.news_fetcher import NewsItem
+
+
+def _quote_markup_attr(value: str) -> str:
+    """Quote and escape a Rich markup attribute value."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def format_news(symbol: str, items: list[NewsItem]) -> str:
@@ -20,8 +28,8 @@ def format_news(symbol: str, items: list[NewsItem]) -> str:
 def format_news_panel(items: list[NewsItem]) -> str:
     """Build Rich-markup text for the dashboard news panel.
 
-    Each item occupies two lines: headline on the first, source/time/URL
-    (dimmed) on the second.
+    Each item occupies one line in the form:
+    datetime  ticker  linked-headline  (source)
     """
     header = "[bold]News[/bold]"
     if not items:
@@ -29,8 +37,11 @@ def format_news_panel(items: list[NewsItem]) -> str:
 
     lines = [header]
     for item in items:
-        lines.append(f"  {item.headline}")
-        lines.append(
-            f"[dim]    {item.source}  --  {item.published_at}  --  {item.url}[/dim]"
-        )
+        headline = escape(item.headline)
+        if item.url:
+            headline = f"[link={_quote_markup_attr(item.url)}]{headline}[/link]"
+        ticker = f"[bold]{escape(item.symbol)}[/bold] " if item.symbol else ""
+        meta_prefix = f"  [dim]{escape(item.published_at)}[/dim] {ticker}"
+        meta_suffix = f" [dim]({escape(item.source)})[/dim]"
+        lines.append(f"{meta_prefix}{headline}{meta_suffix}")
     return "\n".join(lines)
