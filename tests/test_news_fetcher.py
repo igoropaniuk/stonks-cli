@@ -1,25 +1,18 @@
 """Unit tests for NewsFetcher."""
 
+from datetime import datetime
 from unittest.mock import patch
 
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
 
 _AAPL_ITEMS = [
-    NewsItem(
-        "Apple hits high", "Reuters", "Mar 31, 2026  09:00", "https://r.com/1", 1000
-    ),
-    NewsItem(
-        "Apple Q1 results", "Bloomberg", "Mar 30, 2026  14:00", "https://b.com/2", 900
-    ),
+    NewsItem("Apple hits high", "Reuters", "Mar 31 09:00", "https://r.com/1", 1000),
+    NewsItem("Apple Q1 results", "Bloomberg", "Mar 30 14:00", "https://b.com/2", 900),
 ]
 _NVDA_ITEMS = [
-    NewsItem(
-        "Nvidia beats estimates", "CNBC", "Mar 31, 2026  10:00", "https://c.com/3", 1100
-    ),
+    NewsItem("Nvidia beats estimates", "CNBC", "Mar 31 10:00", "https://c.com/3", 1100),
     # duplicate URL -- should be deduplicated
-    NewsItem(
-        "Apple hits high", "Reuters", "Mar 31, 2026  09:00", "https://r.com/1", 1000
-    ),
+    NewsItem("Apple hits high", "Reuters", "Mar 31 09:00", "https://r.com/1", 1000),
 ]
 
 _RAW_ARTICLE = {
@@ -256,11 +249,46 @@ class TestFetch:
             items = NewsFetcher().fetch("AAPL")
         assert len(items) == 1
 
+    def test_deduplicates_no_url_by_timestamp_and_headline(self):
+        no_url = {
+            "content": {
+                "title": "No URL article",
+                "pubDate": "2026-03-31T09:00:00Z",
+                "provider": {"displayName": "Reuters"},
+            }
+        }
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = [no_url, no_url]
+            items = NewsFetcher().fetch("AAPL")
+        assert len(items) == 1
+
     def test_zero_limit_returns_empty(self):
         with patch("yfinance.Ticker") as mock_ticker_cls:
             mock_ticker_cls.return_value.news = [_RAW_ARTICLE]
             items = NewsFetcher().fetch("AAPL", limit=0)
         assert items == []
+
+    @patch("stonks_cli.news_fetcher.datetime")
+    def test_filters_out_stale_articles(self, mock_datetime):
+        mock_datetime.now.return_value = datetime.fromisoformat(
+            "2026-03-31T12:00:00+00:00"
+        )
+        mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = [
+                _RAW_ARTICLE,
+                {
+                    "content": {
+                        "title": "Very old article",
+                        "pubDate": "2025-04-04T09:00:00Z",
+                        "provider": {"displayName": "Reuters"},
+                        "canonicalUrl": {"url": "https://reuters.com/old"},
+                    }
+                },
+            ]
+            fetcher = NewsFetcher()
+            items = fetcher.fetch("AAPL")
+        assert [item.headline for item in items] == ["Apple hits all-time high"]
 
 
 class TestFetchForSymbols:
@@ -308,8 +336,14 @@ class TestFetchForSymbols:
         fetcher = _make_fetcher({})
         assert fetcher.fetch_for_symbols([]) == []
 
-    def test_skips_items_without_url(self):
-        no_url = NewsItem("No URL article", "Reuters", "Mar 31, 2026  09:00", "", 500)
+    def test_includes_items_without_url(self):
+        no_url = NewsItem("No URL article", "Reuters", "Mar 31 09:00", "", 500)
         fetcher = _make_fetcher({"AAPL": [no_url, *_AAPL_ITEMS]})
         items = fetcher.fetch_for_symbols(["AAPL"])
-        assert all(i.url for i in items)
+        assert any(i.headline == "No URL article" for i in items)
+
+    def test_deduplicates_items_without_url(self):
+        no_url = NewsItem("No URL article", "Reuters", "Mar 31 09:00", "", 500)
+        fetcher = _make_fetcher({"AAPL": [no_url, no_url]})
+        items = fetcher.fetch_for_symbols(["AAPL"])
+        assert len(items) == 1
