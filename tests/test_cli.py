@@ -675,6 +675,37 @@ class TestDetail:
 
 
 # ---------------------------------------------------------------------------
+# feed
+# ---------------------------------------------------------------------------
+
+
+class TestFeed:
+    @patch("stonks_cli.news_fetcher.NewsFetcher")
+    @patch("stonks_cli.show_news.format_news", return_value="AAPL news output")
+    def test_feed_prints_output(self, mock_fmt, mock_fetcher_cls, runner):
+        result = runner.invoke(main, ["feed", "AAPL"])
+        assert result.exit_code == 0
+        assert "AAPL news output" in result.output
+
+    @patch("stonks_cli.news_fetcher.NewsFetcher")
+    @patch("stonks_cli.show_news.format_news")
+    def test_feed_calls_fetcher_with_symbol(self, mock_fmt, mock_fetcher_cls, runner):
+        mock_fmt.return_value = "output"
+        runner.invoke(main, ["feed", "MSFT"])
+        mock_fetcher_cls.return_value.fetch.assert_called_once_with("MSFT", limit=10)
+
+    @patch("stonks_cli.news_fetcher.NewsFetcher")
+    @patch("stonks_cli.show_news.format_news")
+    def test_feed_fetch_error_shows_click_exception(
+        self, mock_fmt, mock_fetcher_cls, runner
+    ):
+        mock_fetcher_cls.return_value.fetch.side_effect = RuntimeError("timeout")
+        result = runner.invoke(main, ["feed", "AAPL"])
+        assert result.exit_code != 0
+        assert "Failed to fetch news for AAPL" in result.output
+
+
+# ---------------------------------------------------------------------------
 # format_show_table unit tests
 # ---------------------------------------------------------------------------
 
