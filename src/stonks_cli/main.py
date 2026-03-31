@@ -212,6 +212,23 @@ def detail(symbol: str) -> None:
     click.echo(format_detail(d))
 
 
+@main.command()
+@click.argument("symbol")
+@click.option(
+    "--count", default=10, show_default=True, help="Number of articles to fetch."
+)
+def feed(symbol: str, count: int) -> None:
+    """Print the latest news articles for SYMBOL to stdout."""
+    from stonks_cli.news_fetcher import NewsFetcher
+    from stonks_cli.show_news import format_news
+
+    try:
+        items = NewsFetcher().fetch(symbol, limit=count)
+    except Exception as exc:
+        raise click.ClickException(f"Failed to fetch news for {symbol.upper()}: {exc}")
+    click.echo(format_news(symbol, items))
+
+
 @main.command("list")
 def list_portfolios() -> None:
     """List all portfolios in ~/.config/stonks/."""
