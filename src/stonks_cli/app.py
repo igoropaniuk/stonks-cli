@@ -379,6 +379,7 @@ class PortfolioApp(App[None]):
         ("e", "edit", "Edit"),
         ("r", "remove", "Remove"),
         ("l", "view_logs", "Logs"),
+        ("n", "toggle_news", "News"),
     ]
 
     CSS = """
@@ -774,6 +775,13 @@ class PortfolioApp(App[None]):
 
     def action_view_logs(self) -> None:
         self.push_screen(LogViewerScreen())
+
+    def action_toggle_news(self) -> None:
+        try:
+            widget = self.query_one(NewsFeedWidget)
+            widget.display = not widget.display
+        except NoMatches:
+            pass
 
     # ------------------------------------------------------------------
     # Detail view
