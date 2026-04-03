@@ -1,6 +1,6 @@
 """Modal form dialogs for add/edit operations in the portfolio TUI."""
 
-from typing import Any, TypedDict, TypeVar
+from typing import Any, TypeVar
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -8,32 +8,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select
 from textual.widgets._select import NoSelection
 
+from stonks_cli.dto import CashResult, EquityResult, WatchResult
+
 _FormResultT = TypeVar("_FormResultT")
-
-
-# ---------------------------------------------------------------------------
-# Result TypedDicts
-# ---------------------------------------------------------------------------
-
-
-class _EquityResult(TypedDict):
-    symbol: str
-    qty: float
-    avg_cost: float
-    currency: str
-    asset_type: str | None
-    external_id: str | None
-
-
-class _CashResult(TypedDict):
-    currency: str
-    amount: float
-
-
-class _WatchResult(TypedDict):
-    symbol: str
-    asset_type: str | None
-    external_id: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +137,7 @@ class _TypeSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
-class _EquityFormScreen(_BaseFormScreen[_EquityResult]):
+class _EquityFormScreen(_BaseFormScreen[EquityResult]):
     """Form for adding or editing an equity position."""
 
     def __init__(
@@ -230,7 +207,7 @@ class _EquityFormScreen(_BaseFormScreen[_EquityResult]):
         if avg_cost is None:
             return
         self.dismiss(
-            _EquityResult(
+            EquityResult(
                 symbol=symbol,
                 qty=qty,
                 avg_cost=avg_cost,
@@ -241,7 +218,7 @@ class _EquityFormScreen(_BaseFormScreen[_EquityResult]):
         )
 
 
-class _CashFormScreen(_BaseFormScreen[_CashResult]):
+class _CashFormScreen(_BaseFormScreen[CashResult]):
     """Form for adding or editing a cash position."""
 
     def __init__(
@@ -275,10 +252,10 @@ class _CashFormScreen(_BaseFormScreen[_CashResult]):
         amount = _validate_positive_float(amount_str, "Amount", err)
         if amount is None:
             return
-        self.dismiss(_CashResult(currency=currency, amount=amount))
+        self.dismiss(CashResult(currency=currency, amount=amount))
 
 
-class _WatchFormScreen(_BaseFormScreen[_WatchResult]):
+class _WatchFormScreen(_BaseFormScreen[WatchResult]):
     """Form for adding or editing a watchlist item."""
 
     def __init__(
@@ -327,7 +304,7 @@ class _WatchFormScreen(_BaseFormScreen[_WatchResult]):
         if not _validate_required(symbol, "Symbol", err):
             return
         self.dismiss(
-            _WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)
+            WatchResult(symbol=symbol, asset_type=asset_type, external_id=external_id)
         )
 
 

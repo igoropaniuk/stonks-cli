@@ -22,6 +22,14 @@ from textual.widgets import DataTable, Footer, Header, Label, Static
 
 from stonks_cli import app_actions
 from stonks_cli.detail import StockDetailScreen
+from stonks_cli.dto import CashResult, EquityResult, WatchResult
+from stonks_cli.forms import (
+    _CashFormScreen,
+    _ConfirmScreen,
+    _EquityFormScreen,
+    _TypeSelectScreen,
+    _WatchFormScreen,
+)
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import MarketSnapshot, build_market_snapshot
 from stonks_cli.models import (
@@ -48,17 +56,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REFRESH_INTERVAL: float = 60.0
 NEWS_HISTORY_LIMIT: int = 100
-
-from stonks_cli.forms import (  # noqa: E402
-    _CashFormScreen,
-    _CashResult,
-    _ConfirmScreen,
-    _EquityFormScreen,
-    _EquityResult,
-    _TypeSelectScreen,
-    _WatchFormScreen,
-    _WatchResult,
-)
 
 _AddFormFactory = Callable[[], Any]
 _ActiveSelection = tuple[Portfolio, int, str, _RowMeta]
@@ -543,7 +540,7 @@ class PortfolioApp(App[None]):
         self._show_error("")
         return True
 
-    def _handle_add_equity(self, idx: int, result: _EquityResult | None) -> None:
+    def _handle_add_equity(self, idx: int, result: EquityResult | None) -> None:
         if result is None:
             return
         err = app_actions.add_equity(result, self.portfolios[idx])
@@ -551,7 +548,7 @@ class PortfolioApp(App[None]):
             return
         self._save_and_refresh(idx)
 
-    def _handle_add_cash(self, idx: int, result: _CashResult | None) -> None:
+    def _handle_add_cash(self, idx: int, result: CashResult | None) -> None:
         if result is None:
             return
         err = app_actions.add_cash(result, self.portfolios[idx])
@@ -559,7 +556,7 @@ class PortfolioApp(App[None]):
             return
         self._save_and_refresh(idx)
 
-    def _handle_add_watch(self, idx: int, result: _WatchResult | None) -> None:
+    def _handle_add_watch(self, idx: int, result: WatchResult | None) -> None:
         if result is None:
             return
         err = app_actions.add_watch(result, self.portfolios[idx])
@@ -594,7 +591,7 @@ class PortfolioApp(App[None]):
         portfolio: Portfolio,
         idx: int,
         cash_pos: CashPosition,
-        result: _CashResult | None,
+        result: CashResult | None,
     ) -> None:
         if result is None:
             return
@@ -608,7 +605,7 @@ class PortfolioApp(App[None]):
         portfolio: Portfolio,
         idx: int,
         old_item: WatchlistItem,
-        result: _WatchResult | None,
+        result: WatchResult | None,
     ) -> None:
         if result is None:
             return
@@ -622,7 +619,7 @@ class PortfolioApp(App[None]):
         portfolio: Portfolio,
         idx: int,
         pos: Position,
-        result: _EquityResult | None,
+        result: EquityResult | None,
     ) -> None:
         if result is None:
             return
