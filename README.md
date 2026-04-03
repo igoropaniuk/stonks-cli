@@ -46,6 +46,7 @@ Track your investment portfolio directly from the terminal.
   - [Session labels](#session-labels)
   - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Stock detail screen](#stock-detail-screen)
+- [AI Chat](#ai-chat)
 - [Logging](#logging)
 - [Running with Docker](#running-with-docker)
   - [Build the image](#build-the-image)
@@ -427,6 +428,8 @@ market is closed (using holiday-aware calendar data).
 | `r`      | Remove the currently selected position            |
 | `Enter`  | Open the detail screen for the selected row       |
 | `Tab`    | Switch focus between portfolio tables             |
+| `c`      | Open the AI chat assistant                        |
+| `n`      | Toggle the news feed panel                        |
 | `q`      | Quit                                              |
 
 Column headers are clickable -- click once to sort ascending, again to sort
@@ -452,6 +455,60 @@ The detail screen displays:
 - **Analyst insights** -- price targets (low / mean / high), consensus rating,
   and a monthly recommendations breakdown (Strong Buy to Strong Sell)
 - **Statistics** -- valuation measures and financial highlights
+
+---
+
+## AI Chat
+
+Press **`c`** from the dashboard to open the AI chat assistant. The assistant
+has access to your live portfolio snapshot, current prices, forex rates, and
+recent news headlines, so it can answer questions grounded in your actual data.
+
+### Requirements
+
+Set the `OPENAI_API_KEY` environment variable before starting stonks:
+
+```bash
+export OPENAI_API_KEY=sk-...
+stonks
+```
+
+The input field is disabled with an error message if the key is missing or if
+live prices have not yet loaded.
+
+### Environment variables
+
+| Variable          | Default        | Description                                      |
+| ----------------- | -------------- | ------------------------------------------------ |
+| `OPENAI_API_KEY`  | *(required)*   | Your OpenAI API key                              |
+| `OPENAI_MODEL`    | `gpt-5.4-mini` | Model to use for chat completions                |
+| `OPENAI_BASE_URL` | *(OpenAI)*     | Override the API endpoint (proxies, local LLMs)  |
+
+`OPENAI_BASE_URL` is useful for pointing the client at any OpenAI-compatible
+server -- for example [Ollama](https://ollama.com), LM Studio, or a corporate
+proxy:
+
+```bash
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export OPENAI_MODEL=llama3
+stonks
+```
+
+### Usage
+
+- Type a question in the input field and press **Enter** to send.
+- The assistant streams the reply as Markdown directly in the chat log.
+- Previous messages are kept in context within the session.
+- Press **Escape** to close the chat and return to the dashboard.
+
+### What the assistant can help with
+
+- Portfolio breakdown -- positions, P&L, concentration risk
+- Market context -- connecting recent headlines to your holdings
+- App usage -- how to load portfolios, configure watchlists, use the CLI
+
+The assistant will not invent prices, news, or ratings. If data is unavailable
+it will say so explicitly.
 
 ---
 
