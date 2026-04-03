@@ -741,6 +741,172 @@ class TestFeed:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# import ibkr
+# ---------------------------------------------------------------------------
+
+
+class TestImportIbkr:
+    def _csv(self, tmp_path: Path, content: str) -> Path:
+        import textwrap
+
+        p = tmp_path / "positions.csv"
+        p.write_text(textwrap.dedent(content), encoding="utf-8")
+        return p
+
+    def test_imports_positions_into_empty_portfolio(
+        self, runner, portfolio_file, tmp_path
+    ):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,CurrencyPrimary,ListingExchange
+            AAPL,10,175.50,USD,NASDAQ
+            MSFT,5,350.00,USD,NASDAQ
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code == 0
+        assert "Imported 2" in result.output
+
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert len(portfolio.positions) == 2
+        aapl = portfolio.get_position("AAPL")
+        assert aapl is not None
+        assert aapl.quantity == pytest.approx(10.0)
+        assert aapl.avg_cost == pytest.approx(175.50)
+
+    def test_exchange_suffix_applied_to_symbol(self, runner, portfolio_file, tmp_path):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,CurrencyPrimary,ListingExchange
+            BP,200,452.30,GBP,LSE
+            OR,15,368.40,EUR,SBF
+            """,
+        )
+        invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_position("BP.L") is not None
+        assert portfolio.get_position("OR.PA") is not None
+
+    def test_currency_stored_correctly(self, runner, portfolio_file, tmp_path):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,CurrencyPrimary,ListingExchange
+            BP,200,452.30,GBP,LSE
+            """,
+        )
+        invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        pos = portfolio.get_position("BP.L")
+        assert pos is not None
+        assert pos.currency == "GBP"
+
+    def test_no_prompt_when_portfolio_is_empty(self, runner, portfolio_file, tmp_path):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice
+            AAPL,10,175.00
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code == 0
+        assert "Replace" not in result.output
+
+    def test_prompt_shown_when_portfolio_has_positions(
+        self, runner, portfolio_file, tmp_path
+    ):
+        invoke(runner, portfolio_file, "add", "NVDA", "5", "600.0")
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice
+            AAPL,10,175.00
+            """,
+        )
+        result = runner.invoke(
+            main,
+            ["--portfolio", str(portfolio_file), "import", "ibkr", str(csv)],
+            input="y\n",
+        )
+        assert result.exit_code == 0
+        assert "Replace" in result.output
+
+    def test_confirm_yes_replaces_existing_positions(
+        self, runner, portfolio_file, tmp_path
+    ):
+        invoke(runner, portfolio_file, "add", "NVDA", "5", "600.0")
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice
+            AAPL,10,175.00
+            """,
+        )
+        runner.invoke(
+            main,
+            ["--portfolio", str(portfolio_file), "import", "ibkr", str(csv)],
+            input="y\n",
+        )
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_position("NVDA") is None
+        assert portfolio.get_position("AAPL") is not None
+
+    def test_confirm_no_aborts_import(self, runner, portfolio_file, tmp_path):
+        invoke(runner, portfolio_file, "add", "NVDA", "5", "600.0")
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice
+            AAPL,10,175.00
+            """,
+        )
+        result = runner.invoke(
+            main,
+            ["--portfolio", str(portfolio_file), "import", "ibkr", str(csv)],
+            input="n\n",
+        )
+        assert result.exit_code != 0
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_position("NVDA") is not None
+        assert portfolio.get_position("AAPL") is None
+
+    def test_invalid_csv_shows_error(self, runner, portfolio_file, tmp_path):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity
+            AAPL,10
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code != 0
+        assert "Error" in result.output
+
+    def test_no_valid_positions_shows_error(self, runner, portfolio_file, tmp_path):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,AssetClass
+            EURUSD,1000,1.10,CASH
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code != 0
+        assert "Error" in result.output
+
+    def test_nonexistent_file_shows_error(self, runner, portfolio_file, tmp_path):
+        result = invoke(
+            runner, portfolio_file, "import", "ibkr", str(tmp_path / "missing.csv")
+        )
+        assert result.exit_code != 0
+
+
 class TestFormatShowTable:
     def test_columns_are_aligned(self):
         portfolio = Portfolio(
