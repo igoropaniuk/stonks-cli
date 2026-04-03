@@ -5,6 +5,7 @@ description = "CLI tool for tracking investment portfolio"
 authors = ["Igor Opaniuk <igor.opaniuk@gmail.com>"]
 readme = "README.md"
 packages = [{include = "stonks_cli", from = "src"}]
+include = [{path = "README.md", format = ["sdist", "wheel"]}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -17,6 +18,7 @@ exchange-calendars = "^4.13.2"
 textual-plotext = "^1.0.0"
 platformdirs = "^4.9.4"
 httpx = ">=0.27.0"
+openai = "^2.30.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"
