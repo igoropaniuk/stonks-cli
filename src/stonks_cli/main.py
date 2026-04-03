@@ -259,5 +259,89 @@ def list_portfolios() -> None:
         click.echo(f.stem)
 
 
+# ---------------------------------------------------------------------------
+# import group
+# ---------------------------------------------------------------------------
+
+
+@main.group("import")
+def import_group() -> None:
+    """Import portfolio data from external sources."""
+
+
+@import_group.command("ibkr")
+@click.argument(
+    "csv_file", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.pass_context
+def import_ibkr(ctx: click.Context, csv_file: Path) -> None:
+    """Import positions from an Interactive Brokers Flex Query CSV export.
+
+    CSV_FILE is the path to the IBKR Flex Query CSV file.
+
+    Use the global -p option to choose a target portfolio:
+
+    \b
+        stonks -p work import ibkr positions.csv
+
+    If the target portfolio already contains positions you will be asked to
+    confirm before they are replaced.
+    """
+    from stonks_cli.ibkr_importer import IBKRImportError, IBKRPosition, parse_ibkr_csv
+    from stonks_cli.models import Position
+
+    store: PortfolioStore = ctx.obj["store"]
+
+    # Parse CSV ---------------------------------------------------------------
+    try:
+        ibkr_positions: list[IBKRPosition] = parse_ibkr_csv(csv_file)
+    except IBKRImportError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if not ibkr_positions:
+        raise click.ClickException(
+            "No valid equity positions found in the CSV.\n"
+            "Check that the file contains rows with a positive Position quantity\n"
+            "and an AssetClass of STK (or no AssetClass column at all)."
+        )
+
+    # Confirm replacement if portfolio already has positions ------------------
+    portfolio = store.load()
+    if portfolio.positions:
+        n = len(portfolio.positions)
+        click.echo(f"Portfolio '{store.path}' already contains {n} position(s).")
+        click.confirm(
+            "Replace all existing positions with the imported data?",
+            abort=True,
+        )
+
+    portfolio.positions.clear()
+
+    # Import positions --------------------------------------------------------
+    skipped: list[str] = []
+    imported = 0
+    for pos in ibkr_positions:
+        try:
+            portfolio.positions.append(
+                Position(
+                    symbol=pos.symbol,
+                    quantity=pos.quantity,
+                    avg_cost=pos.avg_price,
+                    currency=pos.currency,
+                )
+            )
+            imported += 1
+        except ValueError as exc:
+            skipped.append(f"{pos.symbol}: {exc}")
+
+    store.save(portfolio)
+
+    click.echo(f"+ Imported {imported} position(s) from Interactive Brokers export")
+    if skipped:
+        click.echo(f"  Skipped {len(skipped)} row(s):")
+        for msg in skipped:
+            click.echo(f"    - {msg}")
+
+
 if __name__ == "__main__":
     main()
