@@ -5,7 +5,10 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from stonks_cli.chat import ChatScreen
 
 from rich.text import Text
 from textual import work
@@ -380,6 +383,7 @@ class PortfolioApp(App[None]):
         ("r", "remove", "Remove"),
         ("l", "view_logs", "Logs"),
         ("n", "toggle_news", "News"),
+        ("c", "chat", "Chat"),
     ]
 
     CSS = """
@@ -430,6 +434,7 @@ class PortfolioApp(App[None]):
         self.stores = stores or []
         self._refresh_lock = threading.Lock()
         self._news_items: deque[NewsItem] = deque(maxlen=NEWS_HISTORY_LIMIT)
+        self._chat_history: list[dict[str, str]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -775,6 +780,25 @@ class PortfolioApp(App[None]):
 
     def action_view_logs(self) -> None:
         self.push_screen(LogViewerScreen())
+
+    def action_chat(self) -> None:
+        from stonks_cli.chat import ChatScreen
+
+        if isinstance(self.screen, ChatScreen):
+            return
+        self.push_screen(
+            ChatScreen(
+                self.portfolios,
+                lambda: self._snap,
+                self._news_items,
+                self._chat_history,
+            )
+        )
+
+    def on_chat_screen_history_updated(
+        self, event: "ChatScreen.HistoryUpdated"
+    ) -> None:
+        self._chat_history = event.history
 
     def action_toggle_news(self) -> None:
         try:
