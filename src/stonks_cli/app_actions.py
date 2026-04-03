@@ -2,7 +2,7 @@
 
 import logging
 
-from stonks_cli.forms import _CashResult, _EquityResult, _WatchResult
+from stonks_cli.dto import CashResult, EquityResult, WatchResult
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 from stonks_cli.table_rows import RowKind
 
@@ -14,7 +14,7 @@ def watch_item(portfolio: Portfolio, symbol: str) -> WatchlistItem | None:
     return next((w for w in portfolio.watchlist if w.symbol == symbol), None)
 
 
-def add_equity(result: _EquityResult, portfolio: Portfolio) -> str | None:
+def add_equity(result: EquityResult, portfolio: Portfolio) -> str | None:
     """Apply an add-equity form result to *portfolio*; return an error or None."""
     is_new = portfolio.get_position(result["symbol"]) is None
     try:
@@ -31,7 +31,7 @@ def add_equity(result: _EquityResult, portfolio: Portfolio) -> str | None:
     return None
 
 
-def add_cash(result: _CashResult, portfolio: Portfolio) -> str | None:
+def add_cash(result: CashResult, portfolio: Portfolio) -> str | None:
     """Apply an add-cash form result to *portfolio*; return an error or None."""
     try:
         portfolio.add_cash(result["currency"], result["amount"])
@@ -46,7 +46,7 @@ def add_cash(result: _CashResult, portfolio: Portfolio) -> str | None:
     return None
 
 
-def add_watch(result: _WatchResult, portfolio: Portfolio) -> str | None:
+def add_watch(result: WatchResult, portfolio: Portfolio) -> str | None:
     """Apply an add-watch form result to *portfolio*; return an error or None."""
     symbol = result["symbol"]
     if watch_item(portfolio, symbol) is not None:
@@ -70,7 +70,7 @@ def add_watch(result: _WatchResult, portfolio: Portfolio) -> str | None:
 def edit_cash(
     portfolio: Portfolio,
     cash_pos: CashPosition,
-    result: _CashResult,
+    result: CashResult,
 ) -> str | None:
     """Edit an existing cash position; return an error or None."""
     new_currency = result["currency"]
@@ -92,7 +92,7 @@ def edit_cash(
 def edit_watch(
     portfolio: Portfolio,
     old_item: WatchlistItem,
-    result: _WatchResult,
+    result: WatchResult,
 ) -> str | None:
     """Edit a watchlist item; return an error or None."""
     new_symbol = result["symbol"]
@@ -109,7 +109,7 @@ def edit_watch(
 def edit_position(
     portfolio: Portfolio,
     pos: Position,
-    result: _EquityResult,
+    result: EquityResult,
 ) -> str | None:
     """Edit an existing position; return an error or None."""
     new_symbol = result["symbol"]
