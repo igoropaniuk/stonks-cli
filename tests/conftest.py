@@ -6,9 +6,10 @@ from stonks_cli.app import PortfolioApp
 
 
 @pytest.fixture(autouse=True)
-def no_price_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prevent live network calls during TUI tests by stubbing the refresh worker."""
+def stub_refresh_workers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent live network calls during TUI tests by stubbing the refresh workers."""
     monkeypatch.setattr(PortfolioApp, "_refresh_prices", lambda self: None)
+    monkeypatch.setattr(PortfolioApp, "_refresh_news", lambda self: None)
 
 
 @pytest.fixture(autouse=True)
