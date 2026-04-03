@@ -2558,3 +2558,55 @@ async def test_dispatch_edit_cash_not_found_is_noop() -> None:
         app._dispatch_edit_cash(
             p, 0, "Test", "JPY"
         )  # JPY not in portfolio; must not raise
+
+
+@pytest.mark.asyncio
+async def test_action_chat_opens_screen(portfolio: Portfolio) -> None:
+    """action_chat pushes a ChatScreen onto the screen stack."""
+    from stonks_cli.chat import ChatScreen
+
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch.object(app, "push_screen") as mock_push:
+            app.action_chat()
+        mock_push.assert_called_once()
+        pushed_arg = mock_push.call_args[0][0]
+        assert isinstance(pushed_arg, ChatScreen)
+
+
+@pytest.mark.asyncio
+async def test_action_chat_no_op_when_already_open(portfolio: Portfolio) -> None:
+    """action_chat is a no-op when a ChatScreen is already the active screen."""
+    from stonks_cli.chat import ChatScreen
+
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Open ChatScreen once so it becomes the active screen.
+        app.action_chat()
+        await pilot.pause()
+        assert isinstance(app.screen, ChatScreen)
+        # Call again -- push_screen must not be invoked a second time.
+        with patch.object(app, "push_screen") as mock_push:
+            app.action_chat()
+        mock_push.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> None:
+    """HistoryUpdated message from ChatScreen updates app._chat_history."""
+    from stonks_cli.chat import ChatScreen
+
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        new_history = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello!"},
+        ]
+        app.on_chat_screen_history_updated(ChatScreen.HistoryUpdated(new_history))
+        assert app._chat_history == new_history
