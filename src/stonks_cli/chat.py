@@ -168,7 +168,7 @@ def _validate_reply(reply: str) -> str | None:
     return None
 
 
-class ChatScreen(Screen):
+class ChatScreen(Screen, inherit_bindings=False):
     """Full-screen AI chat with portfolio + news RAG context."""
 
     BINDINGS = [
@@ -219,6 +219,7 @@ class ChatScreen(Screen):
         history: list[dict[str, str]],
     ) -> None:
         super().__init__()
+        self._modal = True
         self._portfolios = portfolios
         self._snap_getter = snap_getter
         self._news_items = news_items

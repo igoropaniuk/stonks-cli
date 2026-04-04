@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widget import Widget
-from textual.widgets import Label, LoadingIndicator, Static
+from textual.widgets import Footer, Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
 from stonks_cli.helpers import ThreadGuardMixin, nice_yticks
@@ -32,12 +32,16 @@ def _kv_row(container: Widget, label: str, value: str) -> None:
     row.mount(Static(value, classes="kv-value"))
 
 
-class StockDetailScreen(ThreadGuardMixin, Screen):
+class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     """Full-screen detail view for a single stock."""
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
         Binding("q", "app.pop_screen", "Back", priority=True),
+        Binding("up", "scroll_up", "Scroll Up", show=True),
+        Binding("down", "scroll_down", "Scroll Down", show=True),
+        Binding("pageup", "page_up", "Page Up", show=True),
+        Binding("pagedown", "page_down", "Page Down", show=True),
     ]
 
     CSS = """
@@ -113,6 +117,7 @@ class StockDetailScreen(ThreadGuardMixin, Screen):
 
     def __init__(self, symbol: str) -> None:
         super().__init__()
+        self._modal = True
         self._symbol = symbol
 
     def compose(self) -> ComposeResult:
@@ -121,10 +126,26 @@ class StockDetailScreen(ThreadGuardMixin, Screen):
         yield LoadingIndicator(id="loading")
         yield Label("", id="error-msg")
         yield VerticalScroll(id="detail-scroll")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#detail-scroll").display = False
         self._load_detail()
+
+    def _scroll(self) -> VerticalScroll:
+        return self.query_one("#detail-scroll", VerticalScroll)
+
+    def action_scroll_up(self) -> None:
+        self._scroll().scroll_up()
+
+    def action_scroll_down(self) -> None:
+        self._scroll().scroll_down()
+
+    def action_page_up(self) -> None:
+        self._scroll().scroll_page_up()
+
+    def action_page_down(self) -> None:
+        self._scroll().scroll_page_down()
 
     @work(thread=True)
     def _load_detail(self) -> None:
