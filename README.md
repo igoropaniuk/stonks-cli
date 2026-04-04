@@ -13,6 +13,15 @@ Track your investment portfolio directly from the terminal.
 
 ![demo](docs/assets/demo.gif)
 
+**Quick start:**
+
+```bash
+pip install stonks-cli
+stonks demo # create demo portfolio
+```
+
+**Features:**
+
 - **Terminal dashboard (TUI)** -- live prices with auto-refresh
 - **Extended-hours quotes** -- PRE / AH / CLS session labels for US equities
 - **Daily % change** -- intraday gain/loss vs. previous close for every row
@@ -77,10 +86,9 @@ stonks-cli stores your portfolio in a YAML file. By default the file is read
 from `~/.config/stonks/portfolio.yaml`; you can override this with the
 `-p` / `--portfolio` option (see [Usage](#usage)).
 
-> **First run:** if `~/.config/stonks/` contains no `.yaml` files, stonks-cli
-> automatically creates a sample portfolio at
-> `~/.config/stonks/portfolio.yaml` so you can explore the dashboard right
-> away. Replace its contents with your own positions whenever you are ready.
+> **Try it first:** run `stonks demo` to explore the dashboard with a sample
+> portfolio created in the system temporary directory. Your own portfolio at
+> `~/.config/stonks/portfolio.yaml` is never touched.
 
 ### File structure
 
