@@ -101,6 +101,7 @@ class _BaseFormScreen(ModalScreen[_FormResultT | None]):
         if event.key == "escape":
             self.dismiss(None)
 
+
     def _submit(self) -> None:
         raise NotImplementedError
 
@@ -114,6 +115,7 @@ class _TypeSelectScreen(ModalScreen[str | None]):
     """Ask whether the new position is equity or cash."""
 
     CSS = _MODAL_CSS.format(cls="_TypeSelectScreen")
+    AUTO_FOCUS = "#equity"
 
     def __init__(self, portfolio_name: str = "") -> None:
         super().__init__()
@@ -139,6 +141,8 @@ class _TypeSelectScreen(ModalScreen[str | None]):
 
 class _EquityFormScreen(_BaseFormScreen[EquityResult]):
     """Form for adding or editing an equity position."""
+
+    AUTO_FOCUS = "#symbol"
 
     def __init__(
         self,
@@ -221,6 +225,8 @@ class _EquityFormScreen(_BaseFormScreen[EquityResult]):
 class _CashFormScreen(_BaseFormScreen[CashResult]):
     """Form for adding or editing a cash position."""
 
+    AUTO_FOCUS = "#currency"
+
     def __init__(
         self,
         title: str = "Add Cash Position",
@@ -257,6 +263,8 @@ class _CashFormScreen(_BaseFormScreen[CashResult]):
 
 class _WatchFormScreen(_BaseFormScreen[WatchResult]):
     """Form for adding or editing a watchlist item."""
+
+    AUTO_FOCUS = "#symbol"
 
     def __init__(
         self,
@@ -311,6 +319,7 @@ class _WatchFormScreen(_BaseFormScreen[WatchResult]):
 class _ConfirmScreen(ModalScreen[bool]):
     """Simple yes/no confirmation dialog."""
 
+    AUTO_FOCUS = "#yes"
     CSS = _MODAL_CSS.format(cls="_ConfirmScreen").replace(
         "border: solid $accent", "border: solid $error"
     )
