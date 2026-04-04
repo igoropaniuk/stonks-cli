@@ -1,26 +1,10 @@
 """CLI formatted output for portfolio show command."""
 
+from stonks_cli.helpers import fmt_chg, fmt_price, fmt_qty
 from stonks_cli.market import MarketSnapshot
-from stonks_cli.market_session import SESSION_BADGE
 from stonks_cli.models import Portfolio, portfolio_total
 from stonks_cli.table_columns import _TABLE_COLUMNS
-from stonks_cli.table_rows import RowKind, _fmt_qty, build_row_data
-
-
-def _fmt_chg(pct: float | None) -> str:
-    """Format a pre-computed change percentage as a display string."""
-    if pct is None:
-        return "--"
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct:.2f}%"
-
-
-def _fmt_price(last: float | None, session: str) -> str:
-    """Format the last-price cell with a session badge when applicable."""
-    if last is None:
-        return "N/A"
-    badge = SESSION_BADGE.get(session, "")
-    return f"{last:.2f} {badge}" if badge else f"{last:.2f}"
+from stonks_cli.table_rows import RowKind, build_row_data
 
 
 def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str, ...]]:
@@ -43,7 +27,7 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     (
                         rd.symbol,
                         rd.exchange,
-                        _fmt_qty(rd.qty),
+                        fmt_qty(rd.qty),
                         f"{rd.avg_cost:.2f}",
                         "N/A",
                         "--",
@@ -56,10 +40,10 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     (
                         rd.symbol,
                         rd.exchange,
-                        _fmt_qty(rd.qty),
+                        fmt_qty(rd.qty),
                         f"{rd.avg_cost:.2f}",
-                        _fmt_price(rd.last, rd.session),
-                        _fmt_chg(rd.chg_pct),
+                        fmt_price(rd.last, rd.session),
+                        fmt_chg(rd.chg_pct),
                         f"{rd.mkt_value:,.2f}",
                         f"{rd.pnl:+,.2f}",
                     )
@@ -71,8 +55,8 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     rd.exchange,
                     "-",
                     "-",
-                    _fmt_price(rd.last, rd.session),
-                    _fmt_chg(rd.chg_pct),
+                    fmt_price(rd.last, rd.session),
+                    fmt_chg(rd.chg_pct),
                     "-",
                     "-",
                 )

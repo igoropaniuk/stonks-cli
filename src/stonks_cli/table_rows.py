@@ -16,6 +16,7 @@ from typing import Any, NamedTuple
 from rich.text import Text
 
 from stonks_cli.exchanges import exchange_label
+from stonks_cli.helpers import fmt_chg, fmt_qty
 from stonks_cli.market_session import SESSION_BADGE, Session
 from stonks_cli.models import (
     Portfolio,
@@ -164,11 +165,6 @@ _ROW_KIND_LABELS: dict[RowKind, str] = {
 }
 
 
-def _fmt_qty(qty: float) -> str:
-    """Format a position quantity, dropping the decimal point for whole numbers."""
-    return str(int(qty)) if float(qty).is_integer() else str(qty)
-
-
 def _format_chg_cell(
     chg_pct: float | None, dim: bool = False
 ) -> tuple[Text | str, float]:
@@ -176,8 +172,7 @@ def _format_chg_cell(
     if chg_pct is None:
         cell: Text | str = Text("--", style="dim") if dim else "--"
         return cell, 0.0
-    sign = "+" if chg_pct >= 0 else ""
-    label = f"{sign}{chg_pct:.2f}%"
+    label = fmt_chg(chg_pct)
     color = "green" if chg_pct >= 0 else "red"
     style = f"dim {color}" if dim else color
     return Text(label, style=style), chg_pct
@@ -249,7 +244,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
             display: tuple = (
                 rd.symbol,
                 rd.exchange,
-                _fmt_qty(rd.qty),
+                fmt_qty(rd.qty),
                 f"{rd.avg_cost:.2f}",
                 price_cell,
                 chg_cell,
