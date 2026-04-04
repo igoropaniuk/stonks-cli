@@ -14,9 +14,10 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Footer, Input, Label, Markdown, Static
+
+from stonks_cli.messages import HistoryUpdated
 
 if TYPE_CHECKING:
     from openai import AsyncStream
@@ -169,13 +170,6 @@ def _validate_reply(reply: str) -> str | None:
 
 class ChatScreen(Screen):
     """Full-screen AI chat with portfolio + news RAG context."""
-
-    class HistoryUpdated(Message):
-        """Posted after each assistant reply so the parent can persist history."""
-
-        def __init__(self, history: list[dict[str, str]]) -> None:
-            super().__init__()
-            self.history = history
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Close"),
@@ -396,4 +390,4 @@ class ChatScreen(Screen):
             return
 
         self._history.append({"role": "assistant", "content": full_reply})
-        self.post_message(self.HistoryUpdated(list(self._history)))
+        self.post_message(HistoryUpdated(list(self._history)))

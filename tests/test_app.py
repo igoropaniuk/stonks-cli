@@ -2598,7 +2598,7 @@ async def test_action_chat_no_op_when_already_open(portfolio: Portfolio) -> None
 @pytest.mark.asyncio
 async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> None:
     """HistoryUpdated message from ChatScreen updates app._chat_history."""
-    from stonks_cli.chat import ChatScreen
+    from stonks_cli.messages import HistoryUpdated
 
     app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
 
@@ -2608,5 +2608,5 @@ async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> Non
             {"role": "user", "content": "Hi"},
             {"role": "assistant", "content": "Hello!"},
         ]
-        app.on_chat_screen_history_updated(ChatScreen.HistoryUpdated(new_history))
+        app.on_history_updated(HistoryUpdated(new_history))
         assert app._chat_history == new_history
