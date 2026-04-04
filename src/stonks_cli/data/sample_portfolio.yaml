@@ -107,13 +107,6 @@ portfolio:
       asset_type: crypto
       external_id: dogecoin
 
-    - symbol: MATIC-USD
-      quantity: 300.0
-      avg_cost: 0.95
-      currency: USD
-      asset_type: crypto
-      external_id: matic-network
-
     - symbol: 6758.T
       quantity: 20
       avg_cost: 3200.00
