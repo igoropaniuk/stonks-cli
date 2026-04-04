@@ -7,14 +7,11 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.css.query import NoMatches
-from textual.message import Message
-from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Label, Static
 
 from stonks_cli import app_actions
@@ -37,19 +34,16 @@ from stonks_cli.models import (
     Portfolio,
     Position,
     WatchlistItem,
-    portfolio_total,
 )
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
 from stonks_cli.portfolio_table import (
     _ROW_KIND_LABELS,
-    TABLE_COLUMNS,
     RowKind,
-    _RowData,
     _RowMeta,
-    _to_tui_rows,
-    build_row_data,
 )
 from stonks_cli.storage import PortfolioStore
+from stonks_cli.widgets.news_feed import NewsFeedWidget
+from stonks_cli.widgets.portfolio_table import PortfolioTableWidget
 
 logger = logging.getLogger(__name__)
 
@@ -60,311 +54,6 @@ NEWS_HISTORY_LIMIT: int = 100
 _AddFormFactory = Callable[[], Any]
 _ActiveSelection = tuple[Portfolio, int, str, _RowMeta]
 _ScreenCallback = Callable[[Any], None]
-
-
-class PortfolioTableWidget(Widget):
-    """DataTable plus a total bar for a single portfolio.
-
-    Owns sort state, row metadata, and all table-rendering logic.
-    Call :meth:`refresh_data` to push new portfolio/price data into the widget.
-    """
-
-    DEFAULT_CSS = "PortfolioTableWidget { height: auto; }"
-
-    def __init__(
-        self,
-        widget_id: str | None = None,
-        table_id: str | None = None,
-        total_id: str | None = None,
-    ) -> None:
-        super().__init__(id=widget_id)
-        self._table_id = table_id
-        self._total_id = total_id
-        self._sort_column: int | None = None
-        self._sort_reverse: bool = False
-        self._row_meta: dict[str, _RowMeta] = {}
-        # Cached market data: populated by refresh_data(), reused on sort.
-        self._portfolio: Portfolio | None = None
-        self._snap: MarketSnapshot = MarketSnapshot()
-
-    def compose(self) -> ComposeResult:
-        yield DataTable(zebra_stripes=True, cursor_type="row", id=self._table_id)
-        yield Static("", id=self._total_id, classes="total")
-
-    def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(*TABLE_COLUMNS)
-
-    def refresh_data(self, portfolio: Portfolio, snap: MarketSnapshot) -> None:
-        """Push new data into the widget and repaint."""
-        self._portfolio = portfolio
-        self._snap = snap
-        self._repaint()
-
-    def get_row_meta(self) -> _RowMeta | None:
-        """Return the _RowMeta for the row currently under the cursor."""
-        table = self.query_one(DataTable)
-        try:
-            row_key = table.ordered_rows[table.cursor_row].key
-        except (IndexError, AttributeError):
-            return None
-        return self._row_meta.get(str(row_key.value))
-
-    def get_meta_for_key(self, rkey: str) -> _RowMeta | None:
-        """Return the _RowMeta for a specific row key string."""
-        return self._row_meta.get(rkey)
-
-    class RowSelected(Message):
-        """Posted when the user selects a row in this widget's table."""
-
-        def __init__(self, meta: _RowMeta) -> None:
-            self.meta = meta
-            super().__init__()
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        meta = self.get_meta_for_key(str(event.row_key.value))
-        if meta is not None:
-            self.post_message(self.RowSelected(meta))
-
-    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
-        col = event.column_index
-        if self._sort_column == col:
-            self._sort_reverse = not self._sort_reverse
-        else:
-            self._sort_column = col
-            self._sort_reverse = False
-        self._repaint()
-
-    # ------------------------------------------------------------------
-    # Internal rendering
-    # ------------------------------------------------------------------
-
-    def _repaint(self) -> None:
-        if self._portfolio is None:
-            return
-        table = self.query_one(DataTable)
-        self._render_rows(table)
-        self._update_total()
-
-    def _apply_sort(self, rows: list[_RowData]) -> list[_RowData]:
-        if self._sort_column is None:
-            return rows
-        col = self._sort_column
-        return sorted(
-            rows,
-            key=lambda r: r[0][col],
-            reverse=self._sort_reverse,
-        )
-
-    def _write_rows(self, table: DataTable, rows: list[_RowData]) -> None:
-        self._row_meta.clear()
-        for _, cells, meta in rows:
-            rkey = f"{meta.kind.name}:{meta.symbol}"
-            table.add_row(*cells, key=rkey)
-            self._row_meta[rkey] = meta
-
-    def _render_rows(self, table: DataTable) -> None:
-        portfolio = self._portfolio
-        assert portfolio is not None
-        saved_cursor = table.cursor_coordinate
-        table.clear()
-        rates = self._snap.forex_rates.get(portfolio.base_currency, {})
-        rows = _to_tui_rows(
-            build_row_data(
-                portfolio,
-                self._snap.prices,
-                self._snap.sessions,
-                self._snap.prev_closes,
-                self._snap.exchange_codes,
-                rates,
-            )
-        )
-        self._write_rows(table, self._apply_sort(rows))
-        table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
-
-    def _update_total(self) -> None:
-        portfolio = self._portfolio
-        assert portfolio is not None
-        rates = self._snap.forex_rates.get(portfolio.base_currency, {})
-        total = portfolio_total(portfolio, self._snap.prices, rates)
-        base = portfolio.base_currency
-        widget = self.query_one(Static)
-        if total is None:
-            widget.update(Text(f"Total ({base})  ").append("N/A", style="bold"))
-        else:
-            widget.update(
-                Text(f"Total ({base})  ").append(f"{total:,.2f}", style="bold")
-            )
-
-
-class NewsFeedWidget(Widget, can_focus=True, can_focus_children=False):
-    """Fixed-height scrollable news panel shown below portfolio tables."""
-
-    class OpenURL(Message):
-        """Request to open a URL in the system browser."""
-
-        def __init__(self, url: str) -> None:
-            self.url = url
-            super().__init__()
-
-    BINDINGS = [
-        Binding("up", "select_prev", show=False),
-        Binding("down", "select_next", show=False),
-        Binding("enter", "open_selected", "Open link", show=False),
-    ]
-
-    DEFAULT_CSS = """
-    NewsFeedWidget {
-        height: 10;
-        overflow-y: auto;
-        border-top: solid $accent;
-        padding: 0 1;
-    }
-    NewsFeedWidget:focus {
-        border-top: solid $accent-lighten-2;
-    }
-    #news-header {
-        height: auto;
-    }
-    #news-items {
-        height: auto;
-    }
-    .news-headline {
-        width: auto;
-    }
-    .news-meta {
-        height: auto;
-        color: $text-muted;
-        width: auto;
-    }
-    .news-prefix {
-        width: 21;
-    }
-    .news-row {
-        height: auto;
-    }
-    .news-row.selected {
-        background: $boost;
-    }
-    .news-row.selected .news-headline {
-        text-style: bold underline;
-    }
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._items_data: list[NewsItem] = []
-        self._selected_index = 0
-
-    def compose(self) -> ComposeResult:
-        yield Static("News", id="news-header")
-        yield Vertical(Static("Loading news...", classes="news-meta"), id="news-items")
-
-    def set_items(self, items: list[NewsItem]) -> None:
-        self._items_data = items
-        if items:
-            self._selected_index = min(self._selected_index, len(items) - 1)
-        else:
-            self._selected_index = 0
-        self.query_one("#news-header", Static).update("[bold]News[/bold]")
-        self._render_items(items)
-
-    def set_error(self, message: str) -> None:
-        self._items_data = []
-        self._selected_index = 0
-        self.query_one("#news-header", Static).update("[bold]News[/bold]")
-        self._render_error(message)
-
-    @work(group="news-panel", exclusive=True, exit_on_error=False)
-    async def _render_items(self, items: list[NewsItem]) -> None:
-        body = self.query_one("#news-items", Vertical)
-        widgets: list[Widget] = []
-        if not items:
-            widgets.append(Static("No recent news.", classes="news-meta"))
-        else:
-            for index, item in enumerate(items):
-                widgets.append(NewsItemRow(item, index))
-        async with body.batch():
-            await body.remove_children()
-            await body.mount_all(widgets)
-        self._apply_selection()
-
-    @work(group="news-panel", exclusive=True, exit_on_error=False)
-    async def _render_error(self, message: str) -> None:
-        body = self.query_one("#news-items", Vertical)
-        async with body.batch():
-            await body.remove_children()
-            await body.mount(Static(message, classes="news-meta"))
-
-    def watch_has_focus(self, _has_focus: bool) -> None:
-        super().watch_has_focus(_has_focus)
-        self._apply_selection()
-
-    def _rows(self) -> list["NewsItemRow"]:
-        return list(self.query(NewsItemRow))
-
-    def _apply_selection(self) -> None:
-        rows = self._rows()
-        for index, row in enumerate(rows):
-            if self.has_focus and index == self._selected_index:
-                row.add_class("selected")
-                row.scroll_visible(immediate=True)
-            else:
-                row.remove_class("selected")
-
-    def _select_index(self, index: int) -> None:
-        if not self._items_data:
-            return
-        self._selected_index = max(0, min(index, len(self._items_data) - 1))
-        self._apply_selection()
-
-    def action_select_prev(self) -> None:
-        self._select_index(self._selected_index - 1)
-
-    def action_select_next(self) -> None:
-        self._select_index(self._selected_index + 1)
-
-    def action_open_selected(self) -> None:
-        if not self._items_data:
-            return
-        item = self._items_data[self._selected_index]
-        if item.url:
-            self.post_message(self.OpenURL(item.url))
-
-    def select_item(self, index: int, open_link: bool = False) -> None:
-        self.focus()
-        self._select_index(index)
-        if open_link:
-            self.action_open_selected()
-
-    def on_news_item_row_selected(self, message: "NewsItemRow.Selected") -> None:
-        self.select_item(message.index, open_link=True)
-
-
-class NewsItemRow(Horizontal):
-    """Single-line news item with datetime, clickable headline, and source."""
-
-    class Selected(Message):
-        """Posted when a news item row is clicked."""
-
-        def __init__(self, index: int) -> None:
-            self.index = index
-            super().__init__()
-
-    def __init__(self, item: NewsItem, index: int) -> None:
-        super().__init__(classes="news-row")
-        self._item = item
-        self._index = index
-
-    def compose(self) -> ComposeResult:
-        ticker = f" {self._item.symbol}" if self._item.symbol else ""
-        yield Static(
-            f"{self._item.published_at}{ticker}", classes="news-meta news-prefix"
-        )
-        yield Static(self._item.headline, classes="news-headline")
-        yield Static(f" ({self._item.source})", classes="news-meta")
-
-    def on_click(self) -> None:
-        self.post_message(self.Selected(self._index))
 
 
 class PortfolioApp(ThreadGuardMixin, App[None]):
