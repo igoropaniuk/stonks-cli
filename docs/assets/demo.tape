@@ -9,14 +9,13 @@ Set Height 800
 
 Type "stonks"
 Enter
-Sleep 12
-Down
-Down
+Sleep 7
 Down
 Down
 Down
 Enter
-Sleep 7
+Sleep 6
+Tab
 PageDown 1
 Sleep 2
 PageDown 5
@@ -24,4 +23,18 @@ Sleep 2
 Escape
 Down
 Type "e"
-Sleep 2
+Sleep 1
+Tab
+Tab
+Tab
+Tab
+Tab
+Tab
+Tab
+Tab
+Enter
+Type "c"
+Sleep 1
+Type "How to rebalance my portfolio to minimize risk?"
+Enter
+Sleep 4
