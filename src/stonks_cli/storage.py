@@ -95,6 +95,17 @@ def seed_sample_portfolio() -> bool:
     return True
 
 
+def seed_demo_portfolio(path: Path) -> None:
+    """Write the bundled sample portfolio to *path* (always overwrites)."""
+    sample = (
+        importlib.resources.files("stonks_cli.data")
+        .joinpath("sample_portfolio.yaml")
+        .read_text(encoding="utf-8")
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(sample, encoding="utf-8")
+
+
 class PortfolioStore:
     """Reads and writes the portfolio to a YAML file on disk.
 

@@ -1,7 +1,9 @@
 """CLI entry point for the stonks portfolio tracker."""
 
 import logging
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 import click
 
@@ -14,7 +16,10 @@ from stonks_cli.show import format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
     PortfolioStore,
+    seed_demo_portfolio,
 )
+
+_DEMO_PORTFOLIO_PATH = Path(tempfile.gettempdir()) / "stonks-demo.yaml"
 
 
 def _load_portfolios(stores: list[PortfolioStore]) -> list[Portfolio]:
@@ -130,6 +135,29 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
         forex_rates={},
         refresh_interval=refresh,
         stores=stores,
+    ).run()
+
+
+@main.command()
+@click.option(
+    "--refresh",
+    default=DEFAULT_REFRESH_INTERVAL,
+    show_default=True,
+    type=float,
+    help="Price refresh interval in seconds.",
+)
+def demo(refresh: float) -> None:
+    """Launch the TUI with a sample demo portfolio stored in the temp dir."""
+    seed_demo_portfolio(_DEMO_PORTFOLIO_PATH)
+    click.echo(f"Demo portfolio created at {_DEMO_PORTFOLIO_PATH}")
+    store = PortfolioStore(path=_DEMO_PORTFOLIO_PATH)
+    portfolio = store.load()
+    PortfolioApp(
+        portfolios=[portfolio],
+        prices={},
+        forex_rates={},
+        refresh_interval=refresh,
+        stores=[store],
     ).run()
 
 
