@@ -14,7 +14,6 @@ from stonks_cli.show import format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
     PortfolioStore,
-    seed_sample_portfolio,
 )
 
 
@@ -65,9 +64,6 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
     setup_logging(level=getattr(logging, log_level.upper()))
     ctx.ensure_object(dict)
     if not portfolio:
-        if seed_sample_portfolio():
-            dest = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
-            click.echo(f"No portfolio found. Created sample portfolio at {dest}")
         stores = [PortfolioStore()]
     else:
         stores = [
@@ -128,11 +124,6 @@ def dashboard(ctx: click.Context, refresh: float) -> None:
     """Display the current portfolio with live prices and P&L."""
     stores: list[PortfolioStore] = ctx.obj["stores"]
     portfolios = _load_portfolios(stores)
-
-    if _is_empty(portfolios):
-        click.echo("Portfolio is empty.")
-        return
-
     PortfolioApp(
         portfolios=portfolios,
         prices={},

@@ -114,10 +114,12 @@ class TestRemove:
 
 
 class TestDashboard:
-    def test_empty_portfolio_message(self, runner, portfolio_file):
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_empty_portfolio_launches_app(self, mock_app_cls, runner, portfolio_file):
         result = invoke(runner, portfolio_file, "dashboard")
         assert result.exit_code == 0
-        assert "empty" in result.output.lower()
+        mock_app_cls.assert_called_once()
+        mock_app_cls.return_value.run.assert_called_once()
 
     @patch("stonks_cli.main.PortfolioApp")
     def test_dashboard_launches_app(self, mock_app_cls, runner, portfolio_file):
@@ -315,19 +317,15 @@ class TestVersion:
 
 
 # ---------------------------------------------------------------------------
-# seed sample portfolio (no --portfolio flag, empty config dir)
+# no --portfolio flag: uses default store, opens dashboard
 # ---------------------------------------------------------------------------
 
 
-class TestSeedSamplePortfolio:
+class TestDefaultPortfolio:
     @patch("stonks_cli.main.PortfolioApp")
-    def test_creates_sample_portfolio_and_prints_message(
-        self, mock_app_cls, runner, tmp_path
-    ):
-        # No YAML files in config dir -> seed_sample_portfolio() returns True
+    def test_no_portfolio_flag_launches_dashboard(self, mock_app_cls, runner, tmp_path):
         with (
             patch("stonks_cli.main.PORTFOLIO_CONFIG_DIR", tmp_path),
-            patch("stonks_cli.storage.PORTFOLIO_CONFIG_DIR", tmp_path),
             patch(
                 "stonks_cli.storage.DEFAULT_PORTFOLIO_PATH", tmp_path / "portfolio.yaml"
             ),
@@ -335,7 +333,7 @@ class TestSeedSamplePortfolio:
             result = runner.invoke(main, [])
 
         assert result.exit_code == 0
-        assert "sample portfolio" in result.output.lower()
+        mock_app_cls.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

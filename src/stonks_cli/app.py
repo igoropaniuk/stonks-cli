@@ -801,7 +801,14 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     def _populate_tables(self) -> None:
         try:
             status = self.query_one("#status", Static)
-            if not self._snap.prices:
+            all_empty = not any(
+                p.positions or p.cash or p.watchlist for p in self.portfolios
+            )
+            if all_empty:
+                status.update(
+                    "No positions yet.  Press 'a' to add your first position."
+                )
+            elif not self._snap.prices:
                 status.update("Obtaining market data...")
             else:
                 status.update("")
