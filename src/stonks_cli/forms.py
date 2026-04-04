@@ -100,7 +100,9 @@ class _BaseFormScreen(ModalScreen[_FormResultT | None]):
     def on_key(self, event: Any) -> None:
         if event.key == "escape":
             self.dismiss(None)
-
+        elif event.key == "enter" and isinstance(self.focused, Input):
+            event.stop()
+            self._submit()
 
     def _submit(self) -> None:
         raise NotImplementedError
