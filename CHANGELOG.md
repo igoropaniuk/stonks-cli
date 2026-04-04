@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-05
+
+### Added
+
+- `stonks demo` command: launches the TUI with a sample portfolio created in
+  the system temporary directory; the default portfolio is never touched.
+- `stonks import ibkr` command: bulk-import positions from an Interactive
+  Brokers Flex Query CSV export (multi-section and plain CSV formats
+  supported).
+- News feed panel in the dashboard (`n` to toggle) with per-symbol headlines
+  sourced from Yahoo Finance.
+- `stonks feed SYMBOL` command: print latest news articles to stdout.
+- `stonks detail SYMBOL` command: print a financial summary to stdout.
+- AI chat screen (`c` key) backed by OpenAI with portfolio and news context.
+- Interactive candlestick chart screen (`g` key on any equity or watchlist
+  row): zoomable OHLC chart with pre/post-market session badges, bid/ask
+  overlay, and automatic history prefetch when scrolling to the edges.
+- `f` key in the dashboard opens the stock detail screen for the selected row
+  (same as pressing Enter, now also available without leaving the keyboard row).
+- Absolute daily price change column ("Daily Chg") displayed alongside the
+  percentage column ("Daily Chg %"); both are suppressed for closed-session
+  tickers.
+- Dashboard table columns now stretch to fill the full terminal width and
+  reflow proportionally on every resize; horizontal scrolling eliminated.
+- Empty portfolios now open the TUI and show "No positions yet.
+  Press 'a' to add your first position." instead of exiting immediately.
+- Adding a position via the TUI now triggers an immediate market data refresh
+  so the new symbol's price appears without waiting for the next interval.
+- Form dialogs (add/edit position, watchlist, cash) now confirm on Enter and
+  auto-focus the first actionable widget when opened.
+
+### Fixed
+
+- Detail screen (`stonks detail` / row selection in TUI) now shows its own
+  footer bindings only; dashboard bindings (a, e, r, l, n, c) no longer
+  bleed through. Same fix applied to the log viewer and chat screens.
+- Detail screen footer now shows scroll bindings (up/down/pageup/pagedown).
+- Cash position order is now preserved when editing an existing cash entry.
+
+### Changed
+
+- Internal refactor: shared helpers (`helpers.py`) and cross-module messages
+  (`messages.py`) extracted; `table_rows.py` and `table_columns.py`
+  consolidated into `portfolio_table.py`.
+- Column weight definition (`TABLE_COL_WEIGHTS`) moved to `portfolio_table.py`
+  alongside `TABLE_COLUMNS` so all table schema lives in one place.
+
 ## [0.4.2] - 2026-03-30
 
 ### Fixed
@@ -256,6 +303,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[0.5.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/igoropaniuk/stonks-cli/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/igoropaniuk/stonks-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.2.1...v0.3.0
