@@ -2210,14 +2210,15 @@ async def test_daily_chg_watchlist_dim_style() -> None:
 
 @pytest.mark.asyncio
 async def test_get_row_meta_empty_table_returns_none() -> None:
-    """get_row_meta returns None when the DataTable has no rows (IndexError path)."""
-    p = Portfolio()  # empty portfolio -> no rows
+    """_get_row_meta returns None for a widget with an empty table."""
+    p = Portfolio()  # empty portfolio -> no rows, no RowHighlighted with meta
     app = PortfolioApp(portfolios=[p], prices={}, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
         widget = app.query_one(PortfolioTableWidget)
-        assert widget.get_row_meta() is None
+        table = widget.query_one(DataTable)
+        assert app._get_row_meta(table) is None
 
 
 @pytest.mark.asyncio

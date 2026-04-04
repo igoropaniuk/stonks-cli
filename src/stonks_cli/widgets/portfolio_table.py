@@ -55,17 +55,7 @@ class PortfolioTableWidget(Widget):
         self._snap = snap
         self._repaint()
 
-    def get_row_meta(self) -> _RowMeta | None:
-        """Return the _RowMeta for the row currently under the cursor."""
-        table = self.query_one(DataTable)
-        try:
-            row_key = table.ordered_rows[table.cursor_row].key
-        except (IndexError, AttributeError):
-            return None
-        return self._row_meta.get(str(row_key.value))
-
-    def get_meta_for_key(self, rkey: str) -> _RowMeta | None:
-        """Return the _RowMeta for a specific row key string."""
+    def _get_meta_for_key(self, rkey: str) -> _RowMeta | None:
         return self._row_meta.get(rkey)
 
     class RowSelected(Message):
@@ -75,10 +65,28 @@ class PortfolioTableWidget(Widget):
             self.meta = meta
             super().__init__()
 
+    class RowHighlighted(Message):
+        """Posted when the cursor moves to a different row."""
+
+        def __init__(
+            self, widget: "PortfolioTableWidget", meta: _RowMeta | None
+        ) -> None:  # noqa: E501
+            self.widget = widget
+            self.meta = meta
+            super().__init__()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        meta = self.get_meta_for_key(str(event.row_key.value))
+        meta = self._get_meta_for_key(str(event.row_key.value))
         if meta is not None:
             self.post_message(self.RowSelected(meta))
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        meta = (
+            self._get_meta_for_key(str(event.row_key.value))
+            if event.row_key is not None
+            else None
+        )
+        self.post_message(self.RowHighlighted(self, meta))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         col = event.column_index

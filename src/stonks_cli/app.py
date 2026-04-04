@@ -121,6 +121,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self._refresh_lock = threading.Lock()
         self._news_items: deque[NewsItem] = deque(maxlen=NEWS_HISTORY_LIMIT)
         self._chat_history: list[dict[str, str]] = []
+        self._row_metas: dict[int, _RowMeta | None] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -521,11 +522,16 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ) -> None:
         widget.refresh_data(portfolio, self._snap)
 
+    def on_portfolio_table_widget_row_highlighted(
+        self, event: PortfolioTableWidget.RowHighlighted
+    ) -> None:
+        self._row_metas[id(event.widget)] = event.meta
+
     def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
-        """Return the _RowMeta for the row currently under the cursor, or None."""
+        """Return the last highlighted _RowMeta for the widget owning *table*."""
         for widget in self.query(PortfolioTableWidget):
             if widget.query_one(DataTable) is table:
-                return widget.get_row_meta()
+                return self._row_metas.get(id(widget))
         return None
 
     # ------------------------------------------------------------------
