@@ -228,7 +228,7 @@ class ChatScreen(Screen):
         self._client = AsyncOpenAI(api_key=self._api_key(), base_url=self._base_url())
 
     def compose(self) -> ComposeResult:
-        yield Label("  AI Chat  (Esc to close)", id="chat-title")
+        yield Label("  AI Chat", id="chat-title")
         yield VerticalScroll(id="chat-log")
         yield Input(
             placeholder="Ask about your portfolio or recent news...", id="chat-input"
