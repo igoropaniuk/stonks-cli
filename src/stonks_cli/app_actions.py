@@ -79,12 +79,10 @@ def edit_cash(
         and portfolio.get_cash(new_currency) is not None
     ):
         return f"A {new_currency} cash position already exists"
-    portfolio.cash.remove(cash_pos)
     try:
-        portfolio.add_cash(new_currency, result["amount"])
+        cash_pos.update(new_currency, result["amount"])
     except ValueError as exc:
         logger.warning("Failed to edit cash position: %s", exc)
-        portfolio.cash.append(cash_pos)
         return str(exc)
     return None
 

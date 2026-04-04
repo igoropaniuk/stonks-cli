@@ -24,6 +24,15 @@ class CashPosition:
             raise ValueError("Amount must be positive")
         self.currency = self.currency.upper()
 
+    def update(self, currency: str, amount: float) -> None:
+        """Update all fields with the same normalisation as __post_init__."""
+        if not currency:
+            raise ValueError("Currency cannot be empty")
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        self.currency = currency.upper()
+        self.amount = amount
+
 
 @dataclass
 class Position:
