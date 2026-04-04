@@ -337,6 +337,39 @@ class TestDefaultPortfolio:
 
 
 # ---------------------------------------------------------------------------
+# demo command
+# ---------------------------------------------------------------------------
+
+
+class TestDemo:
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_demo_prints_path_and_launches_app(self, mock_app_cls, runner, tmp_path):
+        demo_path = tmp_path / "stonks-demo.yaml"
+        with patch("stonks_cli.main._DEMO_PORTFOLIO_PATH", demo_path):
+            result = runner.invoke(main, ["demo"])
+
+        assert result.exit_code == 0
+        assert str(demo_path) in result.output
+        assert demo_path.exists()
+        mock_app_cls.assert_called_once()
+        mock_app_cls.return_value.run.assert_called_once()
+
+    @patch("stonks_cli.main.PortfolioApp")
+    def test_demo_does_not_touch_default_portfolio(
+        self, mock_app_cls, runner, tmp_path
+    ):
+        demo_path = tmp_path / "stonks-demo.yaml"
+        default_path = tmp_path / "portfolio.yaml"
+        with (
+            patch("stonks_cli.main._DEMO_PORTFOLIO_PATH", demo_path),
+            patch("stonks_cli.storage.DEFAULT_PORTFOLIO_PATH", default_path),
+        ):
+            runner.invoke(main, ["demo"])
+
+        assert not default_path.exists()
+
+
+# ---------------------------------------------------------------------------
 # --log-level option
 # ---------------------------------------------------------------------------
 
