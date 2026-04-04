@@ -3,8 +3,7 @@
 from stonks_cli.helpers import fmt_chg, fmt_price, fmt_qty
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import Portfolio, portfolio_total
-from stonks_cli.table_columns import _TABLE_COLUMNS
-from stonks_cli.table_rows import RowKind, build_row_data
+from stonks_cli.portfolio_table import TABLE_COLUMNS, RowKind, build_row_data
 
 
 def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str, ...]]:
@@ -117,7 +116,7 @@ def format_show_table(portfolio: Portfolio, snap: MarketSnapshot) -> str:
     total = portfolio_total(portfolio, snap.prices, rates)
     total_str = "N/A" if total is None else f"{total:,.2f}"
     return _render_table(
-        _TABLE_COLUMNS,
+        TABLE_COLUMNS,
         rows,
         f"Total ({portfolio.base_currency})",
         total_str,

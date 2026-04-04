@@ -1,9 +1,10 @@
-"""Shared row view-model: compute raw row data for portfolio tables.
+"""Shared table schema and row view-model for portfolio tables.
 
 Both the TUI (app.py) and the CLI show command (show.py) need the same
-underlying values per row -- symbol, exchange label, last price, change
-percentage, market value, P&L.  This module provides a single computation
-layer so neither consumer reimplements the logic independently.
+column schema and the same underlying values per row -- symbol, exchange
+label, last price, change percentage, market value, P&L.  This module
+provides a single computation layer so neither consumer reimplements the
+logic independently.
 
 The output is intentionally free of presentation concerns (no Rich Text,
 no string formatting).  Each consumer applies its own rendering on top.
@@ -21,6 +22,17 @@ from stonks_cli.market_session import SESSION_BADGE, Session
 from stonks_cli.models import (
     Portfolio,
     daily_change_pct,
+)
+
+TABLE_COLUMNS = (
+    "Instrument",
+    "Exchange",
+    "Qty",
+    "Avg Cost",
+    "Last Price",
+    "Daily Chg",
+    "Mkt Value",
+    "Unrealized P&L",
 )
 
 
