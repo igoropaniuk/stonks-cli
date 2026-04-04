@@ -65,7 +65,7 @@ def _build_portfolios_context(
 ) -> str:
     """Build the portfolio section for the system prompt."""
     from stonks_cli.models import portfolio_total
-    from stonks_cli.table_rows import RowKind, build_row_data
+    from stonks_cli.portfolio_table import RowKind, build_row_data
 
     parts: list[str] = []
 

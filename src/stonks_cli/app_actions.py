@@ -4,7 +4,7 @@ import logging
 
 from stonks_cli.dto import CashResult, EquityResult, WatchResult
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
-from stonks_cli.table_rows import RowKind
+from stonks_cli.portfolio_table import RowKind
 
 logger = logging.getLogger(__name__)
 

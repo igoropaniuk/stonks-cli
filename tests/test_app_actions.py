@@ -3,7 +3,7 @@
 from stonks_cli import app_actions
 from stonks_cli.market_session import Session
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
-from stonks_cli.table_rows import RowKind
+from stonks_cli.portfolio_table import RowKind
 
 
 def test_add_equity_sets_metadata_for_new_position() -> None:

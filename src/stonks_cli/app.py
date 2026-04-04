@@ -40,16 +40,16 @@ from stonks_cli.models import (
     portfolio_total,
 )
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
-from stonks_cli.storage import PortfolioStore
-from stonks_cli.table_columns import _TABLE_COLUMNS
-from stonks_cli.table_rows import (
+from stonks_cli.portfolio_table import (
     _ROW_KIND_LABELS,
+    TABLE_COLUMNS,
     RowKind,
     _RowData,
     _RowMeta,
     _to_tui_rows,
     build_row_data,
 )
+from stonks_cli.storage import PortfolioStore
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class PortfolioTableWidget(Widget):
         yield Static("", id=self._total_id, classes="total")
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(*_TABLE_COLUMNS)
+        self.query_one(DataTable).add_columns(*TABLE_COLUMNS)
 
     def refresh_data(self, portfolio: Portfolio, snap: MarketSnapshot) -> None:
         """Push new data into the widget and repaint."""
