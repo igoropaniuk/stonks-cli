@@ -30,6 +30,7 @@ from stonks_cli.forms import (
     _TypeSelectScreen,
     _WatchFormScreen,
 )
+from stonks_cli.helpers import ThreadGuardMixin
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import MarketSnapshot, build_market_snapshot
 from stonks_cli.models import (
@@ -367,7 +368,7 @@ class NewsItemRow(Horizontal):
         self.post_message(self.Selected(self._index))
 
 
-class PortfolioApp(App[None]):
+class PortfolioApp(ThreadGuardMixin, App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
     TITLE = "Stonks"
@@ -511,26 +512,6 @@ class PortfolioApp(App[None]):
             widget.add_class("visible")
         else:
             widget.remove_class("visible")
-
-    def _call_from_thread_if_running(self, fn, *args) -> bool:
-        """Call *fn* via Textual when the app loop is still alive.
-
-        Worker threads may finish during shutdown, at which point
-        ``call_from_thread`` raises ``RuntimeError("App is not running")``.
-        Treat that race as a harmless no-op.
-        """
-        _SHUTDOWN_ERRORS = {"App is not running", "no running event loop"}
-        try:
-            self.call_from_thread(fn, *args)
-        except RuntimeError as exc:
-            if exc.args[0] not in _SHUTDOWN_ERRORS:
-                raise
-            logger.debug(
-                "Skipping UI callback %s because the app is shutting down",
-                getattr(fn, "__name__", repr(fn)),
-            )
-            return False
-        return True
 
     def _show_mutation_error(self, err: str | None) -> bool:
         """Show *err* and return False, or clear the error bar and return True."""
