@@ -50,6 +50,7 @@ stonks demo # create demo portfolio
   - [Remove a position](#remove-a-position)
   - [Manage cash](#manage-cash)
   - [List portfolios](#list-portfolios)
+  - [Importing positions](#importing-positions)
 - [Dashboard](#dashboard)
   - [Columns](#columns)
   - [Session labels](#session-labels)
@@ -388,6 +389,15 @@ stonks list
 ```
 
 Lists all `.yaml` files found in `~/.config/stonks/`.
+
+### Importing positions
+
+Positions can be bulk-imported from broker exports instead of being added one
+by one.
+
+| Broker | Command | Guide |
+|---|---|---|
+| Interactive Brokers | `stonks import ibkr positions.csv` | [docs/import/interactive-brokers.md](docs/import/interactive-brokers.md) |
 
 ---
 
