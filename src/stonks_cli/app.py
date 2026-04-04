@@ -5,10 +5,7 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from stonks_cli.chat import ChatScreen
+from typing import Any
 
 from rich.text import Text
 from textual import work
@@ -21,6 +18,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Label, Static
 
 from stonks_cli import app_actions
+from stonks_cli.chat import ChatScreen
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.dto import CashResult, EquityResult, WatchResult
 from stonks_cli.forms import (
@@ -33,6 +31,7 @@ from stonks_cli.forms import (
 from stonks_cli.helpers import ThreadGuardMixin
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import MarketSnapshot, build_market_snapshot
+from stonks_cli.messages import HistoryUpdated
 from stonks_cli.models import (
     CashPosition,
     Portfolio,
@@ -760,8 +759,6 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self.push_screen(LogViewerScreen())
 
     def action_chat(self) -> None:
-        from stonks_cli.chat import ChatScreen
-
         if isinstance(self.screen, ChatScreen):
             return
         self.push_screen(
@@ -773,9 +770,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
             )
         )
 
-    def on_chat_screen_history_updated(
-        self, event: "ChatScreen.HistoryUpdated"
-    ) -> None:
+    def on_history_updated(self, event: HistoryUpdated) -> None:
         self._chat_history = event.history
 
     def action_toggle_news(self) -> None:
