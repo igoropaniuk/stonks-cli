@@ -527,6 +527,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
+        self._refresh_prices()
 
     def _handle_add_cash(self, idx: int, result: CashResult | None) -> None:
         if result is None:
@@ -535,6 +536,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
+        self._refresh_prices()
 
     def _handle_add_watch(self, idx: int, result: WatchResult | None) -> None:
         if result is None:
@@ -543,6 +545,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
+        self._refresh_prices()
 
     def _push_add_form(self, pos_type: str | None, idx: int, pname: str) -> None:
         """Open the selected add-form flow for portfolio *idx*."""
