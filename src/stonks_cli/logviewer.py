@@ -8,7 +8,7 @@ from textual.widgets import Footer, Label, RichLog
 from stonks_cli.log import LOG_FILE
 
 
-class LogViewerScreen(Screen):
+class LogViewerScreen(Screen, inherit_bindings=False):
     """Full-screen log viewer; press R to refresh, Escape/Q to close."""
 
     BINDINGS = [
@@ -36,6 +36,10 @@ class LogViewerScreen(Screen):
         color: $text-muted;
     }
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._modal = True
 
     def compose(self) -> ComposeResult:
         yield Label(f"  Log -- {LOG_FILE}", id="log-title")
