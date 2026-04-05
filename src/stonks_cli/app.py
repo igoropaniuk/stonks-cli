@@ -69,7 +69,15 @@ class PortfolioTableWidget(Widget):
     Call :meth:`refresh_data` to push new portfolio/price data into the widget.
     """
 
-    DEFAULT_CSS = "PortfolioTableWidget { height: auto; }"
+    DEFAULT_CSS = """
+    PortfolioTableWidget { height: auto; width: 1fr; }
+    PortfolioTableWidget DataTable { overflow-x: hidden; }
+    """
+
+    # Relative weights for each column (same order as TABLE_COLUMNS).
+    # All columns grow/shrink proportionally when the terminal is resized.
+    #  Instrument  Exchange  Qty  Avg Cost  Last Price  Daily Chg  Mkt Value  P&L
+    _COL_WEIGHTS = (3, 2, 1, 2, 2, 2, 2, 2)
 
     def __init__(
         self,
@@ -92,7 +100,37 @@ class PortfolioTableWidget(Widget):
         yield Static("", id=self._total_id, classes="total")
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns(*TABLE_COLUMNS)
+        table = self.query_one(DataTable)
+        for label in TABLE_COLUMNS:
+            table.add_column(label)
+        self.call_after_refresh(self._resize_columns)
+
+    def on_resize(self) -> None:
+        self._resize_columns()
+
+    def _resize_columns(self) -> None:
+        table = self.query_one(DataTable)
+        cols = table.ordered_columns
+        if not cols:
+            return
+        n = len(cols)
+        # Each column has 1-char padding on each side inside the DataTable.
+        # Total overhead = 2 * n chars.
+        available = max(n, self.size.width - 2 * n)
+        total_weight = sum(self._COL_WEIGHTS)
+        # Pre-allocate minimum width of 1 to every column, then distribute
+        # the remaining space proportionally so widths never go negative.
+        widths = [1] * n
+        remaining = available - n
+        if remaining > 0:
+            for i in range(n):
+                widths[i] += int(remaining * self._COL_WEIGHTS[i] / total_weight)
+        # Assign any rounding remainder to the last column so total fills exactly.
+        widths[-1] += available - sum(widths)
+        for col, width in zip(cols, widths):
+            col.width = width
+            col.auto_width = False
+        table.refresh()
 
     def refresh_data(self, portfolio: Portfolio, snap: MarketSnapshot) -> None:
         """Push new data into the widget and repaint."""
@@ -386,7 +424,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ]
 
     CSS = """
-    DataTable { height: auto; }
+    DataTable { height: auto; width: 100%; }
     .total {
         padding: 0 1;
         text-align: left;
