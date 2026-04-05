@@ -949,14 +949,14 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
             item.url or f"{item.timestamp}:{item.headline}" for item in self._news_items
         }
 
-        for item in sorted(items, key=lambda item: item.timestamp):
+        for item in items:
             key = item.url or f"{item.timestamp}:{item.headline}"
             if key in seen_urls:
                 continue
             seen_urls.add(key)
             self._news_items.append(item)
 
-        return list(reversed(self._news_items))
+        return sorted(self._news_items, key=lambda x: x.timestamp, reverse=True)
 
     def _update_news_panel(self, items: list[NewsItem]) -> None:
         try:
