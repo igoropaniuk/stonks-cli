@@ -30,11 +30,14 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                         f"{rd.avg_cost:.2f}",
                         "N/A",
                         "--",
+                        "--",
                         "N/A",
                         "N/A",
                     )
                 )
             else:
+                chg_abs = rd.chg_abs
+                chg_abs_str = f"{chg_abs:+.2f}" if chg_abs is not None else "--"
                 rows.append(
                     (
                         rd.symbol,
@@ -42,12 +45,15 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                         fmt_qty(rd.qty),
                         f"{rd.avg_cost:.2f}",
                         fmt_price(rd.last, rd.session),
+                        chg_abs_str,
                         fmt_chg(rd.chg_pct),
                         f"{rd.mkt_value:,.2f}",
                         f"{rd.pnl:+,.2f}",
                     )
                 )
         elif rd.kind == RowKind.WATCHLIST:
+            chg_abs_w = rd.chg_abs
+            chg_abs_str_w = f"{chg_abs_w:+.2f}" if chg_abs_w is not None else "--"
             rows.append(
                 (
                     rd.symbol,
@@ -55,6 +61,7 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     "-",
                     "-",
                     fmt_price(rd.last, rd.session),
+                    chg_abs_str_w,
                     fmt_chg(rd.chg_pct),
                     "-",
                     "-",
@@ -70,6 +77,7 @@ def _collect_rows(portfolio: Portfolio, snap: MarketSnapshot) -> list[tuple[str,
                     f"{rd.qty:,.2f}",
                     "1.00",
                     f"{rate:.4f}",
+                    "--",
                     "--",
                     f"{rd.mkt_value:,.2f}" if rd.mkt_value is not None else "N/A",
                     "-",

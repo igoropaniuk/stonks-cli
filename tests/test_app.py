@@ -18,24 +18,17 @@ from stonks_cli.forms import (
 )
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
+from stonks_cli.portfolio_table import TABLE_COLUMNS
 
 # Capture before autouse fixture in conftest.py replaces it with a lambda
 _REAL_REFRESH_PRICES = PortfolioApp.__dict__["_refresh_prices"]
 
 USD_RATES = {"USD": {"USD": 1.0}}
 
-_COLS = (
-    "Instrument",
-    "Exchange",
-    "Qty",
-    "Avg Cost",
-    "Last Price",
-    "Daily Chg",
-    "Mkt Value",
-    "Unrealized P&L",
-)
+_COLS = TABLE_COLUMNS
 _COL_LAST = _COLS.index("Last Price")
 _COL_CHG = _COLS.index("Daily Chg")
+_COL_CHG_PCT = _COLS.index("Daily Chg %")
 _COL_MKT = _COLS.index("Mkt Value")
 _COL_PNL = _COLS.index("Unrealized P&L")
 
@@ -2102,6 +2095,7 @@ async def test_closed_session_shows_cls_and_no_daily_chg() -> None:
         assert "CLS" in price_cell
         assert "760.00" in price_cell
         assert str(table.get_cell_at((0, _COL_CHG))) == "--"
+        assert str(table.get_cell_at((0, _COL_CHG_PCT))) == "--"
 
 
 @pytest.mark.asyncio
@@ -2119,7 +2113,7 @@ async def test_daily_chg_zero_is_green(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        chg_cell = table.get_cell_at((0, _COL_CHG))
+        chg_cell = table.get_cell_at((0, _COL_CHG_PCT))
         assert "green" in chg_cell.style
         assert str(chg_cell) == "+0.00%"
 
@@ -2139,7 +2133,7 @@ async def test_daily_chg_positive_shown_green(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        chg_cell = table.get_cell_at((0, _COL_CHG))
+        chg_cell = table.get_cell_at((0, _COL_CHG_PCT))
         assert "green" in chg_cell.style
         assert "+" in str(chg_cell)
         assert "%" in str(chg_cell)
@@ -2160,7 +2154,7 @@ async def test_daily_chg_negative_shown_red(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        chg_cell = table.get_cell_at((0, _COL_CHG))
+        chg_cell = table.get_cell_at((0, _COL_CHG_PCT))
         assert "red" in chg_cell.style
         assert "-" in str(chg_cell)
 
@@ -2198,7 +2192,7 @@ async def test_daily_chg_watchlist_dim_style() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        chg_cell = table.get_cell_at((0, _COL_CHG))
+        chg_cell = table.get_cell_at((0, _COL_CHG_PCT))
         assert "dim" in chg_cell.style
         assert "%" in str(chg_cell)
 
