@@ -31,13 +31,14 @@ TABLE_COLUMNS = (
     "Avg Cost",
     "Last Price",
     "Daily Chg",
+    "Daily Chg %",
     "Mkt Value",
     "Unrealized P&L",
 )
 
 # Relative column weights for proportional width distribution.
 # Order matches TABLE_COLUMNS; higher weight = wider column.
-TABLE_COL_WEIGHTS = (3, 2, 1, 2, 2, 2, 2, 2)
+TABLE_COL_WEIGHTS = (3, 2, 1, 2, 2, 2, 2, 2, 2)
 
 
 class RowKind(Enum):
@@ -58,6 +59,7 @@ class RowData:
     last: float | None  # last price or FX rate for cash; None when unavailable
     session: str  # Session.* value
     chg_pct: float | None  # daily change %; None when not computable
+    chg_abs: float | None  # daily change in price units; None when not computable
     mkt_value: (
         float | None
     )  # qty * last (base currency for cash); None when unavailable
@@ -86,10 +88,14 @@ def build_row_data(
 
     for pos in portfolio.positions:
         last = prices.get(pos.symbol)
+        prev_close = prev_closes.get(pos.symbol)
         session = sessions.get(pos.symbol, Session.REGULAR)
         chg_pct = (
-            daily_change_pct(last, prev_closes.get(pos.symbol), session)
-            if last is not None
+            daily_change_pct(last, prev_close, session) if last is not None else None
+        )
+        chg_abs = (
+            last - prev_close
+            if last is not None and prev_close is not None and session != Session.CLOSED
             else None
         )
         rows.append(
@@ -104,6 +110,7 @@ def build_row_data(
                 last=last,
                 session=session,
                 chg_pct=chg_pct,
+                chg_abs=chg_abs,
                 mkt_value=pos.market_value(last) if last is not None else None,
                 pnl=pos.unrealized_pnl(last) if last is not None else None,
             )
@@ -111,10 +118,14 @@ def build_row_data(
 
     for item in portfolio.watchlist:
         last = prices.get(item.symbol)
+        prev_close = prev_closes.get(item.symbol)
         session = sessions.get(item.symbol, Session.REGULAR)
         chg_pct = (
-            daily_change_pct(last, prev_closes.get(item.symbol), session)
-            if last is not None
+            daily_change_pct(last, prev_close, session) if last is not None else None
+        )
+        chg_abs = (
+            last - prev_close
+            if last is not None and prev_close is not None and session != Session.CLOSED
             else None
         )
         rows.append(
@@ -129,6 +140,7 @@ def build_row_data(
                 last=last,
                 session=session,
                 chg_pct=chg_pct,
+                chg_abs=chg_abs,
                 mkt_value=None,
                 pnl=None,
             )
@@ -146,6 +158,7 @@ def build_row_data(
                 last=rate,
                 session=Session.REGULAR,
                 chg_pct=None,
+                chg_abs=None,
                 mkt_value=cash_pos.amount * rate if rate is not None else None,
                 pnl=None,
             )
@@ -181,10 +194,24 @@ _ROW_KIND_LABELS: dict[RowKind, str] = {
 }
 
 
+def _format_chg_abs_cell(
+    chg_abs: float | None, dim: bool = False
+) -> tuple[Text | str, float]:
+    """Return ``(display_cell, sort_value)`` for the daily absolute change column."""
+    if chg_abs is None:
+        cell: Text | str = Text("--", style="dim") if dim else "--"
+        return cell, 0.0
+    sign = "+" if chg_abs >= 0 else ""
+    label = f"{sign}{chg_abs:.2f}"
+    color = "green" if chg_abs >= 0 else "red"
+    style = f"dim {color}" if dim else color
+    return Text(label, style=style), chg_abs
+
+
 def _format_chg_cell(
     chg_pct: float | None, dim: bool = False
 ) -> tuple[Text | str, float]:
-    """Return ``(display_cell, sort_value)`` for the daily change column."""
+    """Return ``(display_cell, sort_value)`` for the daily change % column."""
     if chg_pct is None:
         cell: Text | str = Text("--", style="dim") if dim else "--"
         return cell, 0.0
@@ -228,6 +255,8 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     style="bold green" if pnl >= 0 else "bold red",
                 )
                 price_cell: str | Text = _format_price_cell(rd.last, rd.session)
+                chg_abs_cell: str | Text
+                chg_abs_cell, chg_abs_val = _format_chg_abs_cell(rd.chg_abs)
                 chg_cell: str | Text
                 chg_cell, chg_val = _format_chg_cell(rd.chg_pct)
                 mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
@@ -237,6 +266,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     rd.qty,
                     rd.avg_cost,
                     rd.last,
+                    chg_abs_val,
                     chg_val,
                     mkt_value,
                     pnl,
@@ -244,6 +274,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
             else:
                 price_cell = "N/A"
+                chg_abs_cell = "--"
                 chg_cell = "--"
                 mkt_value_cell = "N/A"
                 pnl_cell = "N/A"
@@ -256,6 +287,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     0.0,
                     0.0,
                     0.0,
+                    0.0,
                 )
             display: tuple = (
                 rd.symbol,
@@ -263,6 +295,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 fmt_qty(rd.qty),
                 f"{rd.avg_cost:.2f}",
                 price_cell,
+                chg_abs_cell,
                 chg_cell,
                 mkt_value_cell,
                 pnl_cell,
@@ -282,13 +315,24 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     1.0,
                     rd.last,
                     0.0,
+                    0.0,
                     mkt_value_c,
                     0.0,
                 )
                 price_cell_c: str = f"{rd.last:.4f}"
                 mkt_value_cell_c: str = f"{mkt_value_c:,.2f}"
             else:
-                sort_key = (rd.symbol, rd.exchange, rd.qty, 1.0, 0.0, 0.0, 0.0, 0.0)
+                sort_key = (
+                    rd.symbol,
+                    rd.exchange,
+                    rd.qty,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
                 price_cell_c = "N/A"
                 mkt_value_cell_c = "N/A"
             display_c: tuple = (
@@ -297,6 +341,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 f"{rd.qty:,.2f}",
                 "1.00",
                 price_cell_c,
+                "--",
                 "--",
                 mkt_value_cell_c,
                 "--",
@@ -308,6 +353,10 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
         else:  # WATCHLIST
             if rd.last is not None:
                 price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
+                chg_abs_cell_w: str | Text
+                chg_abs_cell_w, chg_abs_val_w = _format_chg_abs_cell(
+                    rd.chg_abs, dim=True
+                )
                 chg_cell_w: str | Text
                 chg_cell_w, chg_val_w = _format_chg_cell(rd.chg_pct, dim=True)
                 sort_key_w: tuple = (
@@ -316,20 +365,23 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                     0,
                     0.0,
                     rd.last,
+                    chg_abs_val_w,
                     chg_val_w,
                     0.0,
                     0.0,
                 )
             else:
                 price_cell_w = Text("N/A", style="dim")
+                chg_abs_cell_w = Text("--", style="dim")
                 chg_cell_w = Text("--", style="dim")
-                sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
             display_w: tuple = (
                 Text(rd.symbol, style="dim"),
                 Text(rd.exchange, style="dim"),
                 Text("--", style="dim"),
                 Text("--", style="dim"),
                 price_cell_w,
+                chg_abs_cell_w,
                 chg_cell_w,
                 Text("--", style="dim"),
                 Text("--", style="dim"),
