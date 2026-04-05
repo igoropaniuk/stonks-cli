@@ -378,6 +378,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         ("a", "add", "Add"),
         ("e", "edit", "Edit"),
         ("r", "remove", "Remove"),
+        ("f", "financials", "Details"),
         ("l", "view_logs", "Logs"),
         ("n", "toggle_news", "News"),
         ("c", "chat", "Chat"),
@@ -786,6 +787,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     # ------------------------------------------------------------------
     # Detail view
     # ------------------------------------------------------------------
+
+    def action_financials(self) -> None:
+        selection = self._get_active_selection()
+        if selection is None:
+            return
+        _, _, _, meta = selection
+        if meta.kind == RowKind.CASH:
+            return
+        self.push_screen(StockDetailScreen(meta.symbol))
 
     def on_portfolio_table_widget_row_selected(
         self, event: PortfolioTableWidget.RowSelected
