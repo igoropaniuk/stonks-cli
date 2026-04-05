@@ -3,7 +3,13 @@
 from datetime import datetime
 from unittest.mock import patch
 
+import pytest
+
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
+
+# Fixed "now" used across TestFetch so fixture dates (2026-03-31) are always
+# within the recency window regardless of when the tests are run.
+_FIXED_NOW = datetime.fromisoformat("2026-04-01T12:00:00+00:00")
 
 _AAPL_ITEMS = [
     NewsItem("Apple hits high", "Reuters", "Mar 31 09:00", "https://r.com/1", 1000),
@@ -139,6 +145,14 @@ class TestParseItem:
 
 
 class TestFetch:
+    @pytest.fixture(autouse=True)
+    def _pin_now(self):
+        """Pin datetime.now to _FIXED_NOW so fixture dates are always recent."""
+        with patch("stonks_cli.news_fetcher.datetime") as mock_dt:
+            mock_dt.now.return_value = _FIXED_NOW
+            mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+            yield
+
     def test_calls_yfinance(self):
         with patch("yfinance.Ticker") as mock_ticker_cls:
             mock_ticker_cls.return_value.news = [_RAW_ARTICLE]

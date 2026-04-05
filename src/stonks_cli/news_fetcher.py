@@ -21,7 +21,7 @@ class NewsFetcher:
     """Fetches the latest company news for a symbol via yfinance."""
 
     _MAX_ITEMS = 10
-    _MAX_ITEM_AGE = timedelta(days=14)
+    _MAX_ITEM_AGE = timedelta(days=3)
 
     @classmethod
     def _is_recent(cls, item: "NewsItem") -> bool:
