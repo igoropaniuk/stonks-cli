@@ -28,14 +28,14 @@ def testnice_yticks_n_less_than_2_raises():
 
 def testnice_yticks_single_value():
     ticks, labels = nice_yticks([42.7])
-    assert ticks == [43]
-    assert labels == ["43"]
+    assert ticks == [42.7]
+    assert labels == ["42.7"]
 
 
 def testnice_yticks_equal_lo_hi():
     ticks, labels = nice_yticks([5.0, 5.0])
-    assert ticks == [5]
-    assert labels == ["5"]
+    assert ticks == [5.0]
+    assert labels == ["5.0"]
 
 
 def testnice_yticks_integer_labels():

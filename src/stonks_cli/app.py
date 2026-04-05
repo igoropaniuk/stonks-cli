@@ -381,6 +381,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         ("l", "view_logs", "Logs"),
         ("n", "toggle_news", "News"),
         ("c", "chat", "Chat"),
+        ("g", "chart", "Chart"),
     ]
 
     CSS = """
@@ -782,6 +783,22 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
             widget.display = not widget.display
         except NoMatches:
             pass
+
+    # ------------------------------------------------------------------
+    # Chart view
+    # ------------------------------------------------------------------
+
+    def action_chart(self) -> None:
+        """Open a candlestick chart for the currently selected symbol."""
+        selection = self._get_active_selection()
+        if selection is None:
+            return
+        _, _, _, meta = selection
+        if meta.kind == RowKind.CASH:
+            return
+        from stonks_cli.chart import CandleChartScreen
+
+        self.push_screen(CandleChartScreen(meta.symbol))
 
     # ------------------------------------------------------------------
     # Detail view

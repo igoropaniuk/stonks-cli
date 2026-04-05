@@ -26,7 +26,7 @@ def nice_yticks(values: list[float], n: int = 6) -> tuple[list[float], list[str]
         raise ValueError(f"n must be at least 2, got {n}")
     lo, hi = min(values), max(values)
     if lo >= hi:
-        v = round(lo)
+        v = round(lo, 2)
         return [v], [str(v)]
     raw_step = (hi - lo) / (n - 1)
     magnitude = 10 ** math.floor(math.log10(raw_step))

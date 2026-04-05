@@ -42,6 +42,7 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         Binding("down", "scroll_down", "Scroll Down", show=True),
         Binding("pageup", "page_up", "Page Up", show=True),
         Binding("pagedown", "page_down", "Page Down", show=True),
+        Binding("g", "chart", "Chart"),
     ]
 
     CSS = """
@@ -395,6 +396,12 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
             plt.xticks(x, periods)  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
             plt.yticks([], [])  # type: ignore[arg-type]  # plotext stubs accept str but lists work at runtime
             plt.title("Analyst Recommendations")
+
+    def action_chart(self) -> None:
+        """Open the candlestick chart for this symbol."""
+        from stonks_cli.chart import CandleChartScreen
+
+        self.app.push_screen(CandleChartScreen(self._symbol))
 
     def _mount_statistics(self, parent: Widget, d: StockDetail) -> None:
         if not d.valuation and not d.financials:
