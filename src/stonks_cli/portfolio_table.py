@@ -35,6 +35,10 @@ TABLE_COLUMNS = (
     "Unrealized P&L",
 )
 
+# Relative column weights for proportional width distribution.
+# Order matches TABLE_COLUMNS; higher weight = wider column.
+TABLE_COL_WEIGHTS = (3, 2, 1, 2, 2, 2, 2, 2)
+
 
 class RowKind(Enum):
     POSITION = auto()
