@@ -42,6 +42,7 @@ from stonks_cli.models import (
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
 from stonks_cli.portfolio_table import (
     _ROW_KIND_LABELS,
+    TABLE_COL_WEIGHTS,
     TABLE_COLUMNS,
     RowKind,
     _RowData,
@@ -74,10 +75,7 @@ class PortfolioTableWidget(Widget):
     PortfolioTableWidget DataTable { overflow-x: hidden; }
     """
 
-    # Relative weights for each column (same order as TABLE_COLUMNS).
-    # All columns grow/shrink proportionally when the terminal is resized.
-    #  Instrument  Exchange  Qty  Avg Cost  Last Price  Daily Chg  Mkt Value  P&L
-    _COL_WEIGHTS = (3, 2, 1, 2, 2, 2, 2, 2)
+    _COL_WEIGHTS = TABLE_COL_WEIGHTS
 
     def __init__(
         self,
