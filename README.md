@@ -24,10 +24,12 @@ stonks demo # create demo portfolio
 
 - **Terminal dashboard (TUI)** -- live prices with auto-refresh
 - **Extended-hours quotes** -- PRE / AH / CLS session labels for US equities
-- **Daily % change** -- intraday gain/loss vs. previous close for every row
+- **Candlestick chart screen** -- zoomable OHLC chart
+- **News feed panel** -- per-symbol headlines
 - **Stock detail screen** -- charts, earnings, analyst insights, key statistics
+- **AI chat assistant** -- ask questions about your portfolio
 - **Watchlist** -- track symbols without a position; dimmed in the dashboard
-- **Cryptocurrency** -- `BTC-USD`-style symbols priced
+- **Cryptocurrency** -- `BTC-USD`-style symbols priced via CoinGecko
 - **Multi-portfolio** -- side-by-side YAML files with multiple `-p` flags
 - **Multi-currency** -- totals converted to a base currency using forex rates
 
@@ -55,8 +57,16 @@ stonks demo # create demo portfolio
   - [Columns](#columns)
   - [Session labels](#session-labels)
   - [Keyboard shortcuts](#keyboard-shortcuts)
+- [News feed](#news-feed)
+- [Candlestick chart](#candlestick-chart)
+  - [Time ranges](#time-ranges)
+  - [Keyboard shortcuts](#keyboard-shortcuts-1)
 - [Stock detail screen](#stock-detail-screen)
 - [AI Chat](#ai-chat)
+  - [Requirements](#requirements)
+  - [Environment variables](#environment-variables)
+  - [Usage](#usage-1)
+  - [What the assistant can help with](#what-the-assistant-can-help-with)
 - [Logging](#logging)
 - [Running with Docker](#running-with-docker)
   - [Build the image](#build-the-image)
@@ -295,6 +305,10 @@ Commands:
   show        Print a snapshot of portfolio positions with current prices to stdout.
   dashboard   Display the current portfolio with live prices and P&L.
   list        List all portfolios in ~/.config/stonks/.
+  demo        Launch the TUI with a sample portfolio (your portfolio is untouched).
+  feed        Print the latest news headlines for a symbol to stdout.
+  detail      Print a financial summary for a symbol to stdout.
+  import      Import positions from a broker export (subcommands: ibkr).
 ```
 
 ### Quick snapshot (stdout)
@@ -310,7 +324,8 @@ stonks -p work show
 ```
 
 The output includes the same columns as the dashboard (Instrument, Exchange,
-Qty, Avg Cost, Last Price, Daily chg, Mkt Value, Unrealized P&L) plus a Total line.
+Qty, Avg Cost, Last Price, Daily Chg, Daily Chg %, Mkt Value, Unrealized P&L)
+plus a Total line.
 Session badges (PRE/AH/CLS) are appended to the last price when applicable.
 If a price cannot be fetched, `N/A` is shown instead.
 
@@ -412,15 +427,21 @@ by one.
 | Qty            | Number of shares held                                                |
 | Avg Cost       | Average purchase price per share                                     |
 | Last Price     | Most recent price; tagged PRE, AH, or CLS for non-regular sessions   |
-| Daily Chg      | Percentage change vs. the previous close (green / red)               |
+| Daily Chg      | Absolute price change vs. the previous close (green / red)           |
+| Daily Chg %    | Percentage change vs. the previous close (green / red)               |
 | Mkt Value      | Current market value (Qty * Last Price)                              |
 | Unrealized P&L | Profit/loss vs. average cost (bold green / bold red)                 |
+
+Both daily change columns show `--` for closed-session tickers (CLS).
 
 A **Total** line at the bottom converts all positions and cash to the
 portfolio's base currency using live forex rates.
 
 Watchlist rows are dimmed and only show Instrument, Exchange, Last Price, and
-Daily Chg -- all other columns display `--`.
+Daily Chg columns -- all other columns display `--`.
+
+Column widths are distributed proportionally and reflow automatically when
+the terminal is resized.
 
 ### Session labels
 
@@ -445,13 +466,69 @@ market is closed (using holiday-aware calendar data).
 | `e`      | Edit the currently selected position              |
 | `r`      | Remove the currently selected position            |
 | `Enter`  | Open the detail screen for the selected row       |
+| `f`      | Open the detail screen for the selected row       |
+| `g`      | Open the candlestick chart for the selected row   |
 | `Tab`    | Switch focus between portfolio tables             |
 | `c`      | Open the AI chat assistant                        |
 | `n`      | Toggle the news feed panel                        |
+| `l`      | Open the log viewer                               |
 | `q`      | Quit                                              |
 
 Column headers are clickable -- click once to sort ascending, again to sort
 descending.
+
+---
+
+## News feed
+
+Press **`n`** from the dashboard to toggle the news feed panel. It shows the
+most recent headlines across all your portfolio symbols and watchlist items,
+sourced from Yahoo Finance. Articles older than 3 days are filtered out
+automatically.
+
+Each row shows the publication time, symbol, headline, and source. Click a
+headline to open it in your browser.
+
+---
+
+## Candlestick chart
+
+Press **`g`** on any equity or watchlist row to open an interactive OHLC
+candlestick chart directly in the terminal. Press **Escape** or **Q** to
+return to the dashboard.
+
+### Time ranges
+
+| Label    | Period | Interval |
+| -------- | ------ | -------- |
+| `1D 1m`  | 1 day  | 1 minute  |
+| `1D 2m`  | 1 day  | 2 minutes |
+| `5D 5m`  | 5 days | 5 minutes |
+| `1M 15m` | 1 month | 15 minutes |
+| `3M 1h`  | 3 months | 1 hour  |
+| `6M 1d`  | 6 months | 1 day   |
+| `1Y 1d`  | 1 year  | 1 day   |
+| `5Y 1wk` | 5 years | 1 week  |
+
+The default view opens at **5D 5m**.
+
+### Keyboard shortcuts
+
+| Key          | Action                                 |
+| ------------ | -------------------------------------- |
+| `Left`       | Move cursor to the previous candle     |
+| `Right`      | Move cursor to the next candle         |
+| `Home`       | Jump to the first (oldest) candle      |
+| `End`        | Jump to the last (newest) candle       |
+| `+` / `=`    | Zoom in (narrower interval)            |
+| `-` / `_`    | Zoom out (wider interval)              |
+| `Up`         | Expand Y-axis range                    |
+| `Down`       | Narrow Y-axis range                    |
+| `Escape` / `Q` | Close and return to the dashboard    |
+
+When you reach the leftmost or rightmost candle, the chart automatically
+prefetches older or newer data so you can scroll continuously through history.
+Zooming recentres on the candle under the cursor.
 
 ---
 
