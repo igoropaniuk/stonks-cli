@@ -20,8 +20,9 @@ from textual.widgets import DataTable, Footer, Header, Label, Static
 from stonks_cli import app_actions
 from stonks_cli.chat import ChatScreen
 from stonks_cli.detail import StockDetailScreen
-from stonks_cli.dto import CashResult, EquityResult, WatchResult
+from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
 from stonks_cli.forms import (
+    _BacktestFormScreen,
     _CashFormScreen,
     _ConfirmScreen,
     _EquityFormScreen,
@@ -419,6 +420,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         ("n", "toggle_news", "News"),
         ("c", "chat", "Chat"),
         ("g", "chart", "Chart"),
+        ("b", "backtest", "Backtest"),
     ]
 
     CSS = """
@@ -836,6 +838,33 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         from stonks_cli.chart import CandleChartScreen
 
         self.push_screen(CandleChartScreen(meta.symbol))
+
+    # ------------------------------------------------------------------
+    # Backtest
+    # ------------------------------------------------------------------
+
+    def action_backtest(self) -> None:
+        """Open the backtest configuration form for the active portfolio."""
+        active = self._get_active_table_and_index()
+        if active is None:
+            return
+        _, idx = active
+        portfolio = self.portfolios[idx]
+        if not portfolio.positions:
+            self._show_error("No equity positions to backtest")
+            return
+        pname = self._pname(idx)
+        self.push_screen(
+            _BacktestFormScreen(title=f"[{pname}] Backtest Configuration"),
+            partial(self._handle_backtest_config, idx),
+        )
+
+    def _handle_backtest_config(self, idx: int, config: BacktestConfig | None) -> None:
+        if config is None:
+            return
+        from stonks_cli.backtest_detail import BacktestScreen
+
+        self.push_screen(BacktestScreen(self.portfolios[idx], config))
 
     # ------------------------------------------------------------------
     # Detail view
