@@ -8,7 +8,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select
 from textual.widgets._select import NoSelection
 
-from stonks_cli.dto import CashResult, EquityResult, WatchResult
+from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
 
 _FormResultT = TypeVar("_FormResultT")
 
@@ -343,3 +343,108 @@ class _ConfirmScreen(ModalScreen[bool]):
     def on_key(self, event: Any) -> None:
         if event.key == "escape":
             self.dismiss(False)
+
+
+_REBALANCE_OPTIONS: list[tuple[str, str]] = [
+    ("Don't rebalance", "none"),
+    ("Rebalance monthly", "monthly"),
+    ("Rebalance annually", "annual"),
+]
+
+
+class _BacktestFormScreen(_BaseFormScreen[BacktestConfig]):
+    """Form for configuring a portfolio backtest."""
+
+    AUTO_FOCUS = "#benchmark"
+
+    def __init__(
+        self,
+        title: str = "Backtest Configuration",
+        benchmark: str = "SPY",
+        start_amount: str = "10000",
+        start_year: str = "2010",
+        end_year: str = "",
+        cashflows: str = "0",
+        rebalance: str = "none",
+    ) -> None:
+        super().__init__(title)
+        self._benchmark = benchmark
+        self._start_amount = start_amount
+        self._start_year = start_year
+        from datetime import datetime
+
+        self._end_year = end_year or str(datetime.now().year)
+        self._cashflows = cashflows
+        self._rebalance = rebalance
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Label(self._title)
+            yield Label("Benchmark Symbol", classes="field-label")
+            yield Input(value=self._benchmark, placeholder="e.g. SPY", id="benchmark")
+            yield Label("Starting Amount", classes="field-label")
+            yield Input(
+                value=self._start_amount, placeholder="e.g. 10000", id="start_amount"
+            )
+            yield Label("Start Year", classes="field-label")
+            yield Input(
+                value=self._start_year, placeholder="e.g. 2010", id="start_year"
+            )
+            yield Label("End Year", classes="field-label")
+            yield Input(value=self._end_year, placeholder="e.g. 2026", id="end_year")
+            yield Label("Yearly Cashflows", classes="field-label")
+            yield Input(
+                value=self._cashflows,
+                placeholder="e.g. 0 (yearly contribution)",
+                id="cashflows",
+            )
+            yield Label("Rebalancing", classes="field-label")
+            yield Select(
+                _REBALANCE_OPTIONS,
+                value=self._rebalance,
+                allow_blank=False,
+                id="rebalance",
+            )
+            yield Label("", id="error", classes="error")
+            with Horizontal(classes="buttons"):
+                yield Button("Run Backtest", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def _submit(self) -> None:
+        benchmark = self.query_one("#benchmark", Input).value.strip().upper()
+        start_str = self.query_one("#start_amount", Input).value.strip()
+        start_year_str = self.query_one("#start_year", Input).value.strip()
+        end_year_str = self.query_one("#end_year", Input).value.strip()
+        cashflows_str = self.query_one("#cashflows", Input).value.strip()
+        rebalance = self.query_one("#rebalance", Select).value
+        err = self.query_one("#error", Label)
+        if not _validate_required(benchmark, "Benchmark symbol", err):
+            return
+        start_amount = _validate_positive_float(start_str, "Starting amount", err)
+        if start_amount is None:
+            return
+        try:
+            start_year = int(start_year_str)
+            end_year = int(end_year_str)
+            if start_year < 1970 or end_year < start_year:
+                raise ValueError
+        except ValueError:
+            err.update("Invalid year range")
+            return
+        try:
+            cashflows = float(cashflows_str)
+            if cashflows < 0:
+                raise ValueError
+        except ValueError:
+            err.update("Cashflows must be a non-negative number")
+            return
+        self.dismiss(
+            BacktestConfig(
+                benchmark=benchmark,
+                start_amount=start_amount,
+                start_year=start_year,
+                end_year=end_year,
+                cashflows=cashflows,
+                rebalance=str(rebalance),
+            )
+        )
