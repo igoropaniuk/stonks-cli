@@ -66,6 +66,21 @@ class RowData:
     pnl: float | None  # unrealised P&L; None for watchlist/cash
 
 
+def _compute_change(
+    last: float | None,
+    prev_close: float | None,
+    session: str,
+) -> tuple[float | None, float | None]:
+    """Return ``(chg_pct, chg_abs)`` for a symbol's daily change."""
+    chg_pct = daily_change_pct(last, prev_close, session) if last is not None else None
+    chg_abs = (
+        last - prev_close
+        if last is not None and prev_close is not None and session != Session.CLOSED
+        else None
+    )
+    return chg_pct, chg_abs
+
+
 def build_row_data(
     portfolio: Portfolio,
     prices: dict[str, float],
@@ -90,14 +105,7 @@ def build_row_data(
         last = prices.get(pos.symbol)
         prev_close = prev_closes.get(pos.symbol)
         session = sessions.get(pos.symbol, Session.REGULAR)
-        chg_pct = (
-            daily_change_pct(last, prev_close, session) if last is not None else None
-        )
-        chg_abs = (
-            last - prev_close
-            if last is not None and prev_close is not None and session != Session.CLOSED
-            else None
-        )
+        chg_pct, chg_abs = _compute_change(last, prev_close, session)
         rows.append(
             RowData(
                 kind=RowKind.POSITION,
@@ -120,14 +128,7 @@ def build_row_data(
         last = prices.get(item.symbol)
         prev_close = prev_closes.get(item.symbol)
         session = sessions.get(item.symbol, Session.REGULAR)
-        chg_pct = (
-            daily_change_pct(last, prev_close, session) if last is not None else None
-        )
-        chg_abs = (
-            last - prev_close
-            if last is not None and prev_close is not None and session != Session.CLOSED
-            else None
-        )
+        chg_pct, chg_abs = _compute_change(last, prev_close, session)
         rows.append(
             RowData(
                 kind=RowKind.WATCHLIST,
