@@ -83,6 +83,27 @@ class _CandleData:
     def __len__(self) -> int:
         return len(self.dates)
 
+    def _ohlcv_fields(self) -> tuple[list, list, list, list, list, list]:
+        """Return all six OHLCV list fields as a tuple."""
+        return self.dates, self.opens, self.highs, self.lows, self.closes, self.volumes
+
+    def prepend(self, other: "_CandleData", n: int) -> None:
+        """Prepend the first *n* candles from *other*."""
+        for mine, theirs in zip(self._ohlcv_fields(), other._ohlcv_fields()):
+            mine[:0] = theirs[:n]
+
+    def append_from(self, candles: list[tuple]) -> None:
+        """Append pre-filtered candle tuples ``(date, o, h, l, c, v)``."""
+        if not candles:
+            return
+        dates, opens, highs, lows, closes, volumes = zip(*candles)
+        self.dates += list(dates)
+        self.opens += list(opens)
+        self.highs += list(highs)
+        self.lows += list(lows)
+        self.closes += list(closes)
+        self.volumes += list(volumes)
+
 
 def _fetch_candles(
     symbol: str,
@@ -654,12 +675,7 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
         n_new = sum(1 for d in new_data.dates if d < current_first)
         if n_new == 0:
             return
-        self._data.dates = new_data.dates[:n_new] + self._data.dates
-        self._data.opens = new_data.opens[:n_new] + self._data.opens
-        self._data.highs = new_data.highs[:n_new] + self._data.highs
-        self._data.lows = new_data.lows[:n_new] + self._data.lows
-        self._data.closes = new_data.closes[:n_new] + self._data.closes
-        self._data.volumes = new_data.volumes[:n_new] + self._data.volumes
+        self._data.prepend(new_data, n_new)
         # Shift the cursor so it still points at the same candle.
         if self._cursor >= 0:
             self._cursor += n_new
@@ -717,13 +733,5 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
             )
             if d > current_last
         ]
-        if not new_candles:
-            return
-        dates, opens, highs, lows, closes, volumes = zip(*new_candles)
-        self._data.dates += list(dates)
-        self._data.opens += list(opens)
-        self._data.highs += list(highs)
-        self._data.lows += list(lows)
-        self._data.closes += list(closes)
-        self._data.volumes += list(volumes)
+        self._data.append_from(new_candles)
         self._redraw()
