@@ -27,6 +27,7 @@ stonks demo # create demo portfolio
 - **Candlestick chart screen** -- zoomable OHLC chart
 - **News feed panel** -- per-symbol headlines
 - **Stock detail screen** -- charts, earnings, analyst insights, key statistics
+- **Backtesting** -- simulate historical portfolio performance vs. a benchmark
 - **AI chat assistant** -- ask questions about your portfolio
 - **Watchlist** -- track symbols without a position; dimmed in the dashboard
 - **Cryptocurrency** -- `BTC-USD`-style symbols priced via CoinGecko
@@ -71,6 +72,7 @@ stonks demo # create demo portfolio
 - [Running with Docker](#running-with-docker)
   - [Build the image](#build-the-image)
   - [Run the container](#run-the-container)
+- [Backtesting](#backtesting)
 - [Market analysis](#market-analysis)
 - [Contributing](#contributing)
 - [License](#license)
@@ -476,6 +478,7 @@ market is closed (using holiday-aware calendar data).
 | `g`      | Open the candlestick chart for the selected row   |
 | `Tab`    | Switch focus between portfolio tables             |
 | `c`      | Open the AI chat assistant                        |
+| `b`      | Run a portfolio backtest                          |
 | `n`      | Toggle the news feed panel                        |
 | `l`      | Open the log viewer                               |
 | `q`      | Quit                                              |
@@ -662,6 +665,50 @@ The `-v` flag bind-mounts a local YAML file into the container. Replace
 `./config/sample_portfolio.yaml` with the path to your own portfolio file.
 Drop `:ro` if you want `add` / `remove` commands to persist changes back to
 the host.
+
+---
+
+## Backtesting
+
+Press **`b`** from the dashboard to open the backtest configuration form.
+Backtesting simulates how your portfolio's current allocation would have
+performed over a historical period, compared against a benchmark index.
+
+### Configuration
+
+| Field            | Default | Description                                            |
+| ---------------- | ------- | ------------------------------------------------------ |
+| Benchmark Symbol | `SPY`   | Ticker to compare against (e.g. `SPY`, `QQQ`, `VT`)   |
+| Starting Amount  | `10000` | Initial investment amount in USD                       |
+| Start Year       | `2010`  | First year of the simulation                           |
+| End Year         | current | Last year of the simulation                            |
+| Yearly Cashflows | `0`     | Additional amount contributed each year                |
+| Rebalancing      | none    | `none`, `monthly`, or `annual` rebalancing strategy    |
+| Skip unavailable | on      | Skip positions without historical data for the period  |
+
+The portfolio's current allocation weights are held constant throughout the
+simulation. Historical prices are fetched from Yahoo Finance.
+
+### Results
+
+The backtest results screen displays:
+
+- **Portfolio Growth chart** -- cumulative value of the portfolio vs. the
+  benchmark over the full period
+- **Annual Returns chart** -- side-by-side grouped bar chart showing yearly
+  returns for the portfolio and benchmark, with annotated values
+- **Summary statistics** -- CAGR, max drawdown, Sharpe ratio, best/worst year,
+  and final portfolio value for both the portfolio and the benchmark
+
+If any position symbols lack historical data for the requested start year and
+**Skip unavailable** is unchecked, an error message is shown with the earliest
+available date for each symbol. When the checkbox is enabled (the default),
+those positions are excluded automatically and their weights are redistributed
+among the remaining symbols. Skipped positions are listed at the top of the
+results screen. The benchmark symbol is always required regardless of this
+setting.
+
+Press **Escape** or **Q** to return to the dashboard.
 
 ---
 
