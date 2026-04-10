@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select
+from textual.widgets import Button, Checkbox, Input, Label, Select
 from textual.widgets._select import NoSelection
 
 from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
@@ -405,6 +405,11 @@ class _BacktestFormScreen(_BaseFormScreen[BacktestConfig]):
                 allow_blank=False,
                 id="rebalance",
             )
+            yield Checkbox(
+                "Skip positions without historical data",
+                value=True,
+                id="skip_unavailable",
+            )
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("Run Backtest", variant="primary", id="ok")
@@ -417,6 +422,7 @@ class _BacktestFormScreen(_BaseFormScreen[BacktestConfig]):
         end_year_str = self.query_one("#end_year", Input).value.strip()
         cashflows_str = self.query_one("#cashflows", Input).value.strip()
         rebalance = self.query_one("#rebalance", Select).value
+        skip_unavailable = self.query_one("#skip_unavailable", Checkbox).value
         err = self.query_one("#error", Label)
         if not _validate_required(benchmark, "Benchmark symbol", err):
             return
@@ -446,5 +452,6 @@ class _BacktestFormScreen(_BaseFormScreen[BacktestConfig]):
                 end_year=end_year,
                 cashflows=cashflows,
                 rebalance=str(rebalance),
+                skip_unavailable=skip_unavailable,
             )
         )

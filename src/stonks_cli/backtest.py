@@ -43,6 +43,7 @@ class BacktestResult:
     portfolio_final: float = 0.0
     benchmark_final: float = 0.0
     total_contributions: float = 0.0
+    skipped_symbols: list[str] = field(default_factory=list)
 
 
 def _max_drawdown(values: list[float]) -> float:
@@ -114,6 +115,7 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     start_amount = config["start_amount"]
     cashflows = config["cashflows"]
     rebalance = config["rebalance"]
+    skip_unavailable = config.get("skip_unavailable", False)
 
     start_date = f"{start_year}-01-01"
     end_date = f"{end_year}-12-31"
@@ -141,15 +143,40 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
 
     # Validate that all symbols have data covering the start year
     missing: list[str] = []
+    unavailable_syms: set[str] = set()
     for sym in all_symbols:
         if sym not in close.columns or close[sym].isna().all():
+            unavailable_syms.add(sym)
             missing.append(sym)
             continue
         first_valid = close[sym].first_valid_index()
         if first_valid is not None and first_valid.year > start_year:
+            unavailable_syms.add(sym)
             missing.append(f"{sym} (available from {first_valid.year})")
+
     if missing:
-        raise ValueError("Quotes are not available for: " + ", ".join(missing))
+        # Benchmark must always be available
+        if benchmark in unavailable_syms:
+            raise ValueError("Quotes are not available for: " + ", ".join(missing))
+        if not skip_unavailable:
+            raise ValueError("Quotes are not available for: " + ", ".join(missing))
+        # Remove unavailable symbols and redistribute weights
+        logger.info("Skipping unavailable symbols: %s", unavailable_syms)
+        symbols = [s for s in symbols if s not in unavailable_syms]
+        for sym in unavailable_syms:
+            weights.pop(sym, None)
+        if not symbols:
+            raise ValueError(
+                "No positions with available data after skipping: " + ", ".join(missing)
+            )
+        # Redistribute weights to sum to 1.0
+        total_w = sum(weights.values())
+        if total_w <= 0:
+            raise ValueError(
+                "No positions with a valid cost basis remain; "
+                "cannot determine weights for backtesting."
+            )
+        weights = {s: w / total_w for s, w in weights.items()}
 
     # Drop rows where benchmark has no data
     if benchmark in close.columns:
@@ -311,5 +338,6 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
         portfolio_final=portfolio_vals[-1],
         benchmark_final=benchmark_vals[-1],
         total_contributions=total_contributed,
+        skipped_symbols=sorted(unavailable_syms - {benchmark}),
     )
     return result
