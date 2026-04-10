@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       - id: ci-check
-        name: Run CI check script
-        entry: poetry run bash ./scripts/ci-check
+        name: Run CI checks
+        entry: make check-all
         language: system
         pass_filenames: false
