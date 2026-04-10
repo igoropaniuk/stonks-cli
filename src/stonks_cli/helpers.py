@@ -5,13 +5,24 @@ import math
 from collections.abc import Callable
 from typing import Any
 
+from textual.containers import Horizontal
 from textual.message_pump import NoActiveAppError
+from textual.widget import Widget
+from textual.widgets import Static
 
 from stonks_cli.market_session import SESSION_BADGE
 
 logger = logging.getLogger(__name__)
 
 _SHUTDOWN_ERRORS = {"App is not running", "no running event loop"}
+
+
+def kv_row(container: Widget, label: str, value: str) -> None:
+    """Mount a single label/value row into *container*."""
+    row = Horizontal(classes="kv-row")
+    container.mount(row)
+    row.mount(Static(label, classes="kv-label"))
+    row.mount(Static(value, classes="kv-value"))
 
 
 def nice_yticks(values: list[float], n: int = 6) -> tuple[list[float], list[str]]:
