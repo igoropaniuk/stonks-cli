@@ -1,14 +1,14 @@
 FROM python:3.11-slim AS builder
 WORKDIR /app
 
-# Build tooling + Poetry backend
-RUN pip install --no-cache-dir --upgrade pip build poetry-core
+# Build tooling
+RUN pip install --no-cache-dir --upgrade pip build hatchling
 
 # Copy sources needed for wheel build
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-# Build a wheel (do NOT use --no-isolation unless you really need it)
+# Build a wheel
 RUN python -m build --wheel
 
 FROM python:3.11-slim AS runtime
