@@ -38,6 +38,7 @@ def _default_config(**overrides) -> BacktestConfig:
         "end_year": 2022,
         "cashflows": 0,
         "rebalance": "none",
+        "skip_unavailable": False,
     }
     defaults.update(overrides)  # type: ignore[typeddict-item]
     return defaults
@@ -240,6 +241,66 @@ class TestRunBacktest:
 
         with pytest.raises(ValueError, match="Quotes are not available.*SPY.*2021"):
             run_backtest(_one_stock_portfolio(), _default_config())
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_skip_unavailable_symbol(self, mock_download):
+        """With skip_unavailable, missing positions are excluded."""
+        dates_late = (
+            pd.bdate_range("2021-01-04", "2022-12-30").strftime("%Y-%m-%d").tolist()
+        )
+        n_late = len(dates_late)
+        n_full = len(_DATES_3Y)
+        spy_prices = _flat_prices(400, n_full)
+        goog_prices = _flat_prices(100, n_full)
+        # AAPL only has data from 2021
+        aapl_prices = [float("nan")] * (n_full - n_late) + _flat_prices(150, n_late)
+        df = _make_prices(
+            _DATES_3Y,
+            {"AAPL": aapl_prices, "GOOG": goog_prices, "SPY": spy_prices},
+        )
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+
+        config = _default_config(skip_unavailable=True)
+        result = run_backtest(_two_stock_portfolio(), config)
+        # AAPL skipped, only GOOG used -- should still produce results
+        assert len(result.dates) > 0
+        assert result.portfolio_values[0] == pytest.approx(10000, rel=0.01)
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_skip_unavailable_benchmark_still_raises(self, mock_download):
+        """Even with skip_unavailable, missing benchmark raises."""
+        dates_late = (
+            pd.bdate_range("2021-01-04", "2022-12-30").strftime("%Y-%m-%d").tolist()
+        )
+        n_late = len(dates_late)
+        n_full = len(_DATES_3Y)
+        aapl_prices = _flat_prices(150, n_full)
+        spy_prices = [float("nan")] * (n_full - n_late) + _flat_prices(400, n_late)
+        df = _make_prices(
+            _DATES_3Y,
+            {"AAPL": aapl_prices, "SPY": spy_prices},
+        )
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+
+        config = _default_config(skip_unavailable=True)
+        with pytest.raises(ValueError, match="Quotes are not available.*SPY"):
+            run_backtest(_one_stock_portfolio(), config)
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_skip_unavailable_all_missing_raises(self, mock_download):
+        """If all positions are unavailable, raise even with skip."""
+        n_full = len(_DATES_3Y)
+        spy_prices = _flat_prices(400, n_full)
+        aapl_prices = [float("nan")] * n_full
+        df = _make_prices(
+            _DATES_3Y,
+            {"AAPL": aapl_prices, "SPY": spy_prices},
+        )
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+
+        config = _default_config(skip_unavailable=True)
+        with pytest.raises(ValueError, match="No positions with available data"):
+            run_backtest(_one_stock_portfolio(), config)
 
     @patch("stonks_cli.backtest.yf.download")
     def test_flat_prices_no_growth(self, mock_download):

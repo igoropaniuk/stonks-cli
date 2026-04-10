@@ -30,3 +30,4 @@ class BacktestConfig(TypedDict):
     end_year: int  # backtest end year, e.g. 2026
     cashflows: float  # yearly contribution, e.g. 0
     rebalance: str  # "none" | "monthly" | "annual"
+    skip_unavailable: bool  # skip positions without historical data

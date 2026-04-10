@@ -96,6 +96,10 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         padding: 1;
         color: $error;
     }
+    .skipped-notice {
+        padding: 0 1;
+        color: $warning;
+    }
     .positive { color: green; text-style: bold; }
     .negative { color: red; text-style: bold; }
     """
@@ -160,6 +164,15 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         self.query_one("#loading").display = False
         scroll = self.query_one("#bt-scroll")
         scroll.display = True
+
+        if r.skipped_symbols:
+            names = ", ".join(r.skipped_symbols)
+            scroll.mount(
+                Label(
+                    f"  Skipped (no historical data): {names}",
+                    classes="skipped-notice",
+                )
+            )
 
         self._mount_growth_chart(scroll, r)
         self._mount_annual_chart(scroll, r)
