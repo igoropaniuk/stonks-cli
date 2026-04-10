@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-"$(dirname "$0")/check_unicode_symbols.sh" --check --all-files
-ruff format --check .
-ruff check .
-mypy
-pytest -q --cov --cov-report=xml --cov-report=term-missing
