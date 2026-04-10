@@ -1,44 +1,69 @@
-[tool.poetry]
+[project]
 name = "stonks-cli"
 version = "0.5.0"
 description = "CLI tool for tracking investment portfolio"
-authors = ["Igor Opaniuk <igor.opaniuk@gmail.com>"]
+authors = [{ name = "Igor Opaniuk", email = "igor.opaniuk@gmail.com" }]
+requires-python = ">=3.11,<4"
 readme = "README.md"
-packages = [{include = "stonks_cli", from = "src"}]
-include = [{path = "README.md", format = ["sdist", "wheel"]}]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "click>=8.0.0,<9",
+    "pyyaml>=6.0,<7",
+    "yfinance>=1.2.0,<2",
+    "textual>=8.1.0,<9",
+    "rich>=14.0,<15",
+    "exchange-calendars>=4.13.2,<5",
+    "textual-plotext>=1.0.0,<2",
+    "platformdirs>=4.9.4,<5",
+    "httpx>=0.27.0",
+    "openai>=2.30.0,<3",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-click = "^8.0.0"
-pyyaml = "^6.0"
-yfinance = "^1.2.0"
-textual = "^8.1.0"
-rich = "^14.0"
-exchange-calendars = "^4.13.2"
-textual-plotext = "^1.0.0"
-platformdirs = "^4.9.4"
-httpx = ">=0.27.0"
-openai = "^2.30.0"
+[project.scripts]
+stonks = "stonks_cli.main:main"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.2.0"
-pytest-asyncio = "^1.3.0"
-isort = ">=7.0.0,<8.0.0"
-mypy = ">=1.19.0,<2.0.0"
-ruff = ">=0.14.8,<0.15.0"
-types-PyYAML = "^6.0"
-pre-commit = "^4.5.0"
-pytest-cov = "^7.0.0"
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0,<9",
+    "pytest-asyncio>=1.3.0,<2",
+    "isort>=7.0.0,<8.0.0",
+    "mypy>=1.19.0,<2.0.0",
+    "ruff>=0.14.8,<0.15.0",
+    "types-PyYAML>=6.0,<7",
+    "pre-commit>=4.5.0,<5",
+    "pytest-cov>=7.0.0,<8",
+]
+
+[tool.uv]
+default-groups = "all"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/stonks_cli"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"README.md" = "README.md"
+
+[tool.hatch.build.targets.wheel]
+include = ["src/stonks_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "README.md"
+
+[tool.hatch.build.targets.wheel.sources]
+"src/stonks_cli" = "stonks_cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-
-[tool.poetry.scripts]
-stonks = "stonks_cli.main:main"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
