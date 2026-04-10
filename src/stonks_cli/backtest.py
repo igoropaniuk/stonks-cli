@@ -115,7 +115,7 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     start_amount = config["start_amount"]
     cashflows = config["cashflows"]
     rebalance = config["rebalance"]
-    skip_unavailable = config.get("skip_unavailable", False)
+    skip_unavailable = config["skip_unavailable"]
 
     start_date = f"{start_year}-01-01"
     end_date = f"{end_year}-12-31"
