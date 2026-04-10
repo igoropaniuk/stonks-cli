@@ -13,18 +13,10 @@ from textual_plotext import PlotextPlot
 
 from stonks_cli.backtest import BacktestResult, run_backtest
 from stonks_cli.dto import BacktestConfig
-from stonks_cli.helpers import ThreadGuardMixin, nice_yticks
+from stonks_cli.helpers import ThreadGuardMixin, kv_row, nice_yticks
 from stonks_cli.models import Portfolio
 
 logger = logging.getLogger(__name__)
-
-
-def _kv_row(container: Widget, label: str, value: str) -> None:
-    """Mount a single label/value row into *container*."""
-    row = Horizontal(classes="kv-row")
-    container.mount(row)
-    row.mount(Static(label, classes="kv-label"))
-    row.mount(Static(value, classes="kv-value"))
 
 
 class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
@@ -282,23 +274,23 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         left = Vertical(classes="summary-col")
         grid.mount(left)
         left.mount(Static("[b]Portfolio[/b]"))
-        _kv_row(left, "Final Value", f"${r.portfolio_final:,.2f}")
-        _kv_row(left, "Total Contributions", f"${r.total_contributions:,.2f}")
-        _kv_row(left, "CAGR", f"{r.portfolio_cagr:+.2f}%")
-        _kv_row(left, "Max Drawdown", f"{r.portfolio_max_drawdown:.2f}%")
-        _kv_row(left, "Sharpe Ratio", f"{r.portfolio_sharpe:.2f}")
-        _kv_row(left, "Best Year", r.portfolio_best_year)
-        _kv_row(left, "Worst Year", r.portfolio_worst_year)
+        kv_row(left, "Final Value", f"${r.portfolio_final:,.2f}")
+        kv_row(left, "Total Contributions", f"${r.total_contributions:,.2f}")
+        kv_row(left, "CAGR", f"{r.portfolio_cagr:+.2f}%")
+        kv_row(left, "Max Drawdown", f"{r.portfolio_max_drawdown:.2f}%")
+        kv_row(left, "Sharpe Ratio", f"{r.portfolio_sharpe:.2f}")
+        kv_row(left, "Best Year", r.portfolio_best_year)
+        kv_row(left, "Worst Year", r.portfolio_worst_year)
 
         # Benchmark column
         right = Vertical(classes="summary-col")
         grid.mount(right)
         bench = self._config["benchmark"]
         right.mount(Static(f"[b]{bench}[/b]"))
-        _kv_row(right, "Final Value", f"${r.benchmark_final:,.2f}")
-        _kv_row(right, "Total Contributions", f"${r.total_contributions:,.2f}")
-        _kv_row(right, "CAGR", f"{r.benchmark_cagr:+.2f}%")
-        _kv_row(right, "Max Drawdown", f"{r.benchmark_max_drawdown:.2f}%")
-        _kv_row(right, "Sharpe Ratio", f"{r.benchmark_sharpe:.2f}")
-        _kv_row(right, "Best Year", r.benchmark_best_year)
-        _kv_row(right, "Worst Year", r.benchmark_worst_year)
+        kv_row(right, "Final Value", f"${r.benchmark_final:,.2f}")
+        kv_row(right, "Total Contributions", f"${r.total_contributions:,.2f}")
+        kv_row(right, "CAGR", f"{r.benchmark_cagr:+.2f}%")
+        kv_row(right, "Max Drawdown", f"{r.benchmark_max_drawdown:.2f}%")
+        kv_row(right, "Sharpe Ratio", f"{r.benchmark_sharpe:.2f}")
+        kv_row(right, "Best Year", r.benchmark_best_year)
+        kv_row(right, "Worst Year", r.benchmark_worst_year)

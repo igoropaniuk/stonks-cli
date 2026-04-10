@@ -11,7 +11,7 @@ from textual.widget import Widget
 from textual.widgets import Footer, Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
-from stonks_cli.helpers import ThreadGuardMixin, nice_yticks
+from stonks_cli.helpers import ThreadGuardMixin, kv_row, nice_yticks
 from stonks_cli.stock_detail import StockDetail, StockDetailFetcher
 
 logger = logging.getLogger(__name__)
@@ -22,14 +22,6 @@ _COLOR_BUY = (50, 205, 50)
 _COLOR_HOLD = (255, 165, 0)
 _COLOR_SELL = (255, 69, 0)
 _COLOR_STRONG_SELL = (139, 0, 0)
-
-
-def _kv_row(container: Widget, label: str, value: str) -> None:
-    """Mount a single label/value row into *container*."""
-    row = Horizontal(classes="kv-row")
-    container.mount(row)
-    row.mount(Static(label, classes="kv-label"))
-    row.mount(Static(value, classes="kv-value"))
 
 
 class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
@@ -266,10 +258,10 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         grid.mount(right)
 
         for label, value in left_items:
-            _kv_row(left, label, value)
+            kv_row(left, label, value)
 
         for label, value in right_items:
-            _kv_row(right, label, value)
+            kv_row(right, label, value)
 
     def _mount_earnings(self, parent: Widget, d: StockDetail) -> None:
         if not d.eps_quarters and not d.rev_quarters:
@@ -415,11 +407,11 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
             row.mount(col)
             col.mount(Static("[b]Valuation Measures[/b]"))
             for label, value in d.valuation.items():
-                _kv_row(col, label, value)
+                kv_row(col, label, value)
 
         if d.financials:
             col = Vertical(classes="stats-col")
             row.mount(col)
             col.mount(Static("[b]Financial Highlights[/b]"))
             for label, value in d.financials.items():
-                _kv_row(col, label, value)
+                kv_row(col, label, value)
