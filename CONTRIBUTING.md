@@ -14,8 +14,9 @@ and submit changes.
 ### Prerequisites
 
 - Python **3.11+**
-- Poetry **2.0+**
+- [uv](https://docs.astral.sh/uv/)
 - Git
+- GNU Make
 
 ### Clone the repository
 
@@ -27,13 +28,13 @@ cd stonks-cli
 ### Install dependencies
 
 ```bash
-poetry install
+make init
 ```
 
 ### Install pre-commit hooks (recommended)
 
 ```bash
-poetry run pre-commit install
+uv run pre-commit install
 ```
 
 ---
@@ -45,23 +46,28 @@ stonks-cli uses `ruff` (format + lint), `mypy`, and `pytest`.
 ### Run all checks at once
 
 ```bash
-poetry run bash ./scripts/ci-check
+make check-all
 ```
 
 ### Run individual tools
 
 ```bash
-poetry run ruff format --check .
-poetry run ruff check .
-poetry run mypy
-poetry run pytest
+make check       # ruff linter
+make format-check # ruff format (check only)
+make type        # mypy
+make test        # pytest + coverage
 ```
 
 ### Auto-format
 
 ```bash
-poetry run ruff format .
-poetry run ruff check . --fix
+make format
+```
+
+### List all available targets
+
+```bash
+make help
 ```
 
 ---
@@ -101,7 +107,7 @@ We follow a **clean history** approach with **fast-forward merges**.
 5. Run all checks:
 
    ```bash
-   poetry run bash ./scripts/ci-check
+   make check-all
    ```
 
 6. Commit and push to your fork:

@@ -5,9 +5,9 @@ This document describes the steps for cutting a new stonks-cli release.
 ## Prerequisites
 
 - Write access to the repository
-- Poetry installed and configured
+- [uv](https://docs.astral.sh/uv/) installed
 - A PyPI account (and optionally a TestPyPI account)
-- PyPI API tokens stored in your local Poetry config (see [Configure tokens](#5-configure-tokens))
+- PyPI API tokens (see [Configure tokens](#5-configure-tokens))
 
 ---
 
@@ -88,7 +88,7 @@ git push origin vX.Y.Z
 Build both a source distribution and a wheel:
 
 ```bash
-poetry build
+uv build
 ```
 
 Artifacts are written to `dist/`:
@@ -103,22 +103,14 @@ dist/
 
 ## 5. Configure Tokens
 
-Store your PyPI tokens in the Poetry keyring so they are not embedded in any
-file:
+Export your PyPI tokens as environment variables before publishing:
 
 ```bash
 # TestPyPI
-poetry config pypi-token.testpypi <your-testpypi-token>
+export UV_PUBLISH_TOKEN_TESTPYPI=<your-testpypi-token>
 
 # PyPI (production)
-poetry config pypi-token.pypi <your-pypi-token>
-```
-
-Alternatively, export them as environment variables before publishing:
-
-```bash
-export POETRY_PYPI_TOKEN_TESTPYPI=<your-testpypi-token>
-export POETRY_PYPI_TOKEN_PYPI=<your-pypi-token>
+export UV_PUBLISH_TOKEN_PYPI=<your-pypi-token>
 ```
 
 ---
@@ -128,16 +120,10 @@ export POETRY_PYPI_TOKEN_PYPI=<your-pypi-token>
 [TestPyPI](https://test.pypi.org/) is a separate instance intended for testing
 the release process without affecting the production index.
 
-Add it as a repository if you have not done so already:
-
-```bash
-poetry config repositories.testpypi https://test.pypi.org/legacy/
-```
-
 Publish:
 
 ```bash
-poetry publish --repository testpypi
+uv publish --index-url https://test.pypi.org/legacy/ --token "$UV_PUBLISH_TOKEN_TESTPYPI"
 ```
 
 Verify the upload at `https://test.pypi.org/project/stonks-cli/` and optionally
@@ -157,7 +143,7 @@ pip install \
 Once you are satisfied with the TestPyPI release:
 
 ```bash
-poetry publish
+uv publish --token "$UV_PUBLISH_TOKEN_PYPI"
 ```
 
 Verify the release at `https://pypi.org/project/stonks-cli/`.
@@ -180,6 +166,16 @@ release notes.
 
 ---
 
+## Automated Release Script
+
+All of the above steps are wrapped in a single interactive script:
+
+```bash
+./scripts/make_release.sh
+```
+
+---
+
 ## Release Checklist
 
 - [ ] Changelog updated and committed
@@ -187,7 +183,7 @@ release notes.
 - [ ] Version bump committed
 - [ ] Annotated tag `vX.Y.Z` created
 - [ ] Tag and commits pushed to remote
-- [ ] Distribution built with `poetry build`
+- [ ] Distribution built with `uv build`
 - [ ] Published to TestPyPI and verified
 - [ ] Published to PyPI (production)
 - [ ] GitHub release created
