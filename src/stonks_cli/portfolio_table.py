@@ -173,22 +173,22 @@ def build_row_data(
 # ---------------------------------------------------------------------------
 
 
-class _RowMeta(NamedTuple):
+class RowMeta(NamedTuple):
     """Identifies a table row's kind and subject symbol/currency."""
 
     kind: RowKind
     symbol: str  # ticker for position/watchlist, currency code for cash
 
 
-class _RowData(NamedTuple):
+class TuiRowData(NamedTuple):
     """One table row: sort key, display cells, and row metadata."""
 
     sort_key: tuple[Any, ...]
     cells: tuple[str | Text, ...]
-    meta: _RowMeta
+    meta: RowMeta
 
 
-_ROW_KIND_LABELS: dict[RowKind, str] = {
+ROW_KIND_LABELS: dict[RowKind, str] = {
     RowKind.POSITION: "position",
     RowKind.CASH: "cash",
     RowKind.WATCHLIST: "watch",
@@ -238,13 +238,13 @@ def _format_price_cell(last: float, session: str) -> Text | str:
     return f"{last:.2f}"
 
 
-def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
-    """Convert shared :class:`RowData` objects to TUI-specific :class:`_RowData`.
+def to_tui_rows(row_data: list[RowData]) -> list[TuiRowData]:
+    """Convert shared :class:`RowData` objects to TUI-specific :class:`TuiRowData`.
 
     Applies Rich Text styling and builds sort keys on top of the
     presentation-agnostic values produced by :func:`build_row_data`.
     """
-    rows: list[_RowData] = []
+    rows: list[TuiRowData] = []
     for rd in row_data:
         if rd.kind == RowKind.POSITION:
             assert rd.qty is not None and rd.avg_cost is not None
@@ -302,7 +302,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 pnl_cell,
             )
             rows.append(
-                _RowData(sort_key, display, _RowMeta(RowKind.POSITION, rd.symbol))
+                TuiRowData(sort_key, display, RowMeta(RowKind.POSITION, rd.symbol))
             )
 
         elif rd.kind == RowKind.CASH:
@@ -348,7 +348,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 "--",
             )
             rows.append(
-                _RowData(sort_key, display_c, _RowMeta(RowKind.CASH, rd.symbol))
+                TuiRowData(sort_key, display_c, RowMeta(RowKind.CASH, rd.symbol))
             )
 
         else:  # WATCHLIST
@@ -388,7 +388,7 @@ def _to_tui_rows(row_data: list[RowData]) -> list[_RowData]:
                 Text("--", style="dim"),
             )
             rows.append(
-                _RowData(sort_key_w, display_w, _RowMeta(RowKind.WATCHLIST, rd.symbol))
+                TuiRowData(sort_key_w, display_w, RowMeta(RowKind.WATCHLIST, rd.symbol))
             )
 
     return rows
