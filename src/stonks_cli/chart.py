@@ -15,12 +15,17 @@ from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Footer, Label, Static
 from textual_plotext import PlotextPlot
-from textual_plotext.plot import _themes
 
 from stonks_cli.helpers import ThreadGuardMixin
 from stonks_cli.helpers import nice_yticks as _nice_yticks
 
 logger = logging.getLogger(__name__)
+
+_themes: dict
+try:
+    from textual_plotext.plot import _themes  # type: ignore[attr-defined]  # noqa: E402
+except ImportError:  # pragma: no cover
+    _themes = {}
 
 # Register a custom plotext theme with dark grid lines.
 # Format: [canvas_color, axes_color, ticks_color, ticks_style, color_sequence]
@@ -405,13 +410,8 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
             return len(self._data) - 1
         return min(self._cursor, len(self._data) - 1)
 
-    def _redraw(self) -> None:
-        data = self._data
-        if not data:
-            return
-
-        # --- OHLC info bar ---
-        idx = self._resolved_cursor()
+    def _update_info_bars(self, data: _CandleData, idx: int) -> None:
+        """Update the OHLC, bid/ask, and zoom label bars."""
         ohlc_bar = self.query_one("#ohlc-bar", Static)
         if data.dates:
             op, hi, lo, cl = (
@@ -435,7 +435,6 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
         else:
             ohlc_bar.update("  No data available")
 
-        # --- Bid / Ask bar ---
         bid_ask_bar = self.query_one("#bid-ask-bar", Static)
         parts: list[str] = []
         if data.last is not None:
@@ -449,7 +448,6 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
             parts.append(f"Spread: {spread:.2f}")
         bid_ask_bar.update("  " + "  |  ".join(parts) if parts else "")
 
-        # --- Zoom label ---
         zoom_entry = _ZOOM_LEVELS[self._zoom_idx]
         label, refresh_secs = zoom_entry[0], zoom_entry[4]
         refresh_str = (
@@ -462,7 +460,8 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
             "  <-/-> navigate  |  +/- zoom  |  up/down y-axis  |  Home/End first/last"
         )
 
-        # --- Candlestick chart ---
+    def _update_chart(self, data: _CandleData, idx: int) -> None:
+        """Render the candlestick chart widget."""
         chart = self.query_one("#candle-chart", PlotextPlot)
         plt = chart.plt
         plt.clear_data()
@@ -528,6 +527,14 @@ class CandleChartScreen(ThreadGuardMixin, Screen):
 
         plt.title(f"{self._symbol}")
         chart.refresh()
+
+    def _redraw(self) -> None:
+        data = self._data
+        if not data:
+            return
+        idx = self._resolved_cursor()
+        self._update_info_bars(data, idx)
+        self._update_chart(data, idx)
 
     # ------------------------------------------------------------------
     # Cursor movement
