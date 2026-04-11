@@ -238,157 +238,145 @@ def _format_price_cell(last: float, session: str) -> Text | str:
     return f"{last:.2f}"
 
 
+def _position_to_row(rd: RowData) -> TuiRowData:
+    assert rd.qty is not None and rd.avg_cost is not None
+    if rd.last is not None:
+        pnl = rd.pnl if rd.pnl is not None else 0.0
+        sign = "+" if pnl >= 0 else ""
+        pnl_cell: str | Text = Text(
+            f"{sign}{pnl:,.2f}",
+            style="bold green" if pnl >= 0 else "bold red",
+        )
+        price_cell: str | Text = _format_price_cell(rd.last, rd.session)
+        chg_abs_cell: str | Text
+        chg_abs_cell, chg_abs_val = _format_chg_abs_cell(rd.chg_abs)
+        chg_cell: str | Text
+        chg_cell, chg_val = _format_chg_cell(rd.chg_pct)
+        mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
+        sort_key: tuple = (
+            rd.symbol,
+            rd.exchange,
+            rd.qty,
+            rd.avg_cost,
+            rd.last,
+            chg_abs_val,
+            chg_val,
+            mkt_value,
+            pnl,
+        )
+        mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
+    else:
+        price_cell = "N/A"
+        chg_abs_cell = "--"
+        chg_cell = "--"
+        mkt_value_cell = "N/A"
+        pnl_cell = "N/A"
+        sort_key = (
+            rd.symbol,
+            rd.exchange,
+            rd.qty,
+            rd.avg_cost,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+    display: tuple = (
+        rd.symbol,
+        rd.exchange,
+        fmt_qty(rd.qty),
+        f"{rd.avg_cost:.2f}",
+        price_cell,
+        chg_abs_cell,
+        chg_cell,
+        mkt_value_cell,
+        pnl_cell,
+    )
+    return TuiRowData(sort_key, display, RowMeta(RowKind.POSITION, rd.symbol))
+
+
+def _cash_to_row(rd: RowData) -> TuiRowData:
+    assert rd.qty is not None
+    if rd.last is not None:
+        mkt_value_c = rd.mkt_value if rd.mkt_value is not None else 0.0
+        sort_key = (
+            rd.symbol,
+            rd.exchange,
+            rd.qty,
+            1.0,
+            rd.last,
+            0.0,
+            0.0,
+            mkt_value_c,
+            0.0,
+        )
+        price_cell_c: str = f"{rd.last:.4f}"
+        mkt_value_cell_c: str = f"{mkt_value_c:,.2f}"
+    else:
+        sort_key = (rd.symbol, rd.exchange, rd.qty, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        price_cell_c = "N/A"
+        mkt_value_cell_c = "N/A"
+    display_c: tuple = (
+        rd.symbol,
+        rd.exchange,
+        f"{rd.qty:,.2f}",
+        "1.00",
+        price_cell_c,
+        "--",
+        "--",
+        mkt_value_cell_c,
+        "--",
+    )
+    return TuiRowData(sort_key, display_c, RowMeta(RowKind.CASH, rd.symbol))
+
+
+def _watchlist_to_row(rd: RowData) -> TuiRowData:
+    if rd.last is not None:
+        price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
+        chg_abs_cell_w: str | Text
+        chg_abs_cell_w, chg_abs_val_w = _format_chg_abs_cell(rd.chg_abs, dim=True)
+        chg_cell_w: str | Text
+        chg_cell_w, chg_val_w = _format_chg_cell(rd.chg_pct, dim=True)
+        sort_key_w: tuple = (
+            rd.symbol,
+            rd.exchange,
+            0,
+            0.0,
+            rd.last,
+            chg_abs_val_w,
+            chg_val_w,
+            0.0,
+            0.0,
+        )
+    else:
+        price_cell_w = Text("N/A", style="dim")
+        chg_abs_cell_w = Text("--", style="dim")
+        chg_cell_w = Text("--", style="dim")
+        sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    display_w: tuple = (
+        Text(rd.symbol, style="dim"),
+        Text(rd.exchange, style="dim"),
+        Text("--", style="dim"),
+        Text("--", style="dim"),
+        price_cell_w,
+        chg_abs_cell_w,
+        chg_cell_w,
+        Text("--", style="dim"),
+        Text("--", style="dim"),
+    )
+    return TuiRowData(sort_key_w, display_w, RowMeta(RowKind.WATCHLIST, rd.symbol))
+
+
 def to_tui_rows(row_data: list[RowData]) -> list[TuiRowData]:
     """Convert shared :class:`RowData` objects to TUI-specific :class:`TuiRowData`.
 
     Applies Rich Text styling and builds sort keys on top of the
     presentation-agnostic values produced by :func:`build_row_data`.
     """
-    rows: list[TuiRowData] = []
-    for rd in row_data:
-        if rd.kind == RowKind.POSITION:
-            assert rd.qty is not None and rd.avg_cost is not None
-            if rd.last is not None:
-                pnl = rd.pnl if rd.pnl is not None else 0.0
-                sign = "+" if pnl >= 0 else ""
-                pnl_cell: str | Text = Text(
-                    f"{sign}{pnl:,.2f}",
-                    style="bold green" if pnl >= 0 else "bold red",
-                )
-                price_cell: str | Text = _format_price_cell(rd.last, rd.session)
-                chg_abs_cell: str | Text
-                chg_abs_cell, chg_abs_val = _format_chg_abs_cell(rd.chg_abs)
-                chg_cell: str | Text
-                chg_cell, chg_val = _format_chg_cell(rd.chg_pct)
-                mkt_value = rd.mkt_value if rd.mkt_value is not None else 0.0
-                sort_key: tuple = (
-                    rd.symbol,
-                    rd.exchange,
-                    rd.qty,
-                    rd.avg_cost,
-                    rd.last,
-                    chg_abs_val,
-                    chg_val,
-                    mkt_value,
-                    pnl,
-                )
-                mkt_value_cell: str | Text = f"{mkt_value:,.2f}"
-            else:
-                price_cell = "N/A"
-                chg_abs_cell = "--"
-                chg_cell = "--"
-                mkt_value_cell = "N/A"
-                pnl_cell = "N/A"
-                sort_key = (
-                    rd.symbol,
-                    rd.exchange,
-                    rd.qty,
-                    rd.avg_cost,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                )
-            display: tuple = (
-                rd.symbol,
-                rd.exchange,
-                fmt_qty(rd.qty),
-                f"{rd.avg_cost:.2f}",
-                price_cell,
-                chg_abs_cell,
-                chg_cell,
-                mkt_value_cell,
-                pnl_cell,
-            )
-            rows.append(
-                TuiRowData(sort_key, display, RowMeta(RowKind.POSITION, rd.symbol))
-            )
-
-        elif rd.kind == RowKind.CASH:
-            assert rd.qty is not None
-            if rd.last is not None:
-                mkt_value_c = rd.mkt_value if rd.mkt_value is not None else 0.0
-                sort_key = (
-                    rd.symbol,
-                    rd.exchange,
-                    rd.qty,
-                    1.0,
-                    rd.last,
-                    0.0,
-                    0.0,
-                    mkt_value_c,
-                    0.0,
-                )
-                price_cell_c: str = f"{rd.last:.4f}"
-                mkt_value_cell_c: str = f"{mkt_value_c:,.2f}"
-            else:
-                sort_key = (
-                    rd.symbol,
-                    rd.exchange,
-                    rd.qty,
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                )
-                price_cell_c = "N/A"
-                mkt_value_cell_c = "N/A"
-            display_c: tuple = (
-                rd.symbol,
-                rd.exchange,
-                f"{rd.qty:,.2f}",
-                "1.00",
-                price_cell_c,
-                "--",
-                "--",
-                mkt_value_cell_c,
-                "--",
-            )
-            rows.append(
-                TuiRowData(sort_key, display_c, RowMeta(RowKind.CASH, rd.symbol))
-            )
-
-        else:  # WATCHLIST
-            if rd.last is not None:
-                price_cell_w: str | Text = _format_price_cell(rd.last, rd.session)
-                chg_abs_cell_w: str | Text
-                chg_abs_cell_w, chg_abs_val_w = _format_chg_abs_cell(
-                    rd.chg_abs, dim=True
-                )
-                chg_cell_w: str | Text
-                chg_cell_w, chg_val_w = _format_chg_cell(rd.chg_pct, dim=True)
-                sort_key_w: tuple = (
-                    rd.symbol,
-                    rd.exchange,
-                    0,
-                    0.0,
-                    rd.last,
-                    chg_abs_val_w,
-                    chg_val_w,
-                    0.0,
-                    0.0,
-                )
-            else:
-                price_cell_w = Text("N/A", style="dim")
-                chg_abs_cell_w = Text("--", style="dim")
-                chg_cell_w = Text("--", style="dim")
-                sort_key_w = (rd.symbol, rd.exchange, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            display_w: tuple = (
-                Text(rd.symbol, style="dim"),
-                Text(rd.exchange, style="dim"),
-                Text("--", style="dim"),
-                Text("--", style="dim"),
-                price_cell_w,
-                chg_abs_cell_w,
-                chg_cell_w,
-                Text("--", style="dim"),
-                Text("--", style="dim"),
-            )
-            rows.append(
-                TuiRowData(sort_key_w, display_w, RowMeta(RowKind.WATCHLIST, rd.symbol))
-            )
-
-    return rows
+    _converters = {
+        RowKind.POSITION: _position_to_row,
+        RowKind.CASH: _cash_to_row,
+        RowKind.WATCHLIST: _watchlist_to_row,
+    }
+    return [_converters[rd.kind](rd) for rd in row_data]
