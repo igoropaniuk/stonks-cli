@@ -242,6 +242,58 @@ def _simulate(
     return portfolio_vals, benchmark_vals, total_contributed
 
 
+def _compute_annual_returns(
+    portfolio_vals: list[float],
+    benchmark_vals: list[float],
+    dates_idx: Any,
+) -> tuple[list[str], list[float], list[float]]:
+    """Compute per-year return percentages for portfolio and benchmark.
+
+    Returns (years, portfolio_returns, benchmark_returns).
+    """
+    n = len(dates_idx)
+    annual_years: list[str] = []
+    annual_port_ret: list[float] = []
+    annual_bench_ret: list[float] = []
+
+    year_start_port = portfolio_vals[0]
+    year_start_bench = benchmark_vals[0]
+    current_year = dates_idx[0].year
+
+    for i in range(1, n):
+        if dates_idx[i].year != current_year:
+            annual_port_ret.append(
+                (portfolio_vals[i - 1] - year_start_port) / year_start_port * 100
+                if year_start_port > 0
+                else 0.0
+            )
+            annual_bench_ret.append(
+                (benchmark_vals[i - 1] - year_start_bench) / year_start_bench * 100
+                if year_start_bench > 0
+                else 0.0
+            )
+            annual_years.append(str(current_year))
+            year_start_port = portfolio_vals[i]
+            year_start_bench = benchmark_vals[i]
+            current_year = dates_idx[i].year
+
+    # Last (partial) year -- include even on zero return
+    if n > 1 and dates_idx[-1].year == dates_idx[-2].year:
+        annual_port_ret.append(
+            (portfolio_vals[-1] - year_start_port) / year_start_port * 100
+            if year_start_port > 0
+            else 0.0
+        )
+        annual_bench_ret.append(
+            (benchmark_vals[-1] - year_start_bench) / year_start_bench * 100
+            if year_start_bench > 0
+            else 0.0
+        )
+        annual_years.append(str(current_year))
+
+    return annual_years, annual_port_ret, annual_bench_ret
+
+
 def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult:
     """Run a portfolio backtest and return the result.
 
@@ -271,56 +323,12 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     )
 
     date_strings = [d.strftime("%Y-%m-%d") for d in close.index]
-    dates_idx = close.index
 
-    # Annual returns
-    annual_years: list[str] = []
-    annual_port_ret: list[float] = []
-    annual_bench_ret: list[float] = []
+    annual_years, annual_port_ret, annual_bench_ret = _compute_annual_returns(
+        portfolio_vals, benchmark_vals, close.index
+    )
 
-    n = len(dates_idx)
-    year_start_port = portfolio_vals[0]
-    year_start_bench = benchmark_vals[0]
-    current_year = dates_idx[0].year
-
-    for i in range(1, n):
-        if dates_idx[i].year != current_year:
-            # End of year
-            if year_start_port > 0:
-                annual_port_ret.append(
-                    (portfolio_vals[i - 1] - year_start_port) / year_start_port * 100
-                )
-            else:
-                annual_port_ret.append(0.0)
-            if year_start_bench > 0:
-                annual_bench_ret.append(
-                    (benchmark_vals[i - 1] - year_start_bench) / year_start_bench * 100
-                )
-            else:
-                annual_bench_ret.append(0.0)
-            annual_years.append(str(current_year))
-            year_start_port = portfolio_vals[i]
-            year_start_bench = benchmark_vals[i]
-            current_year = dates_idx[i].year
-
-    # Last (partial) year
-    if n > 1 and portfolio_vals[-1] != year_start_port:
-        if year_start_port > 0:
-            annual_port_ret.append(
-                (portfolio_vals[-1] - year_start_port) / year_start_port * 100
-            )
-        else:
-            annual_port_ret.append(0.0)
-        if year_start_bench > 0:
-            annual_bench_ret.append(
-                (benchmark_vals[-1] - year_start_bench) / year_start_bench * 100
-            )
-        else:
-            annual_bench_ret.append(0.0)
-        annual_years.append(str(current_year))
-
-    # Summary stats
-    total_days = (dates_idx[-1] - dates_idx[0]).days
+    total_days = (close.index[-1] - close.index[0]).days
     total_years = total_days / 365.25 if total_days > 0 else 1.0
 
     result = BacktestResult(
