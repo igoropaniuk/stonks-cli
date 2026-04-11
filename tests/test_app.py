@@ -10,11 +10,11 @@ from textual.widgets import Button, DataTable, Input, Label, Static
 
 from stonks_cli.app import PortfolioApp, PortfolioTableWidget
 from stonks_cli.forms import (
-    _CashFormScreen,
-    _ConfirmScreen,
-    _EquityFormScreen,
-    _TypeSelectScreen,
-    _WatchFormScreen,
+    CashFormScreen,
+    ConfirmScreen,
+    EquityFormScreen,
+    TypeSelectScreen,
+    WatchFormScreen,
 )
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
@@ -774,7 +774,7 @@ async def test_type_select_screen_equity() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+            self.push_screen(TypeSelectScreen(portfolio_name="Test"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -798,7 +798,7 @@ async def test_type_select_screen_cash() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+            self.push_screen(TypeSelectScreen(portfolio_name="Test"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -822,7 +822,7 @@ async def test_type_select_screen_cancel() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_TypeSelectScreen(portfolio_name="Test"), on_dismiss)
+            self.push_screen(TypeSelectScreen(portfolio_name="Test"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -846,7 +846,7 @@ async def test_type_select_screen_escape() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_TypeSelectScreen(), on_dismiss)
+            self.push_screen(TypeSelectScreen(), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -870,7 +870,7 @@ async def test_equity_form_submit() -> None:
                 self.exit()
 
             self.push_screen(
-                _EquityFormScreen(
+                EquityFormScreen(
                     title="Add", symbol="AAPL", qty="10", avg_cost="150.00"
                 ),
                 on_dismiss,
@@ -904,7 +904,7 @@ async def test_equity_form_cancel() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_EquityFormScreen(title="Add"), on_dismiss)
+            self.push_screen(EquityFormScreen(title="Add"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -922,7 +922,7 @@ async def test_equity_form_validation_empty_symbol() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _EquityFormScreen(title="Add", symbol="", qty="10", avg_cost="100"),
+                EquityFormScreen(title="Add", symbol="", qty="10", avg_cost="100"),
                 lambda _: self.exit(),
             )
 
@@ -943,9 +943,7 @@ async def test_equity_form_validation_bad_qty() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _EquityFormScreen(
-                    title="Add", symbol="AAPL", qty="abc", avg_cost="100"
-                ),
+                EquityFormScreen(title="Add", symbol="AAPL", qty="abc", avg_cost="100"),
                 lambda _: self.exit(),
             )
 
@@ -966,7 +964,7 @@ async def test_equity_form_validation_bad_avg_cost() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="xyz"),
+                EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="xyz"),
                 lambda _: self.exit(),
             )
 
@@ -992,7 +990,7 @@ async def test_equity_form_escape() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_EquityFormScreen(title="Add"), on_dismiss)
+            self.push_screen(EquityFormScreen(title="Add"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1016,7 +1014,7 @@ async def test_cash_form_submit() -> None:
                 self.exit()
 
             self.push_screen(
-                _CashFormScreen(title="Add", currency="EUR", amount="5000"),
+                CashFormScreen(title="Add", currency="EUR", amount="5000"),
                 on_dismiss,
             )
 
@@ -1041,7 +1039,7 @@ async def test_cash_form_cancel() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_CashFormScreen(title="Add"), on_dismiss)
+            self.push_screen(CashFormScreen(title="Add"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1059,7 +1057,7 @@ async def test_cash_form_validation_empty_currency() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _CashFormScreen(title="Add", currency="", amount="100"),
+                CashFormScreen(title="Add", currency="", amount="100"),
                 lambda _: self.exit(),
             )
 
@@ -1080,7 +1078,7 @@ async def test_cash_form_validation_bad_amount() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _CashFormScreen(title="Add", currency="USD", amount="abc"),
+                CashFormScreen(title="Add", currency="USD", amount="abc"),
                 lambda _: self.exit(),
             )
 
@@ -1106,7 +1104,7 @@ async def test_cash_form_escape() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_CashFormScreen(title="Add"), on_dismiss)
+            self.push_screen(CashFormScreen(title="Add"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1129,7 +1127,7 @@ async def test_confirm_screen_yes() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+            self.push_screen(ConfirmScreen("Delete?"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1152,7 +1150,7 @@ async def test_confirm_screen_no() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+            self.push_screen(ConfirmScreen("Delete?"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1175,7 +1173,7 @@ async def test_confirm_screen_escape() -> None:
                 result = value
                 self.exit()
 
-            self.push_screen(_ConfirmScreen("Delete?"), on_dismiss)
+            self.push_screen(ConfirmScreen("Delete?"), on_dismiss)
 
     app = TestApp()
     async with app.run_test() as pilot:
@@ -1460,7 +1458,7 @@ async def test_equity_form_validation_zero_qty() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _EquityFormScreen(title="Add", symbol="AAPL", qty="0", avg_cost="100"),
+                EquityFormScreen(title="Add", symbol="AAPL", qty="0", avg_cost="100"),
                 lambda _: None,
             )
 
@@ -1481,7 +1479,7 @@ async def test_equity_form_validation_zero_avg_cost() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="0"),
+                EquityFormScreen(title="Add", symbol="AAPL", qty="10", avg_cost="0"),
                 lambda _: None,
             )
 
@@ -1502,7 +1500,7 @@ async def test_cash_form_validation_zero_amount() -> None:
     class TestApp(App):
         def on_mount(self) -> None:
             self.push_screen(
-                _CashFormScreen(title="Add", currency="USD", amount="0"),
+                CashFormScreen(title="Add", currency="USD", amount="0"),
                 lambda _: None,
             )
 
@@ -1896,9 +1894,9 @@ async def test_edit_watch_item_via_hotkey() -> None:
         await pilot.press("e")
         await pilot.pause()
 
-        # Should be a _WatchFormScreen with only a symbol input
+        # Should be a WatchFormScreen with only a symbol input
         screen = app.screen
-        assert isinstance(screen, _WatchFormScreen)
+        assert isinstance(screen, WatchFormScreen)
         screen.query_one("#symbol", Input).value = "NVDA"
         screen.query_one("#ok", Button).press()
         await pilot.pause()

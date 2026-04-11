@@ -8,10 +8,10 @@ from textual.widgets import Checkbox, Input, Label
 from stonks_cli.app import PortfolioApp
 from stonks_cli.dto import BacktestConfig
 from stonks_cli.forms import (
-    _BacktestFormScreen,
-    _CashFormScreen,
-    _ConfirmScreen,
-    _TypeSelectScreen,
+    BacktestFormScreen,
+    CashFormScreen,
+    ConfirmScreen,
+    TypeSelectScreen,
     _validate_positive_float,
     _validate_required,
 )
@@ -94,17 +94,17 @@ class TestValidatePositiveFloat:
 
 
 # ---------------------------------------------------------------------------
-# _BacktestFormScreen compose
+# BacktestFormScreen compose
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_backtest_form_compose():
-    """_BacktestFormScreen creates all expected input fields."""
+    """BacktestFormScreen creates all expected input fields."""
     app = _make_app()
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen()
+        screen = BacktestFormScreen()
         app.push_screen(screen)
         await pilot.pause()
 
@@ -121,11 +121,11 @@ async def test_backtest_form_compose():
 
 @pytest.mark.asyncio
 async def test_backtest_form_custom_initial_values():
-    """_BacktestFormScreen accepts custom initial values."""
+    """BacktestFormScreen accepts custom initial values."""
     app = _make_app()
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(
+        screen = BacktestFormScreen(
             benchmark="QQQ",
             start_amount="50000",
             start_year="2015",
@@ -143,7 +143,7 @@ async def test_backtest_form_custom_initial_values():
 
 
 # ---------------------------------------------------------------------------
-# _BacktestFormScreen cancel / escape
+# BacktestFormScreen cancel / escape
 # ---------------------------------------------------------------------------
 
 
@@ -154,7 +154,7 @@ async def test_backtest_form_cancel_dismisses_with_none():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen()
+        screen = BacktestFormScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -172,7 +172,7 @@ async def test_backtest_form_escape_dismisses_with_none():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen()
+        screen = BacktestFormScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -183,7 +183,7 @@ async def test_backtest_form_escape_dismisses_with_none():
 
 
 # ---------------------------------------------------------------------------
-# _BacktestFormScreen submit - valid
+# BacktestFormScreen submit - valid
 # ---------------------------------------------------------------------------
 
 
@@ -194,7 +194,7 @@ async def test_backtest_form_submit_valid_data():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="2015", end_year="2023")
+        screen = BacktestFormScreen(start_year="2015", end_year="2023")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -214,7 +214,7 @@ async def test_backtest_form_submit_valid_data():
 
 
 # ---------------------------------------------------------------------------
-# _BacktestFormScreen submit - validation errors
+# BacktestFormScreen submit - validation errors
 # ---------------------------------------------------------------------------
 
 
@@ -225,7 +225,7 @@ async def test_backtest_form_empty_benchmark_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen()
+        screen = BacktestFormScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -245,7 +245,7 @@ async def test_backtest_form_invalid_start_amount_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen()
+        screen = BacktestFormScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -265,7 +265,7 @@ async def test_backtest_form_invalid_year_range_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="2025", end_year="2015")
+        screen = BacktestFormScreen(start_year="2025", end_year="2015")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -284,7 +284,7 @@ async def test_backtest_form_negative_cashflows_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="2015", end_year="2023")
+        screen = BacktestFormScreen(start_year="2015", end_year="2023")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -304,7 +304,7 @@ async def test_backtest_form_year_before_1970_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="1960", end_year="2023")
+        screen = BacktestFormScreen(start_year="1960", end_year="2023")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -323,7 +323,7 @@ async def test_backtest_form_non_numeric_year_shows_error():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="abc", end_year="2023")
+        screen = BacktestFormScreen(start_year="abc", end_year="2023")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -336,7 +336,7 @@ async def test_backtest_form_non_numeric_year_shows_error():
 
 
 # ---------------------------------------------------------------------------
-# _BacktestFormScreen -- enter key on focused Input triggers submit
+# BacktestFormScreen -- enter key on focused Input triggers submit
 # ---------------------------------------------------------------------------
 
 
@@ -347,7 +347,7 @@ async def test_backtest_form_enter_on_input_triggers_submit():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _BacktestFormScreen(start_year="2015", end_year="2023")
+        screen = BacktestFormScreen(start_year="2015", end_year="2023")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -362,7 +362,7 @@ async def test_backtest_form_enter_on_input_triggers_submit():
 
 
 # ---------------------------------------------------------------------------
-# _TypeSelectScreen
+# TypeSelectScreen
 # ---------------------------------------------------------------------------
 
 
@@ -373,7 +373,7 @@ async def test_type_select_equity_dismisses_with_equity():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _TypeSelectScreen()
+        screen = TypeSelectScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -390,7 +390,7 @@ async def test_type_select_cash_dismisses_with_cash():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _TypeSelectScreen()
+        screen = TypeSelectScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -407,7 +407,7 @@ async def test_type_select_cancel_dismisses_with_none():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _TypeSelectScreen()
+        screen = TypeSelectScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -424,7 +424,7 @@ async def test_type_select_escape_dismisses_with_none():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _TypeSelectScreen()
+        screen = TypeSelectScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -440,7 +440,7 @@ async def test_type_select_portfolio_name_shown():
     app = _make_app()
 
     async with app.run_test() as pilot:
-        screen = _TypeSelectScreen(portfolio_name="My Fund")
+        screen = TypeSelectScreen(portfolio_name="My Fund")
         app.push_screen(screen)
         await pilot.pause()
 
@@ -450,7 +450,7 @@ async def test_type_select_portfolio_name_shown():
 
 
 # ---------------------------------------------------------------------------
-# _ConfirmScreen
+# ConfirmScreen
 # ---------------------------------------------------------------------------
 
 
@@ -461,7 +461,7 @@ async def test_confirm_screen_yes_dismisses_true():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _ConfirmScreen("Delete this position?")
+        screen = ConfirmScreen("Delete this position?")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -478,7 +478,7 @@ async def test_confirm_screen_no_dismisses_false():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _ConfirmScreen("Delete this position?")
+        screen = ConfirmScreen("Delete this position?")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -495,7 +495,7 @@ async def test_confirm_screen_escape_dismisses_false():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _ConfirmScreen("Are you sure?")
+        screen = ConfirmScreen("Are you sure?")
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
@@ -506,7 +506,7 @@ async def test_confirm_screen_escape_dismisses_false():
 
 
 # ---------------------------------------------------------------------------
-# _CashFormScreen -- enter key on input triggers submit
+# CashFormScreen -- enter key on input triggers submit
 # ---------------------------------------------------------------------------
 
 
@@ -517,7 +517,7 @@ async def test_cash_form_enter_on_input_triggers_submit():
     dismissed_values: list = []
 
     async with app.run_test() as pilot:
-        screen = _CashFormScreen()
+        screen = CashFormScreen()
         app.push_screen(screen, callback=dismissed_values.append)
         await pilot.pause()
 
