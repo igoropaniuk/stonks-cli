@@ -5,7 +5,8 @@ import math
 from collections.abc import Callable
 from typing import Any
 
-from textual.containers import Horizontal
+from textual.binding import Binding
+from textual.containers import Horizontal, VerticalScroll
 from textual.message_pump import NoActiveAppError
 from textual.widget import Widget
 from textual.widgets import Static
@@ -120,6 +121,45 @@ DETAIL_SCREEN_CSS = """
     color: $error;
 }
 """
+
+
+# ---------------------------------------------------------------------------
+# Scroll navigation bindings and actions shared across detail screens
+# ---------------------------------------------------------------------------
+
+SCROLL_BINDINGS = [
+    Binding("escape", "app.pop_screen", "Back"),
+    Binding("q", "app.pop_screen", "Back", priority=True),
+    Binding("up", "scroll_up", "Scroll Up", show=True),
+    Binding("down", "scroll_down", "Scroll Down", show=True),
+    Binding("pageup", "page_up", "Page Up", show=True),
+    Binding("pagedown", "page_down", "Page Down", show=True),
+]
+
+
+class ScrollableScreenMixin:
+    """Mixin providing scroll/page actions for a screen with a VerticalScroll.
+
+    Subclasses must set ``_scroll_id`` (the CSS id of the VerticalScroll
+    container, e.g. ``"detail-scroll"`` or ``"bt-scroll"``).
+    """
+
+    _scroll_id: str = "scroll"
+
+    def _scroll(self) -> VerticalScroll:
+        return self.query_one(f"#{self._scroll_id}", VerticalScroll)  # type: ignore[attr-defined]
+
+    def action_scroll_up(self) -> None:
+        self._scroll().scroll_up()
+
+    def action_scroll_down(self) -> None:
+        self._scroll().scroll_down()
+
+    def action_page_up(self) -> None:
+        self._scroll().scroll_page_up()
+
+    def action_page_down(self) -> None:
+        self._scroll().scroll_page_down()
 
 
 class ThreadGuardMixin:

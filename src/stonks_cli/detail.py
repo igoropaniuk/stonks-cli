@@ -11,7 +11,14 @@ from textual.widget import Widget
 from textual.widgets import Footer, Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
-from stonks_cli.helpers import DETAIL_SCREEN_CSS, ThreadGuardMixin, kv_row, nice_yticks
+from stonks_cli.helpers import (
+    DETAIL_SCREEN_CSS,
+    SCROLL_BINDINGS,
+    ScrollableScreenMixin,
+    ThreadGuardMixin,
+    kv_row,
+    nice_yticks,
+)
 from stonks_cli.stock_detail import StockDetail, StockDetailFetcher
 
 logger = logging.getLogger(__name__)
@@ -24,16 +31,15 @@ _COLOR_SELL = (255, 69, 0)
 _COLOR_STRONG_SELL = (139, 0, 0)
 
 
-class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
+class StockDetailScreen(
+    ScrollableScreenMixin, ThreadGuardMixin, Screen, inherit_bindings=False
+):
     """Full-screen detail view for a single stock."""
 
+    _scroll_id = "detail-scroll"
+
     BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
-        Binding("q", "app.pop_screen", "Back", priority=True),
-        Binding("up", "scroll_up", "Scroll Up", show=True),
-        Binding("down", "scroll_down", "Scroll Down", show=True),
-        Binding("pageup", "page_up", "Page Up", show=True),
-        Binding("pagedown", "page_down", "Page Down", show=True),
+        *SCROLL_BINDINGS,
         Binding("g", "chart", "Chart"),
     ]
 
@@ -102,21 +108,6 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     def on_mount(self) -> None:
         self.query_one("#detail-scroll").display = False
         self._load_detail()
-
-    def _scroll(self) -> VerticalScroll:
-        return self.query_one("#detail-scroll", VerticalScroll)
-
-    def action_scroll_up(self) -> None:
-        self._scroll().scroll_up()
-
-    def action_scroll_down(self) -> None:
-        self._scroll().scroll_down()
-
-    def action_page_up(self) -> None:
-        self._scroll().scroll_page_up()
-
-    def action_page_down(self) -> None:
-        self._scroll().scroll_page_down()
 
     @work(thread=True)
     def _load_detail(self) -> None:

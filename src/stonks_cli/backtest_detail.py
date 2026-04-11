@@ -4,7 +4,6 @@ import logging
 
 from textual import work
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widget import Widget
@@ -13,23 +12,27 @@ from textual_plotext import PlotextPlot
 
 from stonks_cli.backtest import BacktestResult, run_backtest
 from stonks_cli.dto import BacktestConfig
-from stonks_cli.helpers import DETAIL_SCREEN_CSS, ThreadGuardMixin, kv_row, nice_yticks
+from stonks_cli.helpers import (
+    DETAIL_SCREEN_CSS,
+    SCROLL_BINDINGS,
+    ScrollableScreenMixin,
+    ThreadGuardMixin,
+    kv_row,
+    nice_yticks,
+)
 from stonks_cli.models import Portfolio
 
 logger = logging.getLogger(__name__)
 
 
-class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
+class BacktestScreen(
+    ScrollableScreenMixin, ThreadGuardMixin, Screen, inherit_bindings=False
+):
     """Full-screen view showing backtest results with charts."""
 
-    BINDINGS = [
-        Binding("escape", "app.pop_screen", "Back"),
-        Binding("q", "app.pop_screen", "Back", priority=True),
-        Binding("up", "scroll_up", "Scroll Up", show=True),
-        Binding("down", "scroll_down", "Scroll Down", show=True),
-        Binding("pageup", "page_up", "Page Up", show=True),
-        Binding("pagedown", "page_down", "Page Down", show=True),
-    ]
+    _scroll_id = "bt-scroll"
+
+    BINDINGS = list(SCROLL_BINDINGS)
 
     CSS = (
         DETAIL_SCREEN_CSS
@@ -92,21 +95,6 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     def on_mount(self) -> None:
         self.query_one("#bt-scroll").display = False
         self._run_backtest()
-
-    def _scroll(self) -> VerticalScroll:
-        return self.query_one("#bt-scroll", VerticalScroll)
-
-    def action_scroll_up(self) -> None:
-        self._scroll().scroll_up()
-
-    def action_scroll_down(self) -> None:
-        self._scroll().scroll_down()
-
-    def action_page_up(self) -> None:
-        self._scroll().scroll_page_up()
-
-    def action_page_down(self) -> None:
-        self._scroll().scroll_page_down()
 
     @work(thread=True)
     def _run_backtest(self) -> None:
