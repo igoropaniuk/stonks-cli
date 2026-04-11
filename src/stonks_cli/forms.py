@@ -76,7 +76,7 @@ _ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
 # ---------------------------------------------------------------------------
 
 
-class _BaseFormScreen(ModalScreen[_FormResultT | None]):
+class BaseFormScreen(ModalScreen[_FormResultT | None]):
     """Shared boilerplate for add/edit form dialogs.
 
     Subclasses must implement :meth:`_submit`.  CSS is generated
@@ -113,10 +113,10 @@ class _BaseFormScreen(ModalScreen[_FormResultT | None]):
 # ---------------------------------------------------------------------------
 
 
-class _TypeSelectScreen(ModalScreen[str | None]):
+class TypeSelectScreen(ModalScreen[str | None]):
     """Ask whether the new position is equity or cash."""
 
-    CSS = _MODAL_CSS.format(cls="_TypeSelectScreen")
+    CSS = _MODAL_CSS.format(cls="TypeSelectScreen")
     AUTO_FOCUS = "#equity"
 
     def __init__(self, portfolio_name: str = "") -> None:
@@ -141,7 +141,7 @@ class _TypeSelectScreen(ModalScreen[str | None]):
             self.dismiss(None)
 
 
-class _EquityFormScreen(_BaseFormScreen[EquityResult]):
+class EquityFormScreen(BaseFormScreen[EquityResult]):
     """Form for adding or editing an equity position."""
 
     AUTO_FOCUS = "#symbol"
@@ -224,7 +224,7 @@ class _EquityFormScreen(_BaseFormScreen[EquityResult]):
         )
 
 
-class _CashFormScreen(_BaseFormScreen[CashResult]):
+class CashFormScreen(BaseFormScreen[CashResult]):
     """Form for adding or editing a cash position."""
 
     AUTO_FOCUS = "#currency"
@@ -263,7 +263,7 @@ class _CashFormScreen(_BaseFormScreen[CashResult]):
         self.dismiss(CashResult(currency=currency, amount=amount))
 
 
-class _WatchFormScreen(_BaseFormScreen[WatchResult]):
+class WatchFormScreen(BaseFormScreen[WatchResult]):
     """Form for adding or editing a watchlist item."""
 
     AUTO_FOCUS = "#symbol"
@@ -318,11 +318,11 @@ class _WatchFormScreen(_BaseFormScreen[WatchResult]):
         )
 
 
-class _ConfirmScreen(ModalScreen[bool]):
+class ConfirmScreen(ModalScreen[bool]):
     """Simple yes/no confirmation dialog."""
 
     AUTO_FOCUS = "#yes"
-    CSS = _MODAL_CSS.format(cls="_ConfirmScreen").replace(
+    CSS = _MODAL_CSS.format(cls="ConfirmScreen").replace(
         "border: solid $accent", "border: solid $error"
     )
 
@@ -352,7 +352,7 @@ _REBALANCE_OPTIONS: list[tuple[str, str]] = [
 ]
 
 
-class _BacktestFormScreen(_BaseFormScreen[BacktestConfig]):
+class BacktestFormScreen(BaseFormScreen[BacktestConfig]):
     """Form for configuring a portfolio backtest."""
 
     AUTO_FOCUS = "#benchmark"

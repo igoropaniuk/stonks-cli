@@ -22,12 +22,12 @@ from stonks_cli.chat import ChatScreen
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
 from stonks_cli.forms import (
-    _BacktestFormScreen,
-    _CashFormScreen,
-    _ConfirmScreen,
-    _EquityFormScreen,
-    _TypeSelectScreen,
-    _WatchFormScreen,
+    BacktestFormScreen,
+    CashFormScreen,
+    ConfirmScreen,
+    EquityFormScreen,
+    TypeSelectScreen,
+    WatchFormScreen,
 )
 from stonks_cli.helpers import ThreadGuardMixin
 from stonks_cli.logviewer import LogViewerScreen
@@ -591,15 +591,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         """Open the selected add-form flow for portfolio *idx*."""
         handlers: dict[str, tuple[_AddFormFactory, _ScreenCallback]] = {
             "equity": (
-                lambda: _EquityFormScreen(title=f"[{pname}] Add Equity Position"),
+                lambda: EquityFormScreen(title=f"[{pname}] Add Equity Position"),
                 partial(self._handle_add_equity, idx),
             ),
             "cash": (
-                lambda: _CashFormScreen(title=f"[{pname}] Add Cash Position"),
+                lambda: CashFormScreen(title=f"[{pname}] Add Cash Position"),
                 partial(self._handle_add_cash, idx),
             ),
             "watch": (
-                lambda: _WatchFormScreen(title=f"[{pname}] Add Watch Item"),
+                lambda: WatchFormScreen(title=f"[{pname}] Add Watch Item"),
                 partial(self._handle_add_watch, idx),
             ),
         }
@@ -683,7 +683,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         _, idx = active
         pname = self._pname(idx)
         self.push_screen(
-            _TypeSelectScreen(portfolio_name=pname),
+            TypeSelectScreen(portfolio_name=pname),
             partial(self._push_add_form, idx=idx, pname=pname),
         )
 
@@ -692,7 +692,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ) -> None:
         """Push the cash-edit form and apply the result."""
         self.push_screen(
-            _CashFormScreen(
+            CashFormScreen(
                 title=f"[{pname}] Edit Cash Position",
                 currency=cash_pos.currency,
                 amount=str(cash_pos.amount),
@@ -705,7 +705,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ) -> None:
         """Push the watchlist-edit form and apply the result."""
         self.push_screen(
-            _WatchFormScreen(
+            WatchFormScreen(
                 title=f"[{pname}] Edit Watch Item",
                 symbol=old_item.symbol,
                 asset_type=old_item.asset_type,
@@ -719,7 +719,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ) -> None:
         """Push the equity-edit form and apply the result."""
         self.push_screen(
-            _EquityFormScreen(
+            EquityFormScreen(
                 title=f"[{pname}] Edit Equity Position",
                 symbol=pos.symbol,
                 qty=str(pos.quantity),
@@ -778,7 +778,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         identifier = meta.symbol
         kind = ROW_KIND_LABELS[meta.kind]
         self.push_screen(
-            _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"),
+            ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"),
             partial(
                 self._handle_remove_confirmation,
                 portfolio,
@@ -855,7 +855,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
             return
         pname = self._pname(idx)
         self.push_screen(
-            _BacktestFormScreen(title=f"[{pname}] Backtest Configuration"),
+            BacktestFormScreen(title=f"[{pname}] Backtest Configuration"),
             partial(self._handle_backtest_config, idx),
         )
 
