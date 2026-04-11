@@ -93,6 +93,15 @@ def _best_worst_year(years: list[str], returns: list[float]) -> tuple[str, str]:
     )
 
 
+def _compute_weights(portfolio: Portfolio) -> dict[str, float]:
+    """Return symbol -> fractional weight based on current cost basis."""
+    total_cost = sum(p.quantity * p.avg_cost for p in portfolio.positions)
+    return {
+        p.symbol: (p.quantity * p.avg_cost) / total_cost if total_cost else 0
+        for p in portfolio.positions
+    }
+
+
 def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult:
     """Run a portfolio backtest and return the result.
 
@@ -103,11 +112,7 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     if not symbols:
         raise ValueError("Portfolio has no equity positions to backtest")
 
-    # Compute target weights from current allocation
-    total_cost = sum(p.quantity * p.avg_cost for p in portfolio.positions)
-    weights: dict[str, float] = {}
-    for p in portfolio.positions:
-        weights[p.symbol] = (p.quantity * p.avg_cost) / total_cost if total_cost else 0
+    weights = _compute_weights(portfolio)
 
     benchmark = config["benchmark"]
     start_year = config["start_year"]
