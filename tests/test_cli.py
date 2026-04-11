@@ -1002,3 +1002,23 @@ class TestFormatShowTable:
         )
         assert "+10.00%" not in table
         assert "--" in table
+
+    def test_watchlist_row_included_in_table(self):
+        """Watchlist items render as rows in the show table (WATCHLIST branch)."""
+        from stonks_cli.models import WatchlistItem
+
+        portfolio = Portfolio(
+            watchlist=[WatchlistItem(symbol="TSLA")],
+            base_currency="USD",
+        )
+        table = format_show_table(
+            portfolio,
+            _mock_snapshot(
+                prices={"TSLA": 250.0},
+                sessions={"TSLA": "regular"},
+                forex_rates={"USD": {"USD": 1.0}},
+                prev_closes={"TSLA": 240.0},
+            ),
+        )
+        assert "TSLA" in table
+        assert "-" in table  # no qty/cost for watchlist
