@@ -560,28 +560,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self._show_error("")
         return True
 
-    def _handle_add_equity(self, idx: int, result: EquityResult | None) -> None:
+    def _handle_add(
+        self,
+        idx: int,
+        action: Callable[[Any, Any], str | None],
+        result: Any,
+    ) -> None:
         if result is None:
             return
-        err = app_actions.add_equity(result, self.portfolios[idx])
-        if not self._show_mutation_error(err):
-            return
-        self._save_and_refresh(idx)
-        self._refresh_prices()
-
-    def _handle_add_cash(self, idx: int, result: CashResult | None) -> None:
-        if result is None:
-            return
-        err = app_actions.add_cash(result, self.portfolios[idx])
-        if not self._show_mutation_error(err):
-            return
-        self._save_and_refresh(idx)
-        self._refresh_prices()
-
-    def _handle_add_watch(self, idx: int, result: WatchResult | None) -> None:
-        if result is None:
-            return
-        err = app_actions.add_watch(result, self.portfolios[idx])
+        err = action(result, self.portfolios[idx])
         if not self._show_mutation_error(err):
             return
         self._save_and_refresh(idx)
@@ -592,15 +579,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         handlers: dict[str, tuple[_AddFormFactory, _ScreenCallback]] = {
             "equity": (
                 lambda: EquityFormScreen(title=f"[{pname}] Add Equity Position"),
-                partial(self._handle_add_equity, idx),
+                partial(self._handle_add, idx, app_actions.add_equity),
             ),
             "cash": (
                 lambda: CashFormScreen(title=f"[{pname}] Add Cash Position"),
-                partial(self._handle_add_cash, idx),
+                partial(self._handle_add, idx, app_actions.add_cash),
             ),
             "watch": (
                 lambda: WatchFormScreen(title=f"[{pname}] Add Watch Item"),
-                partial(self._handle_add_watch, idx),
+                partial(self._handle_add, idx, app_actions.add_watch),
             ),
         }
         screen_and_handler = handlers.get(pos_type or "")
