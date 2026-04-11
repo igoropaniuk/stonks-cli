@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from stonks_cli.app import PortfolioApp
 from stonks_cli.chart import (
     _Y_SCALE_STEP,
     _ZOOM_LEVELS,
@@ -553,3 +554,1105 @@ class TestZoomLevels:
     def test_all_refresh_seconds_positive(self):
         for level in _ZOOM_LEVELS:
             assert level[4] > 0
+
+
+# ---------------------------------------------------------------------------
+# _CandleData methods: _ohlcv_fields, prepend, append_from
+# ---------------------------------------------------------------------------
+
+
+def _make_candle_data(n: int = 3, start_close: float = 100.0) -> _CandleData:
+    return _CandleData(
+        dates=[f"2025-03-{i + 1:02d} 09:30" for i in range(n)],
+        opens=[start_close] * n,
+        highs=[start_close + 5] * n,
+        lows=[start_close - 2] * n,
+        closes=[start_close + 1] * n,
+        volumes=[1000.0 * (i + 1) for i in range(n)],
+    )
+
+
+class TestCandleDataMethods:
+    def test_ohlcv_fields_returns_all_six_lists(self):
+        data = _make_candle_data(2)
+        fields = data._ohlcv_fields()
+        assert len(fields) == 6
+        assert fields[0] is data.dates
+        assert fields[5] is data.volumes
+
+    def test_prepend_adds_candles_at_front(self):
+        data = _make_candle_data(3)
+        older = _CandleData(
+            dates=["2025-02-26 09:30", "2025-02-27 09:30"],
+            opens=[90.0, 91.0],
+            highs=[95.0, 96.0],
+            lows=[88.0, 89.0],
+            closes=[92.0, 93.0],
+            volumes=[500.0, 600.0],
+        )
+        data.prepend(older, 2)
+        assert data.dates[0] == "2025-02-26 09:30"
+        assert data.dates[1] == "2025-02-27 09:30"
+        assert len(data.dates) == 5
+
+    def test_prepend_with_n_less_than_other_length(self):
+        data = _make_candle_data(3)
+        older = _CandleData(
+            dates=["2025-02-25 09:30", "2025-02-26 09:30"],
+            opens=[90.0, 91.0],
+            highs=[95.0, 96.0],
+            lows=[88.0, 89.0],
+            closes=[92.0, 93.0],
+            volumes=[500.0, 600.0],
+        )
+        data.prepend(older, 1)  # only prepend first 1
+        assert data.dates[0] == "2025-02-25 09:30"
+        assert len(data.dates) == 4
+
+    def test_append_from_adds_candles_at_end(self):
+        data = _make_candle_data(2)
+        new_candles = [
+            ("2025-03-10 09:30", 105.0, 110.0, 103.0, 108.0, 2000.0),
+            ("2025-03-11 09:30", 108.0, 112.0, 106.0, 111.0, 2100.0),
+        ]
+        data.append_from(new_candles)
+        assert data.dates[-1] == "2025-03-11 09:30"
+        assert len(data.dates) == 4
+        assert data.closes[-1] == 111.0
+
+    def test_append_from_empty_list_no_change(self):
+        data = _make_candle_data(2)
+        original_len = len(data)
+        data.append_from([])
+        assert len(data) == original_len
+
+
+# ---------------------------------------------------------------------------
+# _draw_candles -- pure function, uses a mock plt
+# ---------------------------------------------------------------------------
+
+
+class TestDrawCandles:
+    def _make_plt(self):
+        plt = MagicMock()
+        return plt
+
+    def test_draw_candles_calls_plot_for_up_candles(self):
+        from stonks_cli.chart import _draw_candles
+
+        data = _CandleData(
+            dates=["2025-03-01 09:30"],
+            opens=[100.0],
+            highs=[105.0],
+            lows=[98.0],
+            closes=[102.0],  # close > open => up candle
+            volumes=[1000.0],
+        )
+        plt = self._make_plt()
+        _draw_candles(plt, data)
+        assert plt.plot.called
+
+    def test_draw_candles_calls_plot_for_down_candles(self):
+        from stonks_cli.chart import _draw_candles
+
+        data = _CandleData(
+            dates=["2025-03-01 09:30"],
+            opens=[105.0],
+            highs=[107.0],
+            lows=[98.0],
+            closes=[99.0],  # close < open => down candle
+            volumes=[1000.0],
+        )
+        plt = self._make_plt()
+        _draw_candles(plt, data)
+        assert plt.plot.called
+
+    def test_draw_candles_mixed_up_and_down(self):
+        from stonks_cli.chart import _draw_candles
+
+        data = _CandleData(
+            dates=["2025-03-01 09:30", "2025-03-02 09:30"],
+            opens=[100.0, 105.0],
+            highs=[107.0, 110.0],
+            lows=[98.0, 99.0],
+            closes=[104.0, 102.0],  # up, then down
+            volumes=[1000.0, 2000.0],
+        )
+        plt = self._make_plt()
+        _draw_candles(plt, data)
+        # Should have called plot multiple times (wicks + bodies)
+        assert plt.plot.call_count >= 2
+
+    def test_draw_candles_empty_data_no_plot(self):
+        from stonks_cli.chart import _draw_candles
+
+        data = _CandleData()
+        plt = self._make_plt()
+        _draw_candles(plt, data)
+        plt.plot.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _fetch_candles with start/end date range
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCandlesWithDateRange:
+    @pytest.fixture(autouse=True)
+    def _mock_yf(self):
+        with patch("stonks_cli.chart.yf.Ticker") as mock_cls:
+            self.mock_ticker = MagicMock()
+            mock_cls.return_value = self.mock_ticker
+            yield
+
+    def _make_hist(self, n=2):
+        idx = pd.date_range("2025-03-01", periods=n, freq="1D", tz="UTC")
+        return pd.DataFrame(
+            {
+                "Open": [100.0] * n,
+                "High": [105.0] * n,
+                "Low": [98.0] * n,
+                "Close": [102.0] * n,
+                "Volume": [1000.0] * n,
+            },
+            index=idx,
+        )
+
+    def test_fetch_with_start_and_end(self):
+        self.mock_ticker.history.return_value = self._make_hist(2)
+        data = _fetch_candles("AAPL", "1y", "1d", start="2025-03-01", end="2025-03-03")
+        assert len(data) == 2
+        assert data.last == 102.0
+
+    def test_fetch_with_start_and_end_sets_last(self):
+        """data.last is set when closes are non-empty."""
+        self.mock_ticker.history.return_value = self._make_hist(3)
+        data = _fetch_candles("AAPL", "1y", "1d", start="2025-01-01", end="2025-04-01")
+        assert data.last == 102.0
+
+
+# ---------------------------------------------------------------------------
+# _prepend_data and _append_data (pure unit tests, no app)
+# ---------------------------------------------------------------------------
+
+
+class TestPrependData:
+    def _make_screen(self) -> CandleChartScreen:
+        screen = CandleChartScreen("AAPL")
+        screen._data = _make_candle_data(3)
+        return screen
+
+    def test_prepend_data_adds_older_candles(self):
+        screen = self._make_screen()
+        older = _CandleData(
+            dates=["2025-02-26 09:30", "2025-02-27 09:30"],
+            opens=[90.0, 91.0],
+            highs=[95.0, 96.0],
+            lows=[88.0, 89.0],
+            closes=[92.0, 93.0],
+            volumes=[500.0, 600.0],
+        )
+        with patch.object(screen, "_redraw"):
+            screen._prepend_data(older)
+        assert screen._data.dates[0] == "2025-02-26 09:30"
+        assert screen._prefetching is False
+
+    def test_prepend_data_shifts_cursor(self):
+        screen = self._make_screen()
+        screen._cursor = 1
+        older = _CandleData(
+            dates=["2025-02-26 09:30"],
+            opens=[90.0],
+            highs=[95.0],
+            lows=[88.0],
+            closes=[92.0],
+            volumes=[500.0],
+        )
+        with patch.object(screen, "_redraw"):
+            screen._prepend_data(older)
+        assert screen._cursor == 2  # shifted by n_new=1
+
+    def test_prepend_data_no_change_if_no_new_dates_before_current(self):
+        screen = self._make_screen()
+        original_first = screen._data.dates[0]
+        later = _CandleData(
+            dates=["2025-03-10 09:30"],  # after current first date
+            opens=[110.0],
+            highs=[115.0],
+            lows=[108.0],
+            closes=[112.0],
+            volumes=[500.0],
+        )
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._prepend_data(later)
+        mock_redraw.assert_not_called()
+        assert screen._data.dates[0] == original_first
+
+    def test_prepend_data_empty_new_data(self):
+        screen = self._make_screen()
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._prepend_data(_CandleData())
+        mock_redraw.assert_not_called()
+
+    def test_prepend_data_empty_existing_data(self):
+        screen = CandleChartScreen("AAPL")
+        screen._data = _CandleData()
+        older = _make_candle_data(2)
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._prepend_data(older)
+        mock_redraw.assert_not_called()
+
+
+class TestAppendData:
+    def _make_screen(self) -> CandleChartScreen:
+        screen = CandleChartScreen("AAPL")
+        screen._data = _make_candle_data(3)
+        return screen
+
+    def test_append_data_adds_newer_candles(self):
+        screen = self._make_screen()
+        newer = _CandleData(
+            dates=["2025-03-10 09:30", "2025-03-11 09:30"],
+            opens=[110.0, 111.0],
+            highs=[115.0, 116.0],
+            lows=[108.0, 109.0],
+            closes=[112.0, 113.0],
+            volumes=[1500.0, 1600.0],
+        )
+        with patch.object(screen, "_redraw"):
+            screen._append_data(newer)
+        assert "2025-03-10 09:30" in screen._data.dates
+        assert screen._prefetching is False
+
+    def test_append_data_deduplicates_dates(self):
+        """Candles with dates at or before the current last are excluded."""
+        screen = self._make_screen()
+        last_date = screen._data.dates[-1]
+        # These candles overlap with existing data
+        overlap = _CandleData(
+            dates=[last_date, "2025-03-10 09:30"],  # first is duplicate
+            opens=[100.0, 110.0],
+            highs=[105.0, 115.0],
+            lows=[98.0, 108.0],
+            closes=[102.0, 112.0],
+            volumes=[1000.0, 1500.0],
+        )
+        orig_len = len(screen._data)
+        with patch.object(screen, "_redraw"):
+            screen._append_data(overlap)
+        # Only "2025-03-10" should have been added
+        assert len(screen._data) == orig_len + 1
+
+    def test_append_data_empty_new_data(self):
+        screen = self._make_screen()
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._append_data(_CandleData())
+        mock_redraw.assert_not_called()
+
+    def test_append_data_empty_existing_data(self):
+        screen = CandleChartScreen("AAPL")
+        screen._data = _CandleData()
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._append_data(_make_candle_data(2))
+        mock_redraw.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _maybe_prefetch_history / _maybe_prefetch_future
+# ---------------------------------------------------------------------------
+
+
+class TestMaybePrefetch:
+    def _screen_with_historical_zoom(self) -> CandleChartScreen:
+        """Return a screen at a zoom level that supports historical intervals."""
+        from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+        screen = CandleChartScreen("AAPL")
+        # Find a zoom level using a historical interval
+        for idx, level in enumerate(_ZOOM_LEVELS):
+            if level[2] in _HISTORICAL_INTERVALS:
+                screen._zoom_idx = idx
+                break
+        screen._data = _make_candle_data(5)
+        return screen
+
+    def _screen_with_non_historical_zoom(self) -> CandleChartScreen:
+        """Return a screen at a zoom level without historical interval support."""
+        from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+        screen = CandleChartScreen("AAPL")
+        for idx, level in enumerate(_ZOOM_LEVELS):
+            if level[2] not in _HISTORICAL_INTERVALS:
+                screen._zoom_idx = idx
+                break
+        screen._data = _make_candle_data(5)
+        return screen
+
+    def test_maybe_prefetch_history_non_historical_interval_skips(self):
+        screen = self._screen_with_non_historical_zoom()
+        with patch.object(screen, "_prefetch_history") as mock_pf:
+            screen._maybe_prefetch_history()
+        mock_pf.assert_not_called()
+
+    def test_maybe_prefetch_history_already_prefetching_skips(self):
+        screen = self._screen_with_historical_zoom()
+        screen._prefetching = True
+        with patch.object(screen, "_prefetch_history") as mock_pf:
+            screen._maybe_prefetch_history()
+        mock_pf.assert_not_called()
+
+    def test_maybe_prefetch_history_starts_prefetch(self):
+        screen = self._screen_with_historical_zoom()
+        screen._prefetching = False
+        with patch.object(screen, "_prefetch_history") as mock_pf:
+            screen._maybe_prefetch_history()
+        assert screen._prefetching is True
+        mock_pf.assert_called_once()
+
+    def test_maybe_prefetch_future_non_historical_interval_skips(self):
+        screen = self._screen_with_non_historical_zoom()
+        with patch.object(screen, "_prefetch_future") as mock_pf:
+            screen._maybe_prefetch_future()
+        mock_pf.assert_not_called()
+
+    def test_maybe_prefetch_future_already_prefetching_skips(self):
+        screen = self._screen_with_historical_zoom()
+        screen._prefetching = True
+        with patch.object(screen, "_prefetch_future") as mock_pf:
+            screen._maybe_prefetch_future()
+        mock_pf.assert_not_called()
+
+    def test_maybe_prefetch_future_starts_prefetch(self):
+        screen = self._screen_with_historical_zoom()
+        screen._prefetching = False
+        with patch.object(screen, "_prefetch_future") as mock_pf:
+            screen._maybe_prefetch_future()
+        assert screen._prefetching is True
+        mock_pf.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# CandleChartScreen TUI tests (compose, on_resize, _apply_bid_ask, _redraw)
+# ---------------------------------------------------------------------------
+
+
+def _make_app_for_chart() -> PortfolioApp:
+    from stonks_cli.models import Portfolio, Position
+
+    portfolio = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+    return PortfolioApp(
+        portfolios=[portfolio],
+        prices={"AAPL": 160.0},
+        forex_rates={"USD": {"USD": 1.0}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_screen_compose():
+    """CandleChartScreen composes its expected widgets."""
+    from textual.widgets import Label
+
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        assert screen.query_one("#chart-title", Label) is not None
+        assert screen.query_one("#ohlc-bar") is not None
+        assert screen.query_one("#candle-chart") is not None
+        assert screen.query_one("#zoom-label") is not None
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_apply_bid_ask():
+    """_apply_bid_ask updates _data bid/ask and triggers redraw."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen._apply_bid_ask(101.5, 102.5)
+
+        assert screen._data.bid == 101.5
+        assert screen._data.ask == 102.5
+        mock_redraw.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_redraw_with_data():
+    """_redraw runs without error when data is populated."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        # Populate data and call _redraw
+        screen._data = _make_candle_data(5)
+        screen._data.bid = 101.0
+        screen._data.ask = 102.0
+        screen._data.last = 101.5
+        screen._redraw()
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        ohlc = screen.query_one("#ohlc-bar", Static)
+        assert "O:" in str(ohlc.content)
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_redraw_empty_data_no_crash():
+    """_redraw does nothing when data is empty."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        # Should not raise
+        screen._redraw()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_on_resize():
+    """on_resize triggers _redraw."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen.on_resize()
+
+        mock_redraw.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_cursor_left_at_end_triggers_prefetch():
+    """cursor_left at position 0 triggers _maybe_prefetch_history."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 0  # already at leftmost
+
+        with (
+            patch.object(screen, "_maybe_prefetch_history") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_left()
+
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_cursor_right_at_end_triggers_prefetch():
+    """cursor_right at last position triggers _maybe_prefetch_future."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 4  # already at rightmost
+
+        with (
+            patch.object(screen, "_maybe_prefetch_future") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_right()
+
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_cursor_home_triggers_prefetch():
+    """action_cursor_home triggers _maybe_prefetch_history."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 4
+
+        with (
+            patch.object(screen, "_maybe_prefetch_history") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_home()
+
+        assert screen._cursor == 0
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_cursor_end_triggers_prefetch():
+    """action_cursor_end triggers _maybe_prefetch_future."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 2
+
+        with (
+            patch.object(screen, "_maybe_prefetch_future") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_end()
+
+        assert screen._cursor == -1
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_cursor_left_when_empty():
+    """cursor_left on empty data does nothing."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        # data is empty
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen.action_cursor_left()
+        mock_redraw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_worker_thread_load_data_success():
+    """_load_data worker calls _apply_data on success."""
+    app = _make_app_for_chart()
+    result_data = _make_candle_data(5)
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch("stonks_cli.chart._fetch_candles", return_value=result_data):
+            with patch.object(screen, "_call_from_thread_if_running") as mock_call:
+                CandleChartScreen._load_data.__wrapped__(screen)
+                assert mock_call.called
+                args = mock_call.call_args_list[0]
+                assert args[0][0] == screen._apply_data
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_worker_thread_load_data_error():
+    """_load_data worker returns early on exception without calling _apply_data."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        err = RuntimeError("network")
+        with patch("stonks_cli.chart._fetch_candles", side_effect=err):
+            with patch.object(screen, "_call_from_thread_if_running") as mock_call:
+                CandleChartScreen._load_data.__wrapped__(screen)
+                mock_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_prefetch_history_worker_empty_data():
+    """_prefetch_history worker resets _prefetching when data is empty."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _CandleData()  # empty
+        screen._prefetching = True
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        with patch.object(screen, cftir, side_effect=record_call):
+            CandleChartScreen._prefetch_history.__wrapped__(screen)
+
+        # Should have called setattr to reset _prefetching
+        assert any(fn == setattr for fn, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_candle_chart_prefetch_future_worker_empty_data():
+    """_prefetch_future worker resets _prefetching when data is empty."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _CandleData()  # empty
+        screen._prefetching = True
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        with patch.object(screen, cftir, side_effect=record_call):
+            CandleChartScreen._prefetch_future.__wrapped__(screen)
+
+        assert any(fn == setattr for fn, _ in calls)
+
+
+# ---------------------------------------------------------------------------
+# _restart_timer -- needs mounted screen (set_interval available)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_restart_timer_runs_after_mount():
+    """_restart_timer sets up a periodic timer without raising."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            # Don't patch _restart_timer so it actually runs
+            app.push_screen(screen)
+            await pilot.pause()
+
+        assert screen._refresh_timer is not None
+
+
+@pytest.mark.asyncio
+async def test_restart_timer_stops_existing_timer():
+    """_restart_timer cancels an existing timer before creating a new one."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        first_timer = screen._refresh_timer
+        screen._restart_timer()
+        await pilot.pause()
+        assert screen._refresh_timer is not first_timer
+
+
+# ---------------------------------------------------------------------------
+# _redraw with y_scale != 1.0
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_redraw_with_y_scale_active():
+    """_redraw executes the y_scale != 1.0 branch without error."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(10)
+        screen._y_scale = 2.0  # triggers y_scale != 1.0 branch
+        screen._redraw()
+        await pilot.pause()
+
+        from textual.widgets import Static
+
+        ohlc = screen.query_one("#ohlc-bar", Static)
+        assert "O:" in str(ohlc.content)
+
+
+# ---------------------------------------------------------------------------
+# _prefetch_history and _prefetch_future full worker paths (with data)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prefetch_history_worker_with_data():
+    """_prefetch_history worker calls _prepend_data when fetch succeeds."""
+    from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            for idx, level in enumerate(_ZOOM_LEVELS):
+                if level[2] in _HISTORICAL_INTERVALS:
+                    screen._zoom_idx = idx
+                    break
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        older = _make_candle_data(3)
+        older.dates = [f"2025-02-{i + 1:02d} 09:30" for i in range(3)]
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        with patch("stonks_cli.chart._fetch_candles", return_value=older):
+            with patch.object(screen, cftir, side_effect=record_call):
+                CandleChartScreen._prefetch_history.__wrapped__(screen)
+
+        assert any(fn == screen._prepend_data for fn, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_prefetch_history_worker_fetch_error():
+    """_prefetch_history worker resets _prefetching on exception."""
+    from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            for idx, level in enumerate(_ZOOM_LEVELS):
+                if level[2] in _HISTORICAL_INTERVALS:
+                    screen._zoom_idx = idx
+                    break
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._prefetching = True
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        err = RuntimeError("error")
+        with patch("stonks_cli.chart._fetch_candles", side_effect=err):
+            with patch.object(screen, cftir, side_effect=record_call):
+                CandleChartScreen._prefetch_history.__wrapped__(screen)
+
+        assert any(fn == setattr for fn, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_prefetch_future_worker_with_data():
+    """_prefetch_future worker calls _append_data when fetch succeeds."""
+    from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            for idx, level in enumerate(_ZOOM_LEVELS):
+                if level[2] in _HISTORICAL_INTERVALS:
+                    screen._zoom_idx = idx
+                    break
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        newer = _CandleData(
+            dates=["2025-03-20 09:30", "2025-03-21 09:30"],
+            opens=[110.0, 111.0],
+            highs=[115.0, 116.0],
+            lows=[108.0, 109.0],
+            closes=[112.0, 113.0],
+            volumes=[1500.0, 1600.0],
+        )
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        with patch("stonks_cli.chart._fetch_candles", return_value=newer):
+            with patch.object(screen, cftir, side_effect=record_call):
+                CandleChartScreen._prefetch_future.__wrapped__(screen)
+
+        assert any(fn == screen._append_data for fn, _ in calls)
+
+
+@pytest.mark.asyncio
+async def test_prefetch_future_worker_fetch_error():
+    """_prefetch_future worker resets _prefetching on exception."""
+    from stonks_cli.chart import _HISTORICAL_INTERVALS
+
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            for idx, level in enumerate(_ZOOM_LEVELS):
+                if level[2] in _HISTORICAL_INTERVALS:
+                    screen._zoom_idx = idx
+                    break
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._prefetching = True
+
+        calls = []
+
+        def record_call(fn, *args):
+            calls.append((fn, args))
+
+        cftir = "_call_from_thread_if_running"
+        err = RuntimeError("error")
+        with patch("stonks_cli.chart._fetch_candles", side_effect=err):
+            with patch.object(screen, cftir, side_effect=record_call):
+                CandleChartScreen._prefetch_future.__wrapped__(screen)
+
+        assert any(fn == setattr for fn, _ in calls)
+
+
+# ---------------------------------------------------------------------------
+# Cursor actions that reach position boundary (trigger prefetch)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cursor_left_reaches_zero_triggers_prefetch():
+    """Moving cursor left to position 0 triggers _maybe_prefetch_history."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 1  # one step from 0
+
+        with (
+            patch.object(screen, "_maybe_prefetch_history") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_left()
+
+        assert screen._cursor == 0
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cursor_right_reaches_last_triggers_prefetch():
+    """Moving cursor right to last position triggers _maybe_prefetch_future."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        screen._data = _make_candle_data(5)
+        screen._cursor = 3  # one step from last (index 4)
+
+        with (
+            patch.object(screen, "_maybe_prefetch_future") as mock_pf,
+            patch.object(screen, "_redraw"),
+        ):
+            screen.action_cursor_right()
+
+        assert screen._cursor == 4
+        mock_pf.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cursor_right_when_empty():
+    """cursor_right on empty data does nothing."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen.action_cursor_right()
+        mock_redraw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cursor_home_when_empty():
+    """cursor_home on empty data does nothing."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen.action_cursor_home()
+        mock_redraw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cursor_end_when_empty():
+    """cursor_end on empty data does nothing."""
+    app = _make_app_for_chart()
+
+    async with app.run_test() as pilot:
+        screen = CandleChartScreen("AAPL")
+        with (
+            patch.object(CandleChartScreen, "_load_data"),
+            patch.object(CandleChartScreen, "_restart_timer"),
+            patch.object(CandleChartScreen, "_refresh_bid_ask"),
+        ):
+            app.push_screen(screen)
+            await pilot.pause()
+
+        with patch.object(screen, "_redraw") as mock_redraw:
+            screen.action_cursor_end()
+        mock_redraw.assert_not_called()
