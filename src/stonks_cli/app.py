@@ -42,14 +42,14 @@ from stonks_cli.models import (
 )
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
 from stonks_cli.portfolio_table import (
-    _ROW_KIND_LABELS,
+    ROW_KIND_LABELS,
     TABLE_COL_WEIGHTS,
     TABLE_COLUMNS,
     RowKind,
-    _RowData,
-    _RowMeta,
-    _to_tui_rows,
+    RowMeta,
+    TuiRowData,
     build_row_data,
+    to_tui_rows,
 )
 from stonks_cli.storage import PortfolioStore
 
@@ -60,7 +60,7 @@ DEFAULT_REFRESH_INTERVAL: float = 60.0
 NEWS_HISTORY_LIMIT: int = 100
 
 _AddFormFactory = Callable[[], Any]
-_ActiveSelection = tuple[Portfolio, int, str, _RowMeta]
+_ActiveSelection = tuple[Portfolio, int, str, RowMeta]
 _ScreenCallback = Callable[[Any], None]
 
 
@@ -89,7 +89,7 @@ class PortfolioTableWidget(Widget):
         self._total_id = total_id
         self._sort_column: int | None = None
         self._sort_reverse: bool = False
-        self._row_meta: dict[str, _RowMeta] = {}
+        self._row_meta: dict[str, RowMeta] = {}
         # Cached market data: populated by refresh_data(), reused on sort.
         self._portfolio: Portfolio | None = None
         self._snap: MarketSnapshot = MarketSnapshot()
@@ -137,8 +137,8 @@ class PortfolioTableWidget(Widget):
         self._snap = snap
         self._repaint()
 
-    def get_row_meta(self) -> _RowMeta | None:
-        """Return the _RowMeta for the row currently under the cursor."""
+    def get_row_meta(self) -> RowMeta | None:
+        """Return the RowMeta for the row currently under the cursor."""
         table = self.query_one(DataTable)
         try:
             row_key = table.ordered_rows[table.cursor_row].key
@@ -146,14 +146,14 @@ class PortfolioTableWidget(Widget):
             return None
         return self._row_meta.get(str(row_key.value))
 
-    def get_meta_for_key(self, rkey: str) -> _RowMeta | None:
-        """Return the _RowMeta for a specific row key string."""
+    def get_meta_for_key(self, rkey: str) -> RowMeta | None:
+        """Return the RowMeta for a specific row key string."""
         return self._row_meta.get(rkey)
 
     class RowSelected(Message):
         """Posted when the user selects a row in this widget's table."""
 
-        def __init__(self, meta: _RowMeta) -> None:
+        def __init__(self, meta: RowMeta) -> None:
             self.meta = meta
             super().__init__()
 
@@ -182,7 +182,7 @@ class PortfolioTableWidget(Widget):
         self._render_rows(table)
         self._update_total()
 
-    def _apply_sort(self, rows: list[_RowData]) -> list[_RowData]:
+    def _apply_sort(self, rows: list[TuiRowData]) -> list[TuiRowData]:
         if self._sort_column is None:
             return rows
         col = self._sort_column
@@ -192,7 +192,7 @@ class PortfolioTableWidget(Widget):
             reverse=self._sort_reverse,
         )
 
-    def _write_rows(self, table: DataTable, rows: list[_RowData]) -> None:
+    def _write_rows(self, table: DataTable, rows: list[TuiRowData]) -> None:
         self._row_meta.clear()
         for _, cells, meta in rows:
             rkey = f"{meta.kind.name}:{meta.symbol}"
@@ -205,7 +205,7 @@ class PortfolioTableWidget(Widget):
         saved_cursor = table.cursor_coordinate
         table.clear()
         rates = self._snap.forex_rates.get(portfolio.base_currency, {})
-        rows = _to_tui_rows(
+        rows = to_tui_rows(
             build_row_data(
                 portfolio,
                 self._snap.prices,
@@ -776,7 +776,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         """Open the remove confirmation dialog for the selected row."""
         portfolio, idx, pname, meta = selection
         identifier = meta.symbol
-        kind = _ROW_KIND_LABELS[meta.kind]
+        kind = ROW_KIND_LABELS[meta.kind]
         self.push_screen(
             _ConfirmScreen(f"[{pname}] Remove {kind}: {identifier}?"),
             partial(
@@ -934,8 +934,8 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     ) -> None:
         widget.refresh_data(portfolio, self._snap)
 
-    def _get_row_meta(self, table: DataTable) -> _RowMeta | None:
-        """Return the _RowMeta for the row currently under the cursor, or None."""
+    def _get_row_meta(self, table: DataTable) -> RowMeta | None:
+        """Return the RowMeta for the row currently under the cursor, or None."""
         for widget in self.query(PortfolioTableWidget):
             if widget.query_one(DataTable) is table:
                 return widget.get_row_meta()
