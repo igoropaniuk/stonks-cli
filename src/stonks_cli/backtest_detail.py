@@ -13,7 +13,7 @@ from textual_plotext import PlotextPlot
 
 from stonks_cli.backtest import BacktestResult, run_backtest
 from stonks_cli.dto import BacktestConfig
-from stonks_cli.helpers import ThreadGuardMixin, kv_row, nice_yticks
+from stonks_cli.helpers import DETAIL_SCREEN_CSS, ThreadGuardMixin, kv_row, nice_yticks
 from stonks_cli.models import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,9 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         Binding("pagedown", "page_down", "Page Down", show=True),
     ]
 
-    CSS = """
+    CSS = (
+        DETAIL_SCREEN_CSS
+        + """
     BacktestScreen {
         background: $surface;
     }
@@ -47,11 +49,6 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     #bt-scroll {
         scrollbar-gutter: stable;
     }
-    .section-title {
-        padding: 1 1 0 1;
-        text-style: bold;
-        color: $accent;
-    }
     .price-chart {
         height: 36;
         padding: 0 1;
@@ -60,34 +57,6 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         height: 28;
         padding: 0 1;
     }
-    .summary-grid {
-        height: auto;
-        padding: 0 1;
-    }
-    .summary-col {
-        width: 1fr;
-        height: auto;
-    }
-    .kv-row {
-        height: 1;
-        padding: 0 1;
-    }
-    .kv-label {
-        width: 30;
-        color: $text-muted;
-    }
-    .kv-value {
-        width: 1fr;
-        text-style: bold;
-    }
-    #loading {
-        height: 3;
-        content-align: center middle;
-    }
-    #error-msg {
-        padding: 1;
-        color: $error;
-    }
     .skipped-notice {
         padding: 0 1;
         color: $warning;
@@ -95,6 +64,7 @@ class BacktestScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     .positive { color: green; text-style: bold; }
     .negative { color: red; text-style: bold; }
     """
+    )
 
     def __init__(self, portfolio: Portfolio, config: BacktestConfig) -> None:
         super().__init__()
