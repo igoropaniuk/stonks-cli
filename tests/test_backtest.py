@@ -523,3 +523,65 @@ class TestRunBacktest:
         result = run_backtest(_one_stock_portfolio(), config)
         # start_amount + cashflows for 2021 and 2022
         assert result.total_contributions == pytest.approx(12000)
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_single_symbol_equals_benchmark(self, mock_download):
+        """Portfolio with single symbol == benchmark hits single-col path."""
+        portfolio = Portfolio(positions=[Position("SPY", 10, 400.0)])
+        config = _default_config(benchmark="SPY")
+        n = len(_DATES_3Y)
+        # Single-symbol download returns non-MultiIndex df
+        df = pd.DataFrame(
+            {"Close": [400.0] * n},
+            index=pd.DatetimeIndex(_DATES_3Y),
+        )
+        mock_download.return_value = df
+        result = run_backtest(portfolio, config)
+        assert len(result.dates) > 0
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_portfolio_initial_value_zero_yields_zero_annual_returns(
+        self, mock_download
+    ):
+        """When initial price is 0, portfolio_val is 0 -> covers zero annual returns."""
+        n = len(_DATES_3Y)
+        # Start with price=0 (shares=0), then non-zero -- portfolio_val starts at 0
+        prices = [0.0] + [150.0] * (n - 1)
+        spy_prices = [400.0] * n
+        df = _make_prices(_DATES_3Y, {"AAPL": prices, "SPY": spy_prices})
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+        result = run_backtest(_one_stock_portfolio(), _default_config())
+        # Portfolio starts at 0 value so the first annual return must be 0.0
+        assert result.annual_portfolio_returns[0] == 0.0
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_benchmark_initial_price_zero_yields_zero_bench_returns(
+        self, mock_download
+    ):
+        """When benchmark starts at 0, bench shares=0 -> zero bench annual returns."""
+        n = len(_DATES_3Y)
+        # SPY starts at 0 (no purchase possible), then goes to 400
+        spy_prices = [0.0] + [400.0] * (n - 1)
+        aapl_prices = [150.0] * n
+        df = _make_prices(_DATES_3Y, {"AAPL": aapl_prices, "SPY": spy_prices})
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+        result = run_backtest(_one_stock_portfolio(), _default_config())
+        assert result.annual_benchmark_returns[0] == 0.0
+
+
+class TestClosestDateIndexEdge:
+    def test_target_after_last_date_bisect_idx_at_end(self):
+        """When bisect returns idx == len(dates), we return len(dates)-1."""
+        from stonks_cli.chart import _closest_date_index
+
+        dates = ["2025-01-01", "2025-01-02"]
+        assert _closest_date_index(dates, "2025-01-10") == 1
+
+    def test_target_between_two_dates_returns_lower_neighbour(self):
+        """When target falls strictly between two dates, lower neighbour is returned."""
+        from stonks_cli.chart import _closest_date_index
+
+        dates = ["2025-01-01", "2025-01-03", "2025-01-07"]
+        # "2025-01-06" is closer to index 2 ("2025-01-07") but the implementation
+        # uses floor/bisect-left behaviour and returns the lower neighbour.
+        assert _closest_date_index(dates, "2025-01-06") == 1
