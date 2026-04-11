@@ -81,6 +81,47 @@ def fmt_price(last: float | None, session: str) -> str:
     return f"{last:.2f} {badge}" if badge else f"{last:.2f}"
 
 
+# ---------------------------------------------------------------------------
+# Shared CSS for detail-style screens (StockDetailScreen, BacktestScreen)
+# ---------------------------------------------------------------------------
+
+DETAIL_SCREEN_CSS = """
+.section-title {
+    padding: 1 1 0 1;
+    text-style: bold;
+    color: $accent;
+}
+.summary-grid {
+    height: auto;
+    padding: 0 1;
+}
+.summary-col {
+    width: 1fr;
+    height: auto;
+}
+.kv-row {
+    height: 1;
+    padding: 0 1;
+}
+.kv-label {
+    width: 30;
+    color: $text-muted;
+}
+.kv-value {
+    width: 1fr;
+    text-style: bold;
+}
+#loading {
+    height: 3;
+    content-align: center middle;
+}
+#error-msg {
+    padding: 1;
+    color: $error;
+}
+"""
+
+
 class ThreadGuardMixin:
     """Mixin that provides a shutdown-safe ``call_from_thread`` helper.
 

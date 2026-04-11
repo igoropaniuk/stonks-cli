@@ -11,7 +11,7 @@ from textual.widget import Widget
 from textual.widgets import Footer, Label, LoadingIndicator, Static
 from textual_plotext import PlotextPlot
 
-from stonks_cli.helpers import ThreadGuardMixin, kv_row, nice_yticks
+from stonks_cli.helpers import DETAIL_SCREEN_CSS, ThreadGuardMixin, kv_row, nice_yticks
 from stonks_cli.stock_detail import StockDetail, StockDetailFetcher
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,9 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         Binding("g", "chart", "Chart"),
     ]
 
-    CSS = """
+    CSS = (
+        DETAIL_SCREEN_CSS
+        + """
     StockDetailScreen {
         background: $surface;
     }
@@ -48,41 +50,16 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
     #detail-scroll {
         scrollbar-gutter: stable;
     }
-    .section-title {
-        padding: 1 1 0 1;
-        text-style: bold;
-        color: $accent;
-    }
-    .summary-grid, .analyst-row, .stats-row, .perf-row {
+    .analyst-row, .stats-row, .perf-row {
         height: auto;
         padding: 0 1;
     }
-    .summary-col, .stats-col, .analyst-col {
+    .stats-col, .analyst-col {
         width: 1fr;
         height: auto;
     }
     .analyst-col {
         padding: 0 1;
-    }
-    .kv-row {
-        height: 1;
-        padding: 0 1;
-    }
-    .kv-label {
-        width: 30;
-        color: $text-muted;
-    }
-    .kv-value {
-        width: 1fr;
-        text-style: bold;
-    }
-    #loading {
-        height: 3;
-        content-align: center middle;
-    }
-    #error-msg {
-        padding: 1;
-        color: $error;
     }
     .price-chart {
         height: 18;
@@ -107,6 +84,7 @@ class StockDetailScreen(ThreadGuardMixin, Screen, inherit_bindings=False):
         text-style: bold;
     }
     """
+    )
 
     def __init__(self, symbol: str) -> None:
         super().__init__()
