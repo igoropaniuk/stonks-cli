@@ -197,3 +197,26 @@ def test_thread_guard_unknown_runtime_error_reraises():
     guard = _ConcreteGuard(side_effect=RuntimeError("something unexpected"))
     with pytest.raises(RuntimeError, match="something unexpected"):
         guard._call_from_thread_if_running(lambda: None)
+
+
+# ---------------------------------------------------------------------------
+# stonks_cli.__version__ fallback
+# ---------------------------------------------------------------------------
+
+
+def test_version_fallback_when_package_not_installed():
+    """__version__ falls back to '0.0.0.dev' when PackageNotFoundError is raised."""
+    import importlib
+    import importlib.metadata
+    import unittest.mock
+    from importlib.metadata import PackageNotFoundError
+
+    import stonks_cli
+
+    with unittest.mock.patch(
+        "importlib.metadata.version", side_effect=PackageNotFoundError
+    ):
+        importlib.reload(stonks_cli)
+        assert stonks_cli.__version__ == "0.0.0.dev"
+    # Restore to real version
+    importlib.reload(stonks_cli)
