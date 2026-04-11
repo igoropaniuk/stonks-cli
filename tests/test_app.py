@@ -8,6 +8,7 @@ from textual.binding import Binding
 from textual.css.query import NoMatches
 from textual.widgets import Button, DataTable, Input, Label, Static
 
+from stonks_cli import app_actions
 from stonks_cli.app import PortfolioApp, PortfolioTableWidget
 from stonks_cli.forms import (
     CashFormScreen,
@@ -2313,7 +2314,7 @@ async def test_handle_add_equity_mutation_error_shows_error_bar(
             "external_id": None,
         }
         with patch("stonks_cli.app.app_actions.add_equity", return_value="bad input"):
-            app._handle_add_equity(0, result)
+            app._handle_add(0, app_actions.add_equity, result)
         await pilot.pause()
         err = app.query_one("#error", Static)
         assert err.has_class("visible")
@@ -2329,7 +2330,9 @@ async def test_handle_add_cash_mutation_error_shows_error_bar(
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch("stonks_cli.app.app_actions.add_cash", return_value="bad cash"):
-            app._handle_add_cash(0, {"currency": "EUR", "amount": 100.0})
+            app._handle_add(
+                0, app_actions.add_cash, {"currency": "EUR", "amount": 100.0}
+            )
         await pilot.pause()
         err = app.query_one("#error", Static)
         assert err.has_class("visible")
