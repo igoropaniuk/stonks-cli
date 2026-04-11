@@ -6,6 +6,7 @@ against a benchmark, and computes summary statistics.
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 import yfinance as yf
 
@@ -102,6 +103,80 @@ def _compute_weights(portfolio: Portfolio) -> dict[str, float]:
     }
 
 
+def _fetch_and_validate(
+    symbols: list[str],
+    weights: dict[str, float],
+    benchmark: str,
+    start_year: int,
+    end_year: int,
+    skip_unavailable: bool,
+) -> tuple[Any, list[str], dict[str, float], list[str]]:
+    """Fetch close prices and validate symbol availability.
+
+    Returns (close_df, symbols, weights, skipped_symbols).  symbols and
+    weights may be pruned when skip_unavailable is True.
+    """
+    start_date = f"{start_year}-01-01"
+    end_date = f"{end_year}-12-31"
+    all_symbols = list(dict.fromkeys(symbols + [benchmark]))
+    logger.info("Fetching history for %s (%s to %s)", all_symbols, start_date, end_date)
+    data = yf.download(all_symbols, start=start_date, end=end_date, progress=False)
+
+    if data.empty:
+        raise ValueError("No historical data available for the given date range")
+
+    if "Close" in data.columns or hasattr(data.columns, "levels"):
+        if len(all_symbols) > 1:
+            close = data["Close"]
+        else:
+            close = data[["Close"]].rename(columns={"Close": symbols[0]})
+    else:
+        raise ValueError("Unexpected data format from yfinance")
+
+    missing: list[str] = []
+    unavailable_syms: set[str] = set()
+    for sym in all_symbols:
+        if sym not in close.columns or close[sym].isna().all():
+            unavailable_syms.add(sym)
+            missing.append(sym)
+            continue
+        first_valid = close[sym].first_valid_index()
+        if first_valid is not None and first_valid.year > start_year:
+            unavailable_syms.add(sym)
+            missing.append(f"{sym} (available from {first_valid.year})")
+
+    if missing:
+        if benchmark in unavailable_syms:
+            raise ValueError("Quotes are not available for: " + ", ".join(missing))
+        if not skip_unavailable:
+            raise ValueError("Quotes are not available for: " + ", ".join(missing))
+        logger.info("Skipping unavailable symbols: %s", unavailable_syms)
+        symbols = [s for s in symbols if s not in unavailable_syms]
+        for sym in unavailable_syms:
+            weights.pop(sym, None)
+        if not symbols:
+            raise ValueError(
+                "No positions with available data after skipping: " + ", ".join(missing)
+            )
+        total_w = sum(weights.values())
+        if total_w <= 0:
+            raise ValueError(
+                "No positions with a valid cost basis remain; "
+                "cannot determine weights for backtesting."
+            )
+        weights = {s: w / total_w for s, w in weights.items()}
+
+    if benchmark in close.columns:
+        close = close.dropna(subset=[benchmark])
+    close = close.ffill().bfill()
+
+    if close.empty:
+        raise ValueError("No overlapping data for portfolio symbols and benchmark")
+
+    skipped = sorted(unavailable_syms - {benchmark})
+    return close, symbols, weights, skipped
+
+
 def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult:
     """Run a portfolio backtest and return the result.
 
@@ -122,74 +197,9 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     rebalance = config["rebalance"]
     skip_unavailable = config["skip_unavailable"]
 
-    start_date = f"{start_year}-01-01"
-    end_date = f"{end_year}-12-31"
-
-    # Fetch historical data
-    all_symbols = list(dict.fromkeys(symbols + [benchmark]))
-    logger.info("Fetching history for %s (%s to %s)", all_symbols, start_date, end_date)
-    data = yf.download(all_symbols, start=start_date, end=end_date, progress=False)
-
-    if data.empty:
-        raise ValueError("No historical data available for the given date range")
-
-    # Extract adjusted close prices
-    if "Close" in data.columns or hasattr(data.columns, "levels"):
-        if len(all_symbols) > 1:
-            close = data["Close"]
-        else:
-            close = data[["Close"]].rename(columns={"Close": symbols[0]})
-    else:
-        raise ValueError("Unexpected data format from yfinance")
-
-    # For single-symbol portfolio + benchmark, ensure columns exist
-    if len(all_symbols) == 1:
-        close.columns = all_symbols
-
-    # Validate that all symbols have data covering the start year
-    missing: list[str] = []
-    unavailable_syms: set[str] = set()
-    for sym in all_symbols:
-        if sym not in close.columns or close[sym].isna().all():
-            unavailable_syms.add(sym)
-            missing.append(sym)
-            continue
-        first_valid = close[sym].first_valid_index()
-        if first_valid is not None and first_valid.year > start_year:
-            unavailable_syms.add(sym)
-            missing.append(f"{sym} (available from {first_valid.year})")
-
-    if missing:
-        # Benchmark must always be available
-        if benchmark in unavailable_syms:
-            raise ValueError("Quotes are not available for: " + ", ".join(missing))
-        if not skip_unavailable:
-            raise ValueError("Quotes are not available for: " + ", ".join(missing))
-        # Remove unavailable symbols and redistribute weights
-        logger.info("Skipping unavailable symbols: %s", unavailable_syms)
-        symbols = [s for s in symbols if s not in unavailable_syms]
-        for sym in unavailable_syms:
-            weights.pop(sym, None)
-        if not symbols:
-            raise ValueError(
-                "No positions with available data after skipping: " + ", ".join(missing)
-            )
-        # Redistribute weights to sum to 1.0
-        total_w = sum(weights.values())
-        if total_w <= 0:
-            raise ValueError(
-                "No positions with a valid cost basis remain; "
-                "cannot determine weights for backtesting."
-            )
-        weights = {s: w / total_w for s, w in weights.items()}
-
-    # Drop rows where benchmark has no data
-    if benchmark in close.columns:
-        close = close.dropna(subset=[benchmark])
-    close = close.ffill().bfill()
-
-    if close.empty:
-        raise ValueError("No overlapping data for portfolio symbols and benchmark")
+    close, symbols, weights, skipped = _fetch_and_validate(
+        symbols, weights, benchmark, start_year, end_year, skip_unavailable
+    )
 
     # Simulate portfolio growth
     dates_idx = close.index
@@ -343,6 +353,6 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
         portfolio_final=portfolio_vals[-1],
         benchmark_final=benchmark_vals[-1],
         total_contributions=total_contributed,
-        skipped_symbols=sorted(unavailable_syms - {benchmark}),
+        skipped_symbols=skipped,
     )
     return result
