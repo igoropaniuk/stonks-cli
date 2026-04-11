@@ -177,6 +177,71 @@ def _fetch_and_validate(
     return close, symbols, weights, skipped
 
 
+def _simulate(
+    close: Any,
+    symbols: list[str],
+    weights: dict[str, float],
+    benchmark: str,
+    start_amount: float,
+    cashflows: float,
+    rebalance: str,
+) -> tuple[list[float], list[float], float]:
+    """Simulate portfolio and benchmark growth over the close-price index.
+
+    Returns (portfolio_vals, benchmark_vals, total_contributed).
+    """
+    dates_idx = close.index
+    n = len(dates_idx)
+    portfolio_vals = [0.0] * n
+    benchmark_vals = [0.0] * n
+
+    shares: dict[str, float] = {}
+    for sym in symbols:
+        price = close[sym].iloc[0]
+        shares[sym] = (start_amount * weights[sym]) / price if price > 0 else 0.0
+
+    bench_price_0 = close[benchmark].iloc[0]
+    bench_shares = start_amount / bench_price_0 if bench_price_0 > 0 else 0.0
+
+    total_contributed = start_amount
+    last_cashflow_year = dates_idx[0].year
+
+    for i in range(n):
+        dt = dates_idx[i]
+
+        # Annual cashflow injection (at start of each new year)
+        if cashflows > 0 and dt.year > last_cashflow_year:
+            years_passed = dt.year - last_cashflow_year
+            for _ in range(years_passed):
+                total_contributed += cashflows
+                for sym in symbols:
+                    price = close[sym].iloc[i]
+                    if price > 0:
+                        shares[sym] += (cashflows * weights[sym]) / price
+                bp = close[benchmark].iloc[i]
+                if bp > 0:
+                    bench_shares += cashflows / bp
+            last_cashflow_year = dt.year
+
+        pv = sum(shares[sym] * close[sym].iloc[i] for sym in symbols)
+
+        # Rebalancing
+        if rebalance != "none" and i > 0:
+            should_rebalance = (
+                rebalance == "monthly" and dates_idx[i].month != dates_idx[i - 1].month
+            ) or (rebalance == "annual" and dates_idx[i].year != dates_idx[i - 1].year)
+            if should_rebalance and pv > 0:
+                for sym in symbols:
+                    price = close[sym].iloc[i]
+                    if price > 0:
+                        shares[sym] = (pv * weights[sym]) / price
+
+        portfolio_vals[i] = pv
+        benchmark_vals[i] = bench_shares * close[benchmark].iloc[i]
+
+    return portfolio_vals, benchmark_vals, total_contributed
+
+
 def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult:
     """Run a portfolio backtest and return the result.
 
@@ -201,94 +266,19 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
         symbols, weights, benchmark, start_year, end_year, skip_unavailable
     )
 
-    # Simulate portfolio growth
+    portfolio_vals, benchmark_vals, total_contributed = _simulate(
+        close, symbols, weights, benchmark, start_amount, cashflows, rebalance
+    )
+
+    date_strings = [d.strftime("%Y-%m-%d") for d in close.index]
     dates_idx = close.index
-    n = len(dates_idx)
-
-    # Portfolio simulation
-    portfolio_vals = [0.0] * n
-    benchmark_vals = [0.0] * n
-
-    # Initialise portfolio: allocate start_amount across symbols by weight
-    shares: dict[str, float] = {}
-    for sym in symbols:
-        if sym in close.columns and not close[sym].isna().all():
-            price = close[sym].iloc[0]
-            if price > 0:
-                shares[sym] = (start_amount * weights[sym]) / price
-            else:
-                shares[sym] = 0.0
-        else:
-            shares[sym] = 0.0
-
-    # Benchmark: buy start_amount worth
-    bench_price_0 = close[benchmark].iloc[0] if benchmark in close.columns else 1.0
-    bench_shares = start_amount / bench_price_0 if bench_price_0 > 0 else 0.0
-
-    total_contributed = start_amount
-    last_cashflow_year = dates_idx[0].year
-
-    for i in range(n):
-        dt = dates_idx[i]
-
-        # Annual cashflow injection (at start of each new year)
-        if cashflows > 0 and dt.year > last_cashflow_year:
-            years_passed = dt.year - last_cashflow_year
-            for _ in range(years_passed):
-                total_contributed += cashflows
-                # Add to portfolio proportionally
-                for sym in symbols:
-                    if sym in close.columns:
-                        price = close[sym].iloc[i]
-                        if price > 0:
-                            shares[sym] += (cashflows * weights[sym]) / price
-                # Add to benchmark
-                if benchmark in close.columns:
-                    bp = close[benchmark].iloc[i]
-                    if bp > 0:
-                        bench_shares += cashflows / bp
-            last_cashflow_year = dt.year
-
-        # Rebalancing
-        if rebalance != "none" and i > 0:
-            should_rebalance = False
-            if rebalance == "monthly" and dates_idx[i].month != dates_idx[i - 1].month:
-                should_rebalance = True
-            elif rebalance == "annual" and dates_idx[i].year != dates_idx[i - 1].year:
-                should_rebalance = True
-
-            if should_rebalance:
-                # Calculate current total value
-                current_total = 0.0
-                for sym in symbols:
-                    if sym in close.columns:
-                        current_total += shares[sym] * close[sym].iloc[i]
-                # Redistribute
-                if current_total > 0:
-                    for sym in symbols:
-                        if sym in close.columns:
-                            price = close[sym].iloc[i]
-                            if price > 0:
-                                shares[sym] = (current_total * weights[sym]) / price
-
-        # Calculate values
-        pv = 0.0
-        for sym in symbols:
-            if sym in close.columns:
-                pv += shares[sym] * close[sym].iloc[i]
-        portfolio_vals[i] = pv
-
-        if benchmark in close.columns:
-            benchmark_vals[i] = bench_shares * close[benchmark].iloc[i]
-
-    # Format dates
-    date_strings = [d.strftime("%Y-%m-%d") for d in dates_idx]
 
     # Annual returns
     annual_years: list[str] = []
     annual_port_ret: list[float] = []
     annual_bench_ret: list[float] = []
 
+    n = len(dates_idx)
     year_start_port = portfolio_vals[0]
     year_start_bench = benchmark_vals[0]
     current_year = dates_idx[0].year
