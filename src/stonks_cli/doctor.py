@@ -2,14 +2,22 @@
 
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
 import httpx
-import yfinance as yf
 
+from stonks_cli import __version__
 from stonks_cli.models import Portfolio, Position, WatchlistItem, collect_all_items
 from stonks_cli.storage import PortfolioStore
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None  # type: ignore[assignment]
+
+_MIN_PYTHON = (3, 11)
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -39,6 +47,22 @@ def _fail(label: str, detail: str = "") -> None:
     if detail:
         msg += f"  ({detail})"
     click.echo(msg)
+
+
+# ---------------------------------------------------------------------------
+# yfinance helpers
+# ---------------------------------------------------------------------------
+
+
+def _yf_last_price(fast_info: object) -> float:
+    """Return the best available price from a yfinance Ticker.fast_info object.
+
+    Prefers ``last_price``; falls back to ``regular_market_previous_close``
+    when ``last_price`` is ``None``; returns ``0.0`` when both are unavailable.
+    """
+    lp = getattr(fast_info, "last_price", None)
+    pc = getattr(fast_info, "regular_market_previous_close", None)
+    return float(lp if lp is not None else (pc if pc is not None else 0))
 
 
 # ---------------------------------------------------------------------------
@@ -82,94 +106,72 @@ def check_portfolio(path: Path) -> Portfolio | None:
     return portfolio
 
 
-def _resolve_coin_id(symbol: str, external_id: str | None) -> str | None:
-    """Return the CoinGecko coin ID for a crypto symbol.
-
-    Priority: explicit external_id > bundled coin map > None.
-    """
-    if external_id:
-        return external_id
-    from stonks_cli.crypto_fetcher import CryptoFetcher
-
-    CryptoFetcher._ensure_coin_list()
-    from stonks_cli.crypto_fetcher import _cg_symbol_to_id
-
-    base = symbol.upper().split("-")[0]
-    return _cg_symbol_to_id.get(base)
-
-
 def check_symbols(items: list[Position | WatchlistItem]) -> bool:
     """Probe each symbol and report any that cannot be fetched."""
-    # Collect equity items and crypto items (with their external_id) separately
+    from stonks_cli.crypto_fetcher import CryptoFetcher
+
+    # Collect equity and crypto symbols separately
     equity_symbols: list[str] = []
-    # list of (display_symbol, coin_id_or_None)
-    crypto_items: list[tuple[str, str | None]] = []
+    crypto_symbols: list[str] = []
+    crypto_external_ids: dict[str, str] = {}
 
     for item in items:
-        if getattr(item, "asset_type", None) == "crypto":
-            coin_id = _resolve_coin_id(item.symbol, getattr(item, "external_id", None))
-            crypto_items.append((item.symbol, coin_id))
+        if item.asset_type == "crypto":
+            crypto_symbols.append(item.symbol)
+            if item.external_id:
+                crypto_external_ids[item.symbol] = item.external_id
         else:
             equity_symbols.append(item.symbol)
 
-    if not equity_symbols and not crypto_items:
+    if not equity_symbols and not crypto_symbols:
         return True
 
     click.echo("\nSymbol validation")
     all_ok = True
 
-    # --- Equity symbols via yfinance fast_info ---
-    for sym in equity_symbols:
+    # --- Equity symbols via yfinance fast_info (parallel) ---
+    def _probe_equity(sym: str) -> tuple[str, float | None, str | None]:
+        """Return (symbol, price, error_msg)."""
+        if yf is None:
+            return sym, None, "yfinance not installed"
         try:
-            info = yf.Ticker(sym).fast_info
-            price = float(info.last_price or info.regular_market_previous_close or 0)
-            if price > 0:
-                _ok(sym, f"last price: {price:.2f}")
-            else:
-                _warn(sym, "price returned as 0 or None -- symbol may be delisted")
+            price = _yf_last_price(yf.Ticker(sym).fast_info)
+            return sym, price, None
         except (OSError, RuntimeError, TypeError, ValueError, KeyError) as exc:
-            _fail(sym, str(exc))
+            return sym, None, str(exc)
+
+    results: dict[str, tuple[float | None, str | None]] = {}
+    if equity_symbols:
+        with ThreadPoolExecutor(max_workers=min(8, len(equity_symbols))) as pool:
+            futures = {pool.submit(_probe_equity, sym): sym for sym in equity_symbols}
+            for fut in as_completed(futures):
+                sym, price, err = fut.result()
+                results[sym] = (price, err)
+
+    for sym in equity_symbols:  # print in original order
+        price, err = results[sym]
+        if err is not None:
+            _fail(sym, err)
             all_ok = False
+        elif price and price > 0:
+            _ok(sym, f"last price: {price:.2f}")
+        else:
+            _warn(sym, "price returned as 0 or None -- symbol may be delisted")
 
-    # --- Crypto symbols via CoinGecko /simple/price (batch by coin ID) ---
-    if crypto_items:
-        api_key = os.environ.get("COINGECKO_DEMO_API_KEY")
-        headers: dict[str, str] = {}
-        if api_key:
-            headers["x-cg-demo-api-key"] = api_key
-
-        # Separate items we could resolve from those we could not
-        resolvable = [(sym, cid) for sym, cid in crypto_items if cid]
-        unresolvable = [sym for sym, cid in crypto_items if not cid]
-
-        for sym in unresolvable:
-            _warn(sym, "unknown coin ID -- add external_id to YAML for price lookup")
-
-        if resolvable:
-            # coin_id -> symbol (for result reporting)
-            id_to_sym = {cid: sym for sym, cid in resolvable}
-            ids_param = ",".join(id_to_sym.keys())
-            try:
-                with httpx.Client(
-                    base_url="https://api.coingecko.com/api/v3",
-                    headers=headers,
-                    timeout=15.0,
-                ) as client:
-                    resp = client.get(
-                        "/simple/price",
-                        params={"ids": ids_param, "vs_currencies": "usd"},
-                    )
-                    resp.raise_for_status()
-                data: dict = resp.json()
-                for coin_id, sym in id_to_sym.items():
-                    if coin_id in data and "usd" in data[coin_id]:
-                        price = data[coin_id]["usd"]
-                        _ok(sym, f"last price: {price:.2f} USD (id: {coin_id})")
-                    else:
-                        _warn(sym, f"coin ID '{coin_id}' returned no price")
-            except (httpx.HTTPStatusError, httpx.RequestError, OSError) as exc:
-                for sym, _ in resolvable:
-                    _fail(sym, f"CoinGecko error: {exc}")
+    # --- Crypto symbols via CryptoFetcher (handles batch + per-item fallback) ---
+    if crypto_symbols:
+        fetcher = CryptoFetcher()
+        prices, _ = fetcher.fetch_prices_and_changes(
+            crypto_symbols, external_ids=crypto_external_ids or None
+        )
+        for sym in crypto_symbols:
+            if sym in prices:
+                _ok(sym, f"last price: {prices[sym]:.2f} USD")
+            else:
+                _warn(
+                    sym,
+                    "no price returned -- check symbol or add external_id to YAML",
+                )
                 all_ok = False
 
     return all_ok
@@ -178,10 +180,11 @@ def check_symbols(items: list[Position | WatchlistItem]) -> bool:
 def check_yfinance() -> bool:
     """Verify that yfinance can reach Yahoo Finance."""
     click.echo("\nyfinance")
+    if yf is None:
+        _fail("yfinance not installed", "run: pip install yfinance")
+        return False
     try:
-        ticker = yf.Ticker("AAPL")
-        info = ticker.fast_info
-        price = float(info.last_price or info.regular_market_previous_close or 0)
+        price = _yf_last_price(yf.Ticker("AAPL").fast_info)
         if price > 0:
             _ok("Reachable", f"AAPL last price: {price:.2f}")
             return True
@@ -223,6 +226,81 @@ def check_coingecko() -> bool:
         return False
 
 
+def check_python_version() -> bool:
+    """Warn if the running Python is below the minimum supported version."""
+    click.echo("\nPython")
+    major, minor = sys.version_info[:2]
+    version_str = f"{major}.{minor}.{sys.version_info.micro}"
+    min_str = ".".join(str(x) for x in _MIN_PYTHON)
+    if (major, minor) >= _MIN_PYTHON:
+        _ok(f"Python {version_str}", f">= {min_str} required")
+        return True
+    _fail(f"Python {version_str}", f"minimum required is {min_str}")
+    return False
+
+
+def check_version() -> bool:
+    """Compare the installed version against the latest release on PyPI."""
+    from packaging.version import Version
+
+    click.echo("\nstonks-cli version")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get("https://pypi.org/pypi/stonks-cli/json")
+            resp.raise_for_status()
+        latest = resp.json()["info"]["version"]
+        if Version(latest) > Version(__version__):
+            _warn(
+                f"Installed: {__version__}",
+                f"latest on PyPI is {latest} -- consider upgrading",
+            )
+        else:
+            _ok(f"Up to date ({__version__})", f"latest: {latest}")
+        return True
+    except (httpx.RequestError, OSError) as exc:
+        _warn(f"Installed: {__version__}", f"could not reach PyPI: {exc}")
+        return True  # network failure is advisory only
+    except (httpx.HTTPStatusError, KeyError, ValueError) as exc:
+        _warn(f"Installed: {__version__}", f"PyPI check failed: {exc}")
+        return True
+
+
+def check_forex() -> bool:
+    """Fetch a live EUR/USD forex rate via yfinance to validate the forex path."""
+    click.echo("\nForex rates")
+    if yf is None:
+        _fail("yfinance not installed", "run: pip install yfinance")
+        return False
+    try:
+        rate = _yf_last_price(yf.Ticker("EURUSD=X").fast_info)
+        if rate > 0:
+            _ok("EUR/USD reachable", f"rate: {rate:.4f}")
+            return True
+        _warn("EUR/USD rate returned 0 or None")
+        return True
+    except (OSError, RuntimeError, TypeError, ValueError, KeyError) as exc:
+        _fail("Cannot fetch forex rate", str(exc))
+        return False
+
+
+def check_exchange_calendars() -> bool:
+    """Verify exchange-calendars can open the NYSE calendar and read today's session."""
+    click.echo("\nexchange-calendars")
+    try:
+        import exchange_calendars as xcals  # type: ignore[import-untyped]
+        import pandas as pd  # type: ignore[import-untyped]
+
+        cal = xcals.get_calendar("XNYS")
+        today = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
+        is_session = cal.is_session(today)
+        status = "trading day" if is_session else "non-trading day (weekend/holiday)"
+        _ok("NYSE calendar loaded", f"today is a {status}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _fail("exchange-calendars error", str(exc))
+        return False
+
+
 def check_openai() -> None:
     """Report whether the OpenAI key is configured (AI chat feature)."""
     click.echo("\nAI Chat (optional)")
@@ -246,6 +324,14 @@ def run_doctor(portfolio_paths: list[Path]) -> int:
 
     failures = 0
 
+    if not check_python_version():
+        failures += 1
+
+    check_version()  # advisory: network failure is not a hard error
+
+    if not check_exchange_calendars():
+        failures += 1
+
     # Check each portfolio file and collect loaded portfolios for symbol probing
     loaded_portfolios: list[Portfolio] = []
     for path in portfolio_paths:
@@ -263,10 +349,19 @@ def run_doctor(portfolio_paths: list[Path]) -> int:
     if not coingecko_ok:
         failures += 1
 
-    # Validate individual symbols only when APIs are reachable
+    if not check_forex():
+        failures += 1
+
+    # Validate individual symbols, skipping items whose API is unreachable
     all_items = collect_all_items(loaded_portfolios)
     if all_items:
-        if not check_symbols(all_items):
+        items_to_check = [
+            item
+            for item in all_items
+            if (item.asset_type == "crypto" and coingecko_ok)
+            or (item.asset_type != "crypto" and yfinance_ok)
+        ]
+        if items_to_check and not check_symbols(items_to_check):
             failures += 1
 
     check_openai()  # advisory only -- never counts as a failure
