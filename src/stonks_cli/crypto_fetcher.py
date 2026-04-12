@@ -27,6 +27,24 @@ def _crypto_base(symbol: str) -> str:
     return symbol.upper().split("-")[0]
 
 
+def resolve_coin_id(symbol: str, external_id: str | None = None) -> str | None:
+    """Return the CoinGecko coin ID for a crypto symbol.
+
+    Priority: explicit *external_id* > bundled coin map > ``None``.
+
+    Args:
+        symbol: Yahoo Finance-style crypto symbol (e.g. ``"BTC-USD"``).
+        external_id: Explicit CoinGecko coin ID from the portfolio YAML.
+
+    Returns:
+        The coin ID string (e.g. ``"bitcoin"``), or ``None`` when not found.
+    """
+    if external_id:
+        return external_id
+    CryptoFetcher._ensure_coin_list()
+    return _cg_symbol_to_id.get(_crypto_base(symbol))
+
+
 def _coingecko_error_summary(exc: BaseException) -> str:
     """Return a one-line summary for a CoinGecko HTTP exception."""
     if isinstance(exc, httpx.HTTPStatusError):
