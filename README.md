@@ -83,17 +83,26 @@ stonks demo # create demo portfolio
 
 **Requirements:** Python 3.11+
 
+### [Homebrew](https://brew.sh/) (macOS / Linux)
+
+```bash
+brew tap igoropaniuk/tap
+brew install stonks-cli
+```
+
+### [pip](https://pip.pypa.io/)
+
 ```bash
 pip install stonks-cli
 ```
 
-Or with [pipx](https://pipx.pypa.io/) (recommended -- keeps the tool isolated):
+### [pipx](https://pipx.pypa.io/) (recommended -- keeps the tool isolated)
 
 ```bash
 pipx install stonks-cli
 ```
 
-Or with [uv](https://docs.astral.sh/uv/):
+### [uv](https://docs.astral.sh/uv/)
 
 ```bash
 uv tool install stonks-cli
