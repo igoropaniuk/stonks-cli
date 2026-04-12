@@ -5,7 +5,7 @@ SHELL         := /bin/bash
 
 IMAGE     := stonks
 
-.PHONY: help init run run-demo check-all test type format check ascii docker-build docker-run docker-demo
+.PHONY: help init run run-demo check-all test type format check ascii docker-build docker-run docker-demo publish-release
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -51,3 +51,6 @@ docker-run: docker-build ## Run the dashboard from portfolio.yaml in current dir
 
 docker-demo: docker-build ## Run the demo portfolio in Docker
 	docker run --rm -it $(IMAGE) demo
+
+publish-release: ## Tag, build, and publish a release (wraps scripts/make_release.sh)
+	./scripts/make_release.sh $(ARGS)
