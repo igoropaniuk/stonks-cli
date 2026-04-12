@@ -97,7 +97,7 @@ echo "Artifacts to upload:"
 ls dist/
 confirm "Publish to TestPyPI?" || { skip "TestPyPI publish skipped -- aborting"; exit 0; }
 [[ -z "${UV_PUBLISH_TOKEN_TESTPYPI:-}" ]] && die "UV_PUBLISH_TOKEN_TESTPYPI is not set"
-uv publish --index-url https://test.pypi.org/legacy/ --token "${UV_PUBLISH_TOKEN_TESTPYPI}"
+uv publish --publish-url https://test.pypi.org/legacy/ --token "${UV_PUBLISH_TOKEN_TESTPYPI}"
 ok "Published to TestPyPI"
 echo "Verify at: https://test.pypi.org/project/stonks-cli/${VERSION}/"
 
