@@ -2,14 +2,19 @@
 # make_release.sh -- tag, build, publish, and create a GitHub release.
 #
 # Usage:
-#   ./scripts/make_release.sh
+#   ./scripts/make_release.sh [--skip-checks] [--from-step N]
+#
+# Options:
+#   --skip-checks    Skip working tree and branch sanity checks
+#   --from-step N    Start from step N (1=tag, 2=push, 3=build,
+#                    4=testpypi, 5=pypi, 6=github-release)
 #
 # Prerequisites:
 #   - uv installed
 #   - UV_PUBLISH_TOKEN_TESTPYPI and UV_PUBLISH_TOKEN_PYPI env vars set
 #   - gh CLI authenticated
-#   - Working tree must be clean
-#   - Current branch must be main
+#   - Working tree must be clean (unless --skip-checks)
+#   - Current branch must be main (unless --skip-checks)
 
 set -euo pipefail
 
@@ -32,6 +37,38 @@ confirm() {
 }
 
 # ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+SKIP_CHECKS=0
+FROM_STEP=1
+
+usage() {
+    echo "Usage: $0 [--skip-checks] [--from-step N]"
+    echo ""
+    echo "Options:"
+    echo "  --skip-checks    Skip working tree and branch sanity checks"
+    echo "  --from-step N    Start from step N (1=tag, 2=push, 3=build,"
+    echo "                   4=testpypi, 5=pypi, 6=github-release)"
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-checks) SKIP_CHECKS=1; shift ;;
+        --from-step)
+            [[ -n "${2:-}" && "$2" =~ ^[1-6]$ ]] || die "--from-step requires a number 1-6"
+            FROM_STEP="$2"; shift 2 ;;
+        --help|-h) usage ;;
+        *) die "Unknown argument: $1" ;;
+    esac
+done
+
+step_enabled() {
+    # Returns true if the given step number >= FROM_STEP
+    [[ "$1" -ge "$FROM_STEP" ]]
+}
+
+# ---------------------------------------------------------------------------
 # 1. Read version from pyproject.toml
 # ---------------------------------------------------------------------------
 VERSION=$(python -c "
@@ -47,86 +84,114 @@ info "Release: ${VERSION}  Tag: ${TAG}"
 # ---------------------------------------------------------------------------
 # 2. Sanity checks (non-interactive)
 # ---------------------------------------------------------------------------
-info "Running sanity checks"
+if [[ "$SKIP_CHECKS" -eq 0 ]]; then
+    info "Running sanity checks"
 
-[[ -z "$(git status --porcelain)" ]] || die "Working tree is dirty; commit or stash changes first"
-ok "Working tree is clean"
+    [[ -z "$(git status --porcelain)" ]] || die "Working tree is dirty; commit or stash changes first"
+    ok "Working tree is clean"
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-[[ "$BRANCH" == "main" ]] || die "Must be on main branch (currently on '${BRANCH}')"
-ok "On main branch"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    [[ "$BRANCH" == "main" ]] || die "Must be on main branch (currently on '${BRANCH}')"
+    ok "On main branch"
 
-git rev-parse --verify "${TAG}" &>/dev/null && die "Tag ${TAG} already exists"
-ok "Tag ${TAG} does not exist yet"
+    git rev-parse --verify "${TAG}" &>/dev/null && die "Tag ${TAG} already exists"
+    ok "Tag ${TAG} does not exist yet"
+else
+    info "Sanity checks skipped (--skip-checks)"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Create annotated tag
 # ---------------------------------------------------------------------------
-info "Step 1/6 -- Create annotated tag ${TAG}"
-git log --oneline -5
-confirm "Create annotated tag ${TAG}?" || { skip "Tag skipped -- aborting"; exit 0; }
-git tag -a "${TAG}" -m "stonks-cli v${VERSION}"
-ok "Tag ${TAG} created"
+if step_enabled 1; then
+    info "Step 1/6 -- Create annotated tag ${TAG}"
+    git log --oneline -5
+    confirm "Create annotated tag ${TAG}?" || { skip "Tag skipped -- aborting"; exit 0; }
+    git tag -a "${TAG}" -m "stonks-cli v${VERSION}"
+    ok "Tag ${TAG} created"
+else
+    skip "Step 1/6 -- Create annotated tag (--from-step ${FROM_STEP})"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Push commits + tag to remote
 # ---------------------------------------------------------------------------
-info "Step 2/6 -- Push main branch and tag to origin"
-git log --oneline origin/main..HEAD 2>/dev/null || true
-confirm "Push main and ${TAG} to origin?" || { skip "Push skipped -- aborting"; exit 0; }
-git push origin main
-git push origin "${TAG}"
-ok "Pushed main and ${TAG}"
+if step_enabled 2; then
+    info "Step 2/6 -- Push main branch and tag to origin"
+    git log --oneline origin/main..HEAD 2>/dev/null || true
+    confirm "Push main and ${TAG} to origin?" || { skip "Push skipped -- aborting"; exit 0; }
+    git push origin main
+    git push origin "${TAG}"
+    ok "Pushed main and ${TAG}"
+else
+    skip "Step 2/6 -- Push to origin (--from-step ${FROM_STEP})"
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Clean dist/ and build
 # ---------------------------------------------------------------------------
-info "Step 3/6 -- Build distribution"
-[[ -d dist/ ]] && echo "Current dist/ contents:" && ls dist/ || true
-confirm "Clean dist/ and run 'uv build'?" || { skip "Build skipped -- aborting"; exit 0; }
-rm -rf dist/
-uv build
-ok "Build complete"
-ls -lh dist/
+if step_enabled 3; then
+    info "Step 3/6 -- Build distribution"
+    [[ -d dist/ ]] && echo "Current dist/ contents:" && ls dist/ || true
+    confirm "Clean dist/ and run 'uv build'?" || { skip "Build skipped -- aborting"; exit 0; }
+    rm -rf dist/
+    uv build
+    ok "Build complete"
+    ls -lh dist/
+else
+    skip "Step 3/6 -- Build distribution (--from-step ${FROM_STEP})"
+fi
 
 # ---------------------------------------------------------------------------
 # 6. Publish to TestPyPI
 # ---------------------------------------------------------------------------
-info "Step 4/6 -- Publish to TestPyPI"
-echo "Artifacts to upload:"
-ls dist/
-confirm "Publish to TestPyPI?" || { skip "TestPyPI publish skipped -- aborting"; exit 0; }
-[[ -z "${UV_PUBLISH_TOKEN_TESTPYPI:-}" ]] && die "UV_PUBLISH_TOKEN_TESTPYPI is not set"
-uv publish --publish-url https://test.pypi.org/legacy/ --token "${UV_PUBLISH_TOKEN_TESTPYPI}"
-ok "Published to TestPyPI"
-echo "Verify at: https://test.pypi.org/project/stonks-cli/${VERSION}/"
+if step_enabled 4; then
+    info "Step 4/6 -- Publish to TestPyPI"
+    echo "Artifacts to upload:"
+    ls dist/
+    confirm "Publish to TestPyPI?" || { skip "TestPyPI publish skipped -- aborting"; exit 0; }
+    [[ -z "${UV_PUBLISH_TOKEN_TESTPYPI:-}" ]] && die "UV_PUBLISH_TOKEN_TESTPYPI is not set"
+    uv publish --publish-url https://test.pypi.org/legacy/ --token "${UV_PUBLISH_TOKEN_TESTPYPI}"
+    ok "Published to TestPyPI"
+    echo "Verify at: https://test.pypi.org/project/stonks-cli/${VERSION}/"
+else
+    skip "Step 4/6 -- Publish to TestPyPI (--from-step ${FROM_STEP})"
+fi
 
 # ---------------------------------------------------------------------------
 # 7. Publish to PyPI
 # ---------------------------------------------------------------------------
-info "Step 5/6 -- Publish to production PyPI"
-confirm "TestPyPI looks good? Publish to production PyPI?" || { skip "PyPI publish skipped -- aborting"; exit 0; }
-[[ -z "${UV_PUBLISH_TOKEN_PYPI:-}" ]] && die "UV_PUBLISH_TOKEN_PYPI is not set"
-uv publish --token "${UV_PUBLISH_TOKEN_PYPI}"
-ok "Published to PyPI"
-echo "Verify at: https://pypi.org/project/stonks-cli/${VERSION}/"
+if step_enabled 5; then
+    info "Step 5/6 -- Publish to production PyPI"
+    confirm "TestPyPI looks good? Publish to production PyPI?" || { skip "PyPI publish skipped -- aborting"; exit 0; }
+    [[ -z "${UV_PUBLISH_TOKEN_PYPI:-}" ]] && die "UV_PUBLISH_TOKEN_PYPI is not set"
+    uv publish --token "${UV_PUBLISH_TOKEN_PYPI}"
+    ok "Published to PyPI"
+    echo "Verify at: https://pypi.org/project/stonks-cli/${VERSION}/"
+else
+    skip "Step 5/6 -- Publish to PyPI (--from-step ${FROM_STEP})"
+fi
 
 # ---------------------------------------------------------------------------
 # 8. Create GitHub release
 # ---------------------------------------------------------------------------
-info "Step 6/6 -- Create GitHub release"
-NOTES=$(awk -v v="[${VERSION}]" '
-    $2 == v { found=1; next }
-    /^## \[/ && found { exit }
-    found { print }
-' CHANGELOG.md | sed '1{/^$/d}')
+if step_enabled 6; then
+    info "Step 6/6 -- Create GitHub release"
+    NOTES=$(awk -v v="[${VERSION}]" '
+        $2 == v { found=1; next }
+        /^## \[/ && found { exit }
+        found { print }
+    ' CHANGELOG.md | sed '1{/^$/d}')
 
-echo "Release notes preview:"
-echo "---"
-echo "${NOTES}"
-echo "---"
-confirm "Create GitHub release ${TAG}?" || { skip "GitHub release skipped"; exit 0; }
-gh release create "${TAG}" dist/* \
-    --title "stonks-cli v${VERSION}" \
-    --notes "${NOTES}"
-ok "GitHub release created: $(gh release view "${TAG}" --json url -q .url)"
+    echo "Release notes preview:"
+    echo "---"
+    echo "${NOTES}"
+    echo "---"
+    confirm "Create GitHub release ${TAG}?" || { skip "GitHub release skipped"; exit 0; }
+    gh release create "${TAG}" dist/* \
+        --title "stonks-cli v${VERSION}" \
+        --notes "${NOTES}"
+    ok "GitHub release created: $(gh release view "${TAG}" --json url -q .url)"
+else
+    skip "Step 6/6 -- Create GitHub release (--from-step ${FROM_STEP})"
+fi
