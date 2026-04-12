@@ -251,11 +251,11 @@ def feed(symbol: str, count: int) -> None:
 @main.command()
 @click.pass_context
 def doctor(ctx: click.Context) -> None:
-    """Check the portfolio file and connectivity to market data APIs."""
+    """Check portfolio file(s) and connectivity to market data APIs."""
     from stonks_cli.doctor import run_doctor
 
-    store: PortfolioStore = ctx.obj["store"]
-    failures = run_doctor(store.path)
+    stores: list[PortfolioStore] = ctx.obj["stores"]
+    failures = run_doctor([s.path for s in stores])
     ctx.exit(min(failures, 1))
 
 
