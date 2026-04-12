@@ -218,6 +218,10 @@ class Portfolio:
                 Position(symbol=symbol, quantity=quantity, avg_cost=avg_cost)
             )
 
+    def all_items(self) -> list["Position | WatchlistItem"]:
+        """Return all positions and watchlist items as a flat list."""
+        return list(self.positions) + list(self.watchlist)
+
     def remove_position(self, symbol: str, quantity: int | float) -> None:
         """Remove shares from the portfolio.
 
@@ -239,6 +243,25 @@ class Portfolio:
             self.positions.remove(existing)
         else:
             existing.quantity -= quantity
+
+
+def collect_all_items(
+    portfolios: "list[Portfolio]",
+) -> "list[Position | WatchlistItem]":
+    """Return a deduplicated flat list of positions and watchlist items.
+
+    When the same symbol appears in multiple portfolios, the first occurrence
+    is kept and subsequent ones are skipped.  Intended for use-cases that need
+    to probe all symbols without per-portfolio context (e.g. doctor checks).
+    """
+    seen: set[str] = set()
+    result: list[Position | WatchlistItem] = []
+    for portfolio in portfolios:
+        for item in portfolio.all_items():
+            if item.symbol not in seen:
+                seen.add(item.symbol)
+                result.append(item)
+    return result
 
 
 def daily_change_pct(last: float, prev: float | None, session: str) -> float | None:
