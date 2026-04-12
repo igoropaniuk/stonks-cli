@@ -248,6 +248,17 @@ def feed(symbol: str, count: int) -> None:
     click.echo(format_news(symbol, items))
 
 
+@main.command()
+@click.pass_context
+def doctor(ctx: click.Context) -> None:
+    """Check the portfolio file and connectivity to market data APIs."""
+    from stonks_cli.doctor import run_doctor
+
+    store: PortfolioStore = ctx.obj["store"]
+    failures = run_doctor(store.path)
+    ctx.exit(min(failures, 1))
+
+
 @main.command("list")
 def list_portfolios() -> None:
     """List all portfolios in ~/.config/stonks/."""
