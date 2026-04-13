@@ -54,6 +54,7 @@ stonks demo # create demo portfolio
   - [Manage cash](#manage-cash)
   - [List portfolios](#list-portfolios)
   - [Importing positions](#importing-positions)
+  - [Health checks (doctor)](#health-checks-doctor)
 - [Dashboard](#dashboard)
   - [Columns](#columns)
   - [Session labels](#session-labels)
@@ -325,6 +326,7 @@ Commands:
   demo        Launch the TUI with a sample portfolio (your portfolio is untouched).
   feed        Print the latest news headlines for a symbol to stdout.
   detail      Print a financial summary for a symbol to stdout.
+  doctor      Run environment health checks.
   import      Import positions from a broker export (subcommands: ibkr).
 ```
 
@@ -430,6 +432,40 @@ by one.
 | Broker | Command | Guide |
 |---|---|---|
 | Interactive Brokers | `stonks import ibkr positions.csv` | [docs/import/interactive-brokers.md](docs/import/interactive-brokers.md) |
+
+### Health checks (doctor)
+
+Run `stonks doctor` to verify that the environment is configured correctly
+before opening the TUI:
+
+```bash
+stonks doctor
+
+# Check a specific portfolio
+stonks -p work doctor
+
+# Check multiple portfolios at once
+stonks -p personal -p work doctor
+```
+
+Each check prints a coloured `OK`, `WARN`, or `FAIL` line. The command exits
+with code `0` when everything passes and code `1` if any hard check fails.
+
+| Check | What it verifies |
+| ----- | ---------------- |
+| Python version | Interpreter is 3.11 or newer |
+| stonks-cli version | Installed version vs. latest PyPI release |
+| exchange-calendars | NYSE calendar loads and today's session is readable |
+| Portfolio file | File exists and parses without errors; reports position/cash/watchlist counts |
+| yfinance | Fetches AAPL `fast_info` as a live connectivity probe |
+| CoinGecko | Hits `/ping`; warns if `COINGECKO_DEMO_API_KEY` is unset |
+| Forex rates | Fetches a live EUR/USD rate via yfinance |
+| Symbol validation | Probes each ticker in the portfolio; equity in parallel, crypto via CoinGecko batch |
+| AI Chat (advisory) | Reports whether `OPENAI_API_KEY` is set; never causes a failure |
+
+Symbol validation is skipped for equity symbols when yfinance is unreachable,
+and for crypto symbols when CoinGecko is unreachable, to avoid a flood of
+redundant errors.
 
 ---
 
