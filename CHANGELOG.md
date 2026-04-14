@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-14
+
+### Added
+
+- `stonks doctor` command: run environment health checks before opening the
+  TUI. Verifies Python version, installed version vs. latest PyPI release,
+  portfolio file integrity, yfinance and CoinGecko API connectivity, live
+  forex rates, NYSE calendar availability, and each portfolio symbol.
+  Reports OK / WARN / FAIL per check; exits with code 1 if any hard check
+  fails. Supports multiple `-p` flags to check several portfolios at once.
+- Homebrew installation: `stonks-cli` is now available via
+  `brew tap igoropaniuk/tap && brew install stonks-cli`.
+
+### Fixed
+
+- Images and links in the PyPI package description now use absolute GitHub
+  URLs so they render correctly on the project page.
+- `make_release.sh` resumability: `--from-step N` skips already-completed
+  steps; `--skip-checks` bypasses working-tree and branch guards for
+  hotfix releases.
+
 ## [0.6.0] - 2026-04-12
 
 ### Added
