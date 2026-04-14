@@ -239,17 +239,19 @@ def check_python_version() -> bool:
     return False
 
 
+def _version_tuple(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in v.split(".") if x.isdigit())
+
+
 def check_version() -> bool:
     """Compare the installed version against the latest release on PyPI."""
-    from packaging.version import Version
-
     click.echo("\nstonks-cli version")
     try:
         with httpx.Client(timeout=10.0) as client:
             resp = client.get("https://pypi.org/pypi/stonks-cli/json")
             resp.raise_for_status()
         latest = resp.json()["info"]["version"]
-        if Version(latest) > Version(__version__):
+        if _version_tuple(latest) > _version_tuple(__version__):
             _warn(
                 f"Installed: {__version__}",
                 f"latest on PyPI is {latest} -- consider upgrading",
