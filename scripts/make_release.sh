@@ -134,8 +134,27 @@ if step_enabled 3; then
     info "Step 3/6 -- Build distribution"
     [[ -d dist/ ]] && echo "Current dist/ contents:" && ls dist/ || true
     confirm "Clean dist/ and run 'uv build'?" || { skip "Build skipped -- aborting"; exit 0; }
+
+    # Rewrite relative paths in README.md to absolute GitHub URLs so that
+    # images and links render correctly on the PyPI project page.
+    REPO="igoropaniuk/stonks-cli"
+    RAW="https://raw.githubusercontent.com/${REPO}/${TAG}"
+    BLOB="https://github.com/${REPO}/blob/${TAG}"
+    cp README.md README.md.orig
+    trap 'mv README.md.orig README.md' EXIT
+    sed \
+        -e "s|](docs/assets/|](${RAW}/docs/assets/|g" \
+        -e "s|](docs/import/|](${BLOB}/docs/import/|g" \
+        -e "s|](CONTRIBUTING\.md)|](${BLOB}/CONTRIBUTING.md)|g" \
+        -e "s|](RELEASING\.md)|](${BLOB}/RELEASING.md)|g" \
+        -e "s|](LICENSE)|](${BLOB}/LICENSE)|g" \
+        README.md.orig > README.md
+    ok "README.md patched with absolute GitHub URLs for PyPI"
+
     rm -rf dist/
     uv build
+    mv README.md.orig README.md
+    trap - EXIT
     ok "Build complete"
     ls -lh dist/
 else
