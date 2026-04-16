@@ -211,9 +211,13 @@ class StockDetailFetcher:
                 h = t.history(**kw)
                 if h is not None and not h.empty:
                     fmt = "%H:%M" if interval else "%Y-%m-%d"
-                    dates = [d.strftime(fmt) for d in h.index]
-                    closes = [float(v) for v in h["Close"].tolist()]
-                    result[label] = (dates, closes)
+                    # Filter out NaN/inf values that would crash plotext
+                    h_finite = h[h["Close"].apply(_finite).notna()]
+                    if not h_finite.empty:
+                        result[label] = (
+                            h_finite.index.strftime(fmt).tolist(),
+                            h_finite["Close"].astype(float).tolist(),
+                        )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Cannot fetch price history for %s (%s): %s", symbol, period, exc
