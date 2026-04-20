@@ -302,9 +302,7 @@ class TestFetchDailyPricesWithSession:
 
     @patch(_CURRENT_SESSION, return_value="regular")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_today_bar_uses_current_session(
-        self, mock_dl, _cs, fetcher: PriceFetcher
-    ):
+    def test_today_bar_uses_current_session(self, mock_dl, _cs, fetcher: PriceFetcher):
         mock_dl.return_value = _close_df({"AAPL": 150.0}, date="2026-03-21")
         result = fetcher.fetch_daily_prices_with_session(["AAPL"])
         assert result == {"AAPL": (150.0, "regular")}
