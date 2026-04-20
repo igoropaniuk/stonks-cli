@@ -281,11 +281,17 @@ class PriceFetcher:
         Like :meth:`fetch_prices`, but also returns the session label and flags
         stale bars (last bar from a previous day) so the table can render the
         row without a spurious zero-change.
+
+        A 5-day window is used because ``period="1d"`` silently drops
+        non-US tickers with "possibly delisted" errors whenever Yahoo has
+        not yet published a bar for today in the ticker's local timezone;
+        the wider window reliably returns at least the last completed
+        trading day for both US and non-US equities.
         """
         if not symbols:
             return {}
         normalized = [s.upper() for s in symbols]
-        close = _yf_download_close(normalized, period="1d", description="price")
+        close = _yf_download_close(normalized, period="5d", description="price")
         if close is None:
             return {}
         return self._extract_latest_with_session(close, normalized)
