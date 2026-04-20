@@ -202,6 +202,39 @@ class PriceFetcher:
             logger.debug("Cannot read fast_info price for %s: %s", symbol, exc)
             return None
 
+    def _extract_latest_with_session(
+        self, close: "pd.DataFrame", symbols: list[str]
+    ) -> dict[str, tuple[float, str]]:
+        """Return ``{symbol: (price, session)}`` from a Close DataFrame.
+
+        If a symbol's last bar is from a previous day, the session is set to
+        ``Session.STALE`` when the exchange is supposed to be trading (so the
+        table can flag the price as non-live) or ``Session.CLOSED`` when the
+        exchange itself is closed (weekend / holiday).
+        """
+        today = pd.Timestamp.now(tz="UTC").normalize()
+        result: dict[str, tuple[float, str]] = {}
+        for symbol in symbols:
+            if symbol not in close.columns:
+                continue
+            series = close[symbol].dropna()
+            if series.empty:
+                continue
+            price = float(series.iloc[-1])
+            last_bar_ts = series.index[-1]
+            if last_bar_ts.tzinfo is None:
+                last_bar_ts = last_bar_ts.tz_localize("UTC")
+            last_bar_date = last_bar_ts.tz_convert("UTC").normalize()
+            live_session = self.current_session(symbol)
+            if last_bar_date < today:
+                result[symbol] = (
+                    price,
+                    Session.CLOSED if live_session == Session.CLOSED else Session.STALE,
+                )
+            else:
+                result[symbol] = (price, live_session)
+        return result
+
     def fetch_extended_prices(self, symbols: list[str]) -> dict[str, tuple[float, str]]:
         """Return the best available price for each symbol, including extended hours.
 
@@ -209,9 +242,11 @@ class PriceFetcher:
         1-minute interval so that pre- and post-market bars are included.  The
         session label is derived from the timestamp of each symbol's last bar
         relative to its exchange's market hours.  If the exchange is currently
-        closed (weekend or holiday), the session is "closed".
+        closed (weekend or holiday), the session is "closed".  If the exchange
+        should be trading but the last bar is from a previous day, the session
+        is "stale".
 
-        * Equities on supported exchanges: "pre" / "regular" / "post" / "closed"
+        * Equities on supported exchanges: pre/regular/post/closed/stale
         * Crypto or equities on unknown exchanges: always "regular"
 
         Symbols with no available data are silently omitted from the result.
@@ -236,24 +271,24 @@ class PriceFetcher:
         if close is None:
             return {}
 
-        today = pd.Timestamp.now(tz="UTC").normalize()
-        result: dict[str, tuple[float, str]] = {}
-        for symbol in normalized:
-            if symbol not in close.columns:
-                continue
-            series = close[symbol].dropna()
-            if series.empty:
-                continue
-            price = float(series.iloc[-1])
-            # If the last bar is from a previous day, the ticker has no
-            # intraday data for today (not trading in extended hours).
-            last_bar_date = series.index[-1].tz_convert("UTC").normalize()
-            if last_bar_date < today:
-                result[symbol] = (price, Session.CLOSED)
-            else:
-                result[symbol] = (price, self.current_session(symbol))
+        return self._extract_latest_with_session(close, normalized)
 
-        return result
+    def fetch_daily_prices_with_session(
+        self, symbols: list[str]
+    ) -> dict[str, tuple[float, str]]:
+        """Return ``{symbol: (price, session)}`` from the most recent daily bar.
+
+        Like :meth:`fetch_prices`, but also returns the session label and flags
+        stale bars (last bar from a previous day) so the table can render the
+        row without a spurious zero-change.
+        """
+        if not symbols:
+            return {}
+        normalized = [s.upper() for s in symbols]
+        close = _yf_download_close(normalized, period="1d", description="price")
+        if close is None:
+            return {}
+        return self._extract_latest_with_session(close, normalized)
 
     def fetch_best_equity_prices(
         self, symbols: list[str]
@@ -279,12 +314,12 @@ class PriceFetcher:
         # Tier 1: extended-hours batch.
         result.update(self.fetch_extended_prices(symbols))
 
-        # Tier 2: regular daily batch for symbols still missing.
+        # Tier 2: regular daily batch for symbols still missing.  Uses the
+        # daily-bars variant that flags stale data so a Friday-close returned
+        # on a Monday-morning query doesn't render as a spurious zero-change.
         missing = [s for s in symbols if s.upper() not in result]
         if missing:
-            batch = self.fetch_prices(missing)
-            for sym, price in batch.items():
-                result[sym] = (price, self.current_session(sym))
+            result.update(self.fetch_daily_prices_with_session(missing))
 
         # Tier 3: individual fast_info for any still-missing symbols.
         still_missing = [s for s in symbols if s.upper() not in result]
