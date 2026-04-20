@@ -259,17 +259,81 @@ class TestFetchExtendedPrices:
         assert "AAPL" in result
         assert "MSFT" not in result
 
+    @patch(_CURRENT_SESSION, return_value="pre")
     @patch("stonks_cli.fetcher.pd.Timestamp.now")
     @patch("stonks_cli.fetcher.yf.download")
-    def test_stale_bar_from_yesterday_returns_closed(
-        self, mock_dl, mock_now, fetcher: PriceFetcher
+    def test_stale_bar_while_exchange_open_returns_stale(
+        self, mock_dl, mock_now, _cs, fetcher: PriceFetcher
     ):
-        """If the last bar is from a previous day, session should be 'closed'."""
+        """If the last bar is from a previous day but the exchange should
+        be trading, session should be 'stale' -- the price is not live."""
+        mock_now.return_value = pd.Timestamp("2026-03-11 10:00:00", tz="UTC")
+        yesterday = datetime(2026, 3, 10, 16, 0, tzinfo=_ET)
+        mock_dl.return_value = _extended_close_df({"QFIN": 13.29}, yesterday)
+        result = fetcher.fetch_extended_prices(["QFIN"])
+        assert result == {"QFIN": (13.29, "stale")}
+
+    @patch(_CURRENT_SESSION, return_value="closed")
+    @patch("stonks_cli.fetcher.pd.Timestamp.now")
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_stale_bar_while_exchange_closed_returns_closed(
+        self, mock_dl, mock_now, _cs, fetcher: PriceFetcher
+    ):
+        """If the exchange itself is closed (weekend/holiday), a previous-day
+        bar is expected -- session stays 'closed', not 'stale'."""
         mock_now.return_value = pd.Timestamp("2026-03-11 10:00:00", tz="UTC")
         yesterday = datetime(2026, 3, 10, 16, 0, tzinfo=_ET)
         mock_dl.return_value = _extended_close_df({"QFIN": 13.29}, yesterday)
         result = fetcher.fetch_extended_prices(["QFIN"])
         assert result == {"QFIN": (13.29, "closed")}
+
+
+class TestFetchDailyPricesWithSession:
+    @pytest.fixture(autouse=True)
+    def _freeze_now(self):
+        with patch("stonks_cli.fetcher.pd.Timestamp.now", return_value=_FROZEN_NOW):
+            yield
+
+    def test_empty_returns_empty(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.download") as mock_dl:
+            result = fetcher.fetch_daily_prices_with_session([])
+        assert result == {}
+        mock_dl.assert_not_called()
+
+    @patch(_CURRENT_SESSION, return_value="regular")
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_today_bar_uses_current_session(
+        self, mock_dl, _cs, fetcher: PriceFetcher
+    ):
+        mock_dl.return_value = _close_df({"AAPL": 150.0}, date="2026-03-21")
+        result = fetcher.fetch_daily_prices_with_session(["AAPL"])
+        assert result == {"AAPL": (150.0, "regular")}
+
+    @patch(_CURRENT_SESSION, return_value="regular")
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_stale_bar_while_open_returns_stale(
+        self, mock_dl, _cs, fetcher: PriceFetcher
+    ):
+        """Daily bar from a previous day while the exchange should be trading
+        is the Yahoo-returns-Friday-close case -- must flag as stale."""
+        mock_dl.return_value = _close_df({"VUAA.L": 137.5}, date="2026-03-20")
+        result = fetcher.fetch_daily_prices_with_session(["VUAA.L"])
+        assert result == {"VUAA.L": (137.5, "stale")}
+
+    @patch(_CURRENT_SESSION, return_value="closed")
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_stale_bar_while_closed_returns_closed(
+        self, mock_dl, _cs, fetcher: PriceFetcher
+    ):
+        mock_dl.return_value = _close_df({"AAPL": 150.0}, date="2026-03-20")
+        result = fetcher.fetch_daily_prices_with_session(["AAPL"])
+        assert result == {"AAPL": (150.0, "closed")}
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_empty_download_returns_empty(self, mock_dl, fetcher: PriceFetcher):
+        mock_dl.return_value = pd.DataFrame()
+        result = fetcher.fetch_daily_prices_with_session(["AAPL"])
+        assert result == {}
 
 
 class TestFetchForexRates:
@@ -847,19 +911,34 @@ class TestFetchBestEquityPrices:
 
     def test_batch_fallback_for_missing(self, fetcher: PriceFetcher):
         fetcher.fetch_extended_prices = MagicMock(return_value={})
-        fetcher.fetch_prices = MagicMock(return_value={"MSFT": 310.0})
-        fetcher.current_session = MagicMock(return_value="regular")
+        fetcher.fetch_daily_prices_with_session = MagicMock(
+            return_value={"MSFT": (310.0, "regular")}
+        )
         fetcher.fetch_price_single = MagicMock(return_value=None)
 
         result = fetcher.fetch_best_equity_prices(["MSFT"])
 
         assert result == {"MSFT": (310.0, "regular")}
-        fetcher.fetch_prices.assert_called_once_with(["MSFT"])
+        fetcher.fetch_daily_prices_with_session.assert_called_once_with(["MSFT"])
+        fetcher.fetch_price_single.assert_not_called()
+
+    def test_batch_fallback_marks_stale(self, fetcher: PriceFetcher):
+        """Daily-batch path should surface the stale session from its
+        returned tuple so the table can flag the price as non-live."""
+        fetcher.fetch_extended_prices = MagicMock(return_value={})
+        fetcher.fetch_daily_prices_with_session = MagicMock(
+            return_value={"VUAA.L": (137.5, "stale")}
+        )
+        fetcher.fetch_price_single = MagicMock(return_value=None)
+
+        result = fetcher.fetch_best_equity_prices(["VUAA.L"])
+
+        assert result == {"VUAA.L": (137.5, "stale")}
         fetcher.fetch_price_single.assert_not_called()
 
     def test_single_fallback_for_missing(self, fetcher: PriceFetcher):
         fetcher.fetch_extended_prices = MagicMock(return_value={})
-        fetcher.fetch_prices = MagicMock(return_value={})
+        fetcher.fetch_daily_prices_with_session = MagicMock(return_value={})
         fetcher.fetch_price_single = MagicMock(return_value=250.0)
         fetcher.current_session = MagicMock(return_value="post")
 
@@ -870,7 +949,7 @@ class TestFetchBestEquityPrices:
 
     def test_single_fallback_none_omitted(self, fetcher: PriceFetcher):
         fetcher.fetch_extended_prices = MagicMock(return_value={})
-        fetcher.fetch_prices = MagicMock(return_value={})
+        fetcher.fetch_daily_prices_with_session = MagicMock(return_value={})
         fetcher.fetch_price_single = MagicMock(return_value=None)
 
         result = fetcher.fetch_best_equity_prices(["DEAD"])
@@ -881,14 +960,16 @@ class TestFetchBestEquityPrices:
         fetcher.fetch_extended_prices = MagicMock(
             return_value={"AAPL": (175.0, "regular")}
         )
-        fetcher.fetch_prices = MagicMock(return_value={"MSFT": 310.0})
+        fetcher.fetch_daily_prices_with_session = MagicMock(
+            return_value={"MSFT": (310.0, "regular")}
+        )
         fetcher.fetch_price_single = MagicMock(return_value=250.0)
         fetcher.current_session = MagicMock(return_value="post")
 
         result = fetcher.fetch_best_equity_prices(["AAPL", "MSFT", "TSLA"])
 
         assert result["AAPL"] == (175.0, "regular")
-        assert result["MSFT"] == (310.0, "post")
+        assert result["MSFT"] == (310.0, "regular")
         assert result["TSLA"] == (250.0, "post")
 
 
