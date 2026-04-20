@@ -13,6 +13,9 @@ class Session(str, Enum):
     REGULAR = "regular"
     POST = "post"
     CLOSED = "closed"
+    # The exchange is supposed to be trading but the upstream data source
+    # only has bars from a previous day, so the shown price is not live.
+    STALE = "stale"
 
 
 # Human-readable badge label for each non-regular session.
@@ -20,4 +23,5 @@ SESSION_BADGE: dict[str, str] = {
     Session.PRE: "PRE",
     Session.POST: "AH",
     Session.CLOSED: "CLS",
+    Session.STALE: "STALE",
 }

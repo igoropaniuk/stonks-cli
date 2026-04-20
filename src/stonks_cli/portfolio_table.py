@@ -75,7 +75,9 @@ def _compute_change(
     chg_pct = daily_change_pct(last, prev_close, session) if last is not None else None
     chg_abs = (
         last - prev_close
-        if last is not None and prev_close is not None and session != Session.CLOSED
+        if last is not None
+        and prev_close is not None
+        and session not in (Session.CLOSED, Session.STALE)
         else None
     )
     return chg_pct, chg_abs
@@ -226,6 +228,7 @@ _SESSION_BADGE_STYLE: dict[str, str] = {
     Session.PRE: "bold yellow",
     Session.POST: "bold cyan",
     Session.CLOSED: "bold red",
+    Session.STALE: "bold red reverse",
 }
 
 
