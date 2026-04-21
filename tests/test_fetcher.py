@@ -829,19 +829,64 @@ class TestCurrentSession:
     def test_non_trading_day_returns_closed(self, _td, fetcher: PriceFetcher):
         assert fetcher.current_session("AAPL") == "closed"
 
+    # 05:00 ET = 09:00 UTC on a standard-time date -- inside NYSE pre-market
+    # (04:00-09:30 ET), so current_session should honour the "pre" label from
+    # market_session rather than narrowing it to "closed".
+    _US_PRE_UTC = pd.Timestamp("2026-03-10 09:00:00", tz="UTC")
+    # 03:00 ET = 07:00 UTC on the same date -- before real pre-market starts.
+    _US_BEFORE_PRE_UTC = pd.Timestamp("2026-03-10 07:00:00", tz="UTC")
+    # 17:00 ET = 21:00 UTC -- inside NYSE post-market (16:00-20:00 ET).
+    _US_POST_UTC = pd.Timestamp("2026-03-10 21:00:00", tz="UTC")
+    # 22:00 ET = 02:00 UTC next day -- after post-market has closed.
+    _US_AFTER_POST_UTC = pd.Timestamp("2026-03-11 02:00:00", tz="UTC")
+
     @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="pre")
+    @patch("stonks_cli.fetcher.pd.Timestamp.now")
     def test_trading_day_delegates_to_market_session(
-        self, mock_ms, _td, fetcher: PriceFetcher
+        self, mock_now, mock_ms, _td, fetcher: PriceFetcher
     ):
+        mock_now.return_value = self._US_PRE_UTC
         result = fetcher.current_session("AAPL")
         assert result == "pre"
         assert mock_ms.called
 
     @patch(_TRADING_DAY, return_value=True)
     @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="pre")
+    @patch("stonks_cli.fetcher.pd.Timestamp.now")
+    def test_us_before_pre_market_window_returns_closed(
+        self, mock_now, _ms, _td, fetcher: PriceFetcher
+    ):
+        # 03:00 ET is before real pre-market (04:00 ET) even though
+        # market_session still reports "pre" (any time before regular open).
+        mock_now.return_value = self._US_BEFORE_PRE_UTC
+        assert fetcher.current_session("AAPL") == "closed"
+
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="post")
+    @patch("stonks_cli.fetcher.pd.Timestamp.now")
+    def test_us_inside_post_market_window_returns_post(
+        self, mock_now, _ms, _td, fetcher: PriceFetcher
+    ):
+        mock_now.return_value = self._US_POST_UTC
+        assert fetcher.current_session("AAPL") == "post"
+
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="post")
+    @patch("stonks_cli.fetcher.pd.Timestamp.now")
+    def test_us_after_post_market_window_returns_closed(
+        self, mock_now, _ms, _td, fetcher: PriceFetcher
+    ):
+        # 22:00 ET is past post-market close (20:00 ET); market_session still
+        # says "post" because it only knows the regular close.
+        mock_now.return_value = self._US_AFTER_POST_UTC
+        assert fetcher.current_session("AAPL") == "closed"
+
+    @patch(_TRADING_DAY, return_value=True)
+    @patch("stonks_cli.fetcher.ExchangeSession.market_session", return_value="pre")
     def test_non_us_pre_returns_closed(self, _ms, _td, fetcher: PriceFetcher):
         # Non-US exchanges have no extended hours; "pre" should map to "closed"
+        # regardless of local time.
         assert fetcher.current_session("6758.T") == "closed"
 
     @patch(_TRADING_DAY, return_value=True)
