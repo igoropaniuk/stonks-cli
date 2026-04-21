@@ -235,6 +235,14 @@ _US_EXCHANGE = ExchangeInfo(
     extended_hours=True,
 )
 
+# Extended-hours bounds in each exchange's local time.  Only applied when
+# ExchangeInfo.extended_hours is True; all such entries today are NYSE /
+# NASDAQ (US) with the same 04:00 / 20:00 ET window.  If a non-US exchange
+# ever enables extended hours with different bounds, push these down onto
+# ExchangeInfo.
+_EXTENDED_PRE_OPEN = dtime(4, 0)
+_EXTENDED_POST_CLOSE = dtime(20, 0)
+
 
 # Reverse lookup: yfinance exchange code -> display label, derived from _EXCHANGES.
 _YF_CODE_TO_LABEL: dict[str, str] = {
@@ -415,8 +423,18 @@ class ExchangeSession:
             return Session.CLOSED
         now = pd.Timestamp.now(tz="UTC")
         session = ExchangeSession.market_session(now, *hours)
-        if session != Session.REGULAR and not ExchangeSession.extended_hours_for(
-            symbol
-        ):
+        if session == Session.REGULAR:
+            return session
+        if not ExchangeSession.extended_hours_for(symbol):
+            return Session.CLOSED
+        # ``market_session`` reports PRE for *any* time before the regular
+        # open and POST for *any* time after the regular close, so the dead
+        # of night gets labelled pre-market.  Narrow those windows to the
+        # real extended-hours bounds so 02:00 ET isn't treated as NYSE
+        # pre-market (which actually starts at 04:00 ET).
+        local_time = now.astimezone(zoneinfo.ZoneInfo(hours[0])).time()
+        if session == Session.PRE and local_time < _EXTENDED_PRE_OPEN:
+            return Session.CLOSED
+        if session == Session.POST and local_time >= _EXTENDED_POST_CLOSE:
             return Session.CLOSED
         return session
