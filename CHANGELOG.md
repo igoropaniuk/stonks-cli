@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-04-25
+
+### Added
+
+- New `STALE` session label and badge for prices that the upstream data
+  source is serving from a prior trading day while the exchange should
+  be trading live.  Affected rows render `--` for the daily change
+  rather than a misleading `0.00`, and the Last Price column shows a
+  `STALE` badge so the value is clearly flagged as non-live.
+
+### Fixed
+
+- Non-US tickers (e.g. `CHIP.PA`, `VUAA.L`, `IBCJ.DE`) no longer show a
+  spurious `0.00` daily change during European morning hours.  Yahoo's
+  one-day batch endpoint silently drops those tickers when today's bar
+  hasn't been published yet; the fetcher now uses a 5-day window and
+  flags the returned prior-day bar as `STALE`.
+- NYSE / NASDAQ pre- and post-market windows are now bounded by the
+  real 04:00 / 20:00 ET hours, so viewing the app in the dead of night
+  no longer labels US rows as `STALE`; they correctly render `CLS`
+  instead.
+- Price history charts no longer fail to plot when yfinance occasionally
+  returns `NaN` / `inf` values mid-series.
+
+### Changed
+
+- `yfinance` dependency pinned to `>=1.3.0,<2` (was `>=1.2.0,<2`).
+
 ## [0.6.2] - 2026-04-15
 
 ### Fixed

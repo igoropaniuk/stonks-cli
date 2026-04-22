@@ -1,6 +1,6 @@
 [project]
 name = "stonks-cli"
-version = "0.6.2"
+version = "0.6.3"
 description = "CLI tool for tracking investment portfolio"
 authors = [{ name = "Igor Opaniuk", email = "igor.opaniuk@gmail.com" }]
 requires-python = ">=3.11,<4"
