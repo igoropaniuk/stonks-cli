@@ -240,7 +240,11 @@ def check_python_version() -> bool:
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in v.split(".") if x.isdigit())
+    # Strip any PEP 440 local-version segment (e.g. "+dev.abc1234.dirty")
+    # so a dev build of 0.6.3 still compares equal to PyPI's 0.6.3 rather
+    # than collapsing to (0, 6).
+    base = v.split("+", 1)[0]
+    return tuple(int(x) for x in base.split(".") if x.isdigit())
 
 
 def check_version() -> bool:
