@@ -1,5 +1,6 @@
 """Tests for the candlestick chart screen and helpers."""
 
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -17,6 +18,18 @@ from stonks_cli.chart import (
     _format_date_labels,
     _nice_yticks,
 )
+
+
+def _recent_cursor_date(days_ago: int = 30) -> str:
+    """Return a ``YYYY-MM-DD HH:MM`` cursor date *days_ago* days before today.
+
+    Tests that exercise zoom retention need a cursor that stays inside the
+    intraday-bars retention window (60 days for 5m/15m).  Hardcoding a date
+    silently rots; computing it relative to ``datetime.now()`` keeps the test
+    valid forever.
+    """
+    return (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d %H:%M")
+
 
 # ---------------------------------------------------------------------------
 # _nice_yticks
@@ -323,7 +336,7 @@ class TestCandleChartScreenZoom:
         screen = CandleChartScreen("AAPL")
         screen._zoom_idx = 3
         screen._data = _CandleData(
-            dates=["2026-03-15 09:30"],  # recent date, within 5m retention window
+            dates=[_recent_cursor_date()],  # within 5m retention window
             opens=[100.0],
             highs=[105.0],
             lows=[98.0],
@@ -386,8 +399,9 @@ class TestCandleChartScreenZoom:
     def test_zoom_passes_cursor_date_to_load_data(self):
         screen = CandleChartScreen("AAPL")
         screen._zoom_idx = 3
+        cursor_date = _recent_cursor_date()
         screen._data = _CandleData(
-            dates=["2026-03-15 09:30"],
+            dates=[cursor_date],
             opens=[100.0],
             highs=[105.0],
             lows=[98.0],
@@ -399,13 +413,13 @@ class TestCandleChartScreenZoom:
             patch.object(screen, "_restart_timer"),
         ):
             screen.action_zoom_in()
-        mock_load.assert_called_once_with("2026-03-15 09:30")
+        mock_load.assert_called_once_with(cursor_date)
 
     def test_zoom_restarts_timer(self):
         screen = CandleChartScreen("AAPL")
         screen._zoom_idx = 3
         screen._data = _CandleData(
-            dates=["2026-03-15 09:30"],
+            dates=[_recent_cursor_date()],
             opens=[100.0],
             highs=[105.0],
             lows=[98.0],
