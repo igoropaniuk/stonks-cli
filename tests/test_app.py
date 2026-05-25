@@ -2590,6 +2590,86 @@ async def test_action_chat_no_op_when_already_open(portfolio: Portfolio) -> None
         mock_push.assert_not_called()
 
 
+def _static_content(widget: Static) -> str:
+    """Return the plain-text content currently displayed by a Static widget."""
+    # ``Static`` stores content in a name-mangled ``__content`` attribute.
+    # Going through the name-mangled name is the simplest way to inspect
+    # what was last passed to ``widget.update()`` in tests.
+    content = getattr(widget, "_Static__content", "")
+    return str(content)
+
+
+@pytest.mark.asyncio
+async def test_combined_total_widget_hidden_in_single_portfolio_mode(
+    portfolio: Portfolio,
+) -> None:
+    """The aggregate label is always mounted (so the footer layout stays
+    stable across single-/multi-portfolio modes) but is hidden via the
+    ``-hidden`` class when only one portfolio is loaded -- otherwise it
+    would just duplicate the per-portfolio Total row."""
+    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one("#combined-total", Static)
+        assert "-hidden" in widget.classes
+
+    multi = PortfolioApp(
+        portfolios=[portfolio, Portfolio(name="Second")],
+        prices={},
+        forex_rates=USD_RATES,
+    )
+    async with multi.run_test() as pilot:
+        await pilot.pause()
+        widget = multi.query_one("#combined-total", Static)
+        assert "-hidden" not in widget.classes
+
+
+@pytest.mark.asyncio
+async def test_combined_total_widget_renders_value(portfolio: Portfolio) -> None:
+    """When prices and forex rates are available, the aggregate footer
+    must display the summed value across all portfolios in the first
+    portfolio's base currency."""
+    second = Portfolio(
+        name="Second",
+        positions=[Position(symbol="MSFT", quantity=10, avg_cost=200.0)],
+    )
+    app = PortfolioApp(
+        portfolios=[portfolio, second],
+        prices={"AAPL": 200.0, "NVDA": 150.0, "MSFT": 300.0},
+        forex_rates=USD_RATES,
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one("#combined-total", Static)
+        text = _static_content(widget)
+        # portfolio fixture: AAPL 100 @ 200 + NVDA 200 @ 150 = 50_000;
+        # second: MSFT 10 @ 300 = 3_000; total 53_000
+        assert "Total (USD)" in text
+        assert "53,000.00" in text
+
+
+@pytest.mark.asyncio
+async def test_combined_total_widget_renders_na_on_missing_price(
+    portfolio: Portfolio,
+) -> None:
+    """When any price is missing the aggregate must render ``N/A`` rather
+    than a misleading partial sum."""
+    second = Portfolio(
+        name="Second",
+        positions=[Position(symbol="MISSING", quantity=10, avg_cost=200.0)],
+    )
+    app = PortfolioApp(
+        portfolios=[portfolio, second],
+        prices={"AAPL": 200.0, "NVDA": 150.0},  # MISSING absent
+        forex_rates=USD_RATES,
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one("#combined-total", Static)
+        text = _static_content(widget)
+        assert "N/A" in text
+
+
 @pytest.mark.asyncio
 async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> None:
     """HistoryUpdated message from ChatScreen updates app._chat_history."""

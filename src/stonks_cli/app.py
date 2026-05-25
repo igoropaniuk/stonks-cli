@@ -42,6 +42,7 @@ from stonks_cli.models import (
     Portfolio,
     Position,
     WatchlistItem,
+    combined_portfolio_total,
     portfolio_total,
 )
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
@@ -408,6 +409,78 @@ class NewsItemRow(Horizontal):
         self.post_message(self.Selected(self._index))
 
 
+class _FooterWithTotal(Footer):
+    """``Footer`` subclass that injects a ``Total all portfolios`` label
+    just left of the command-palette indicator.
+
+    Multiple ``dock: right`` widgets in Textual all anchor to the same
+    right edge and overlap, so we can't simply yield a second
+    ``dock: right`` Static after the palette and expect them to stack.
+    Instead we ``dock: right`` the label and offset it leftwards by
+    ``margin-right`` equal to the rendered palette width plus a small
+    gap, putting it visually just to the left of ``^palette``.
+
+    When ``show_total`` is False the label is mounted with the
+    ``-hidden`` class so the DOM is identical between single- and
+    multi-portfolio modes; only its ``display`` flips.
+
+    Footer triggers a ``recompose`` once its ``_bindings_ready`` reactive
+    flips, which wipes any children the previous ``compose`` yielded
+    (including ours).  We cache the most recent renderable on the
+    instance so each recompose re-creates the Static with the value the
+    app last set via :meth:`set_total_renderable`, rather than flashing
+    back to empty between recompose and the next price refresh.
+    """
+
+    # The command-palette FooterKey renders with ``dock: right`` and a
+    # vertical-key border on the left.  Its width is the key glyph + label
+    # padding -- empirically ~12 cells in the default theme.  We clear it
+    # plus a 2-cell gap so the total doesn't visually collide with the
+    # palette border.
+    _PALETTE_GAP = 14
+
+    DEFAULT_CSS = f"""
+    _FooterWithTotal Static#combined-total {{
+        dock: right;
+        width: auto;
+        padding: 0 1;
+        margin-right: {_PALETTE_GAP};
+        color: $accent;
+        text-style: bold;
+    }}
+    _FooterWithTotal Static#combined-total.-hidden {{
+        display: none;
+    }}
+    """
+
+    def __init__(self, *, show_total: bool, **kw: Any) -> None:
+        super().__init__(**kw)
+        self._show_total = show_total
+        self._cached_renderable: Text | str = ""
+
+    def compose(self) -> ComposeResult:
+        yield from super().compose()
+        classes = "" if self._show_total else "-hidden"
+        yield Static(self._cached_renderable, id="combined-total", classes=classes)
+
+    def set_total_renderable(self, renderable: Text | str) -> None:
+        """Update the cached label and the live Static, if mounted.
+
+        Called by the app each time per-portfolio totals are refreshed.
+        Caching on the instance means the next recompose (triggered by
+        ``Footer`` itself when its bindings settle, or later if the key
+        bindings change) re-creates the Static with the latest value.
+        """
+        self._cached_renderable = renderable
+        try:
+            self.query_one("#combined-total", Static).update(renderable)
+        except NoMatches:
+            # Static isn't mounted yet (or was just removed by an
+            # in-flight recompose); the cached value will be picked up
+            # when compose runs again.
+            pass
+
+
 class PortfolioApp(ThreadGuardMixin, App[None]):
     """Full-screen portfolio table with periodic price refresh."""
 
@@ -495,7 +568,14 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         yield Static("", id="status")
         yield Static("", id="error")
         yield NewsFeedWidget(id="news-panel")
-        yield Footer()
+        # The aggregate "Total all portfolios" label only renders when more
+        # than one portfolio is loaded -- in single-portfolio mode it would
+        # just duplicate the per-portfolio Total row.  We always mount it
+        # so the footer layout doesn't shift; visibility is toggled via the
+        # ``-hidden`` class on the Static inside.
+        yield _FooterWithTotal(
+            show_total=len(self.portfolios) > 1,
+        )
 
     def on_mount(self) -> None:
         self._populate_tables()
@@ -971,6 +1051,30 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         else:
             for i, portfolio in enumerate(self.portfolios):
                 self._populate_for(i, portfolio)
+            self._update_combined_total()
+
+    def _update_combined_total(self) -> None:
+        """Refresh the aggregate "Total all portfolios" label in the footer.
+
+        Goes through ``_FooterWithTotal.set_total_renderable`` rather than
+        updating the Static directly so the value survives the Footer's
+        post-``_bindings_ready`` recompose -- without the cache, the
+        label would flash to empty between recompose and the next price
+        refresh.
+        """
+        try:
+            footer = self.query_one(_FooterWithTotal)
+        except NoMatches:
+            return
+        total, base = combined_portfolio_total(
+            self.portfolios, self._snap.prices, self._snap.forex_rates
+        )
+        label = Text(f"Total ({base})  ")
+        if total is None:
+            renderable: Text = label.append("N/A", style="bold")
+        else:
+            renderable = label.append(f"{total:,.2f}", style="bold")
+        footer.set_total_renderable(renderable)
 
     def _populate_single(self) -> None:
         try:

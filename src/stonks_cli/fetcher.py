@@ -378,9 +378,13 @@ class PriceFetcher:
     ) -> dict[str, float]:
         """Return exchange rates: 1 unit of currency -> how many base units.
 
-        Uses yfinance forex pairs (e.g. EURUSD=X for EUR->USD).
-        The base currency is always included as 1.0. Currencies for which
-        no rate can be fetched are omitted from the result.
+        Uses yfinance forex pairs (e.g. ``EURUSD=X`` for EUR->USD).  When
+        a direct ``{currency}{base}=X`` ticker isn't published by Yahoo
+        (common for minor / less-traded currencies like ``UAH`` against
+        non-USD bases), the inverse pair ``{base}{currency}=X`` is
+        attempted and the rate reciprocated.  The base currency is
+        always included as 1.0.  Currencies for which neither pair
+        resolves are omitted from the result.
 
         Args:
             currencies: ISO 4217 currency codes (e.g. ['EUR', 'GBP']).
@@ -396,17 +400,39 @@ class PriceFetcher:
         if not non_base:
             return rates
 
-        symbols = [f"{c}{base}=X" for c in non_base]
-        close = _yf_download_close(
-            symbols, period="1d", description="forex", auto_adjust=False
+        # First pass: direct ``{c}{base}=X`` pairs.
+        direct_syms = [f"{c}{base}=X" for c in non_base]
+        direct_close = _yf_download_close(
+            direct_syms, period="1d", description="forex", auto_adjust=False
         )
-        if close is None:
-            return rates
+        direct = (
+            _last_close_per_symbol(direct_close, direct_syms)
+            if direct_close is not None
+            else {}
+        )
 
-        last = _last_close_per_symbol(close, symbols)
-        for currency, symbol in zip(non_base, symbols):
-            if symbol in last:
-                rates[currency] = last[symbol]
+        # Second pass: for each currency Yahoo didn't return directly,
+        # try the inverse ``{base}{c}=X`` pair and reciprocate.  Yahoo
+        # publishes ``EURUAH=X`` but not ``UAHEUR=X``, for instance.
+        missing = [c for c in non_base if f"{c}{base}=X" not in direct]
+        inverse: dict[str, float] = {}
+        if missing:
+            inverse_syms = [f"{base}{c}=X" for c in missing]
+            inverse_close = _yf_download_close(
+                inverse_syms, period="1d", description="forex", auto_adjust=False
+            )
+            if inverse_close is not None:
+                inverse = _last_close_per_symbol(inverse_close, inverse_syms)
+
+        for currency in non_base:
+            direct_sym = f"{currency}{base}=X"
+            if direct_sym in direct:
+                rates[currency] = direct[direct_sym]
+                continue
+            inverse_sym = f"{base}{currency}=X"
+            inv_rate = inverse.get(inverse_sym)
+            if inv_rate and inv_rate != 0:
+                rates[currency] = 1.0 / inv_rate
         return rates
 
     def fetch_stock_detail(self, symbol: str) -> StockDetail:

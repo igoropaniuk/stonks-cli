@@ -380,11 +380,53 @@ class TestFetchForexRates:
 
     @patch("stonks_cli.fetcher.yf.download")
     def test_omits_currency_with_no_data(self, mock_dl, fetcher: PriceFetcher):
-        # Only EUR returned, GBP missing from columns
+        # Only EUR returned, GBP missing from columns -- and the inverse
+        # ``USDGBP=X`` lookup also returns nothing, so GBP is dropped.
         mock_dl.return_value = _close_df({"EURUSD=X": 1.085})
         rates = fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
         assert "EUR" in rates
         assert "GBP" not in rates
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_falls_back_to_inverse_pair_when_direct_missing(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        # Regression: UAH had no Yahoo entry for ``UAHEUR=X`` so the rate
+        # silently dropped, rendering ``N/A`` in the portfolio cash row
+        # even though Yahoo did publish the inverse ``EURUAH=X``.  The
+        # fetcher now falls back to the inverse pair and reciprocates.
+        # First call (direct ``{currency}{base}=X``) returns only EUR.
+        # Second call (inverse ``{base}{currency}=X``) returns EURUAH=X.
+        direct = _close_df({"USDEUR=X": 0.86})
+        inverse = _close_df({"EURUAH=X": 51.68})
+        mock_dl.side_effect = [direct, inverse]
+        rates = fetcher.fetch_forex_rates(["USD", "UAH"], base="EUR")
+        assert rates["EUR"] == 1.0
+        assert rates["USD"] == pytest.approx(0.86)
+        # 1 / 51.68 -- 1 UAH in EUR
+        assert rates["UAH"] == pytest.approx(1.0 / 51.68)
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_inverse_zero_rate_treated_as_missing(self, mock_dl, fetcher: PriceFetcher):
+        # If Yahoo were to return a bogus zero rate for the inverse pair
+        # we'd divide by zero -- guard against that and drop the
+        # currency rather than emit ``inf``.
+        direct = _close_df({"USDEUR=X": 0.86})
+        inverse = _close_df({"EURUAH=X": 0.0})
+        mock_dl.side_effect = [direct, inverse]
+        rates = fetcher.fetch_forex_rates(["USD", "UAH"], base="EUR")
+        assert "UAH" not in rates
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_no_inverse_call_when_all_direct_resolved(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        # When every requested currency has a direct pair, the inverse
+        # fallback path should be skipped entirely -- no point paying
+        # for a second yfinance call.
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.085, "GBPUSD=X": 1.27})
+        fetcher.fetch_forex_rates(["EUR", "GBP"], base="USD")
+        assert mock_dl.call_count == 1
 
 
 def _make_ticker(exchange_code: str | None):
