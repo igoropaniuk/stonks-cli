@@ -2605,3 +2605,99 @@ async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> Non
         ]
         app.on_history_updated(HistoryUpdated(new_history))
         assert app._chat_history == new_history
+
+
+class TestOpenUrlSuppressesBrowserStdio:
+    """``PortfolioApp.open_url`` must mute the child browser's stdio so that
+    GL / GPU / D-Bus warnings logged by the browser don't bleed into the
+    controlling terminal and corrupt the TUI render.
+    """
+
+    @patch.object(PortfolioApp, "run_worker")
+    @patch("stonks_cli.app.sys")
+    @patch("stonks_cli.app.subprocess.Popen")
+    def test_linux_launches_xdg_open_with_devnull(
+        self, mock_popen, mock_sys, _mock_worker
+    ):
+        mock_sys.platform = "linux"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com/article")
+
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ["xdg-open", "https://example.com/article"]
+        # The whole point of the override: stdio must be silenced.
+        import subprocess as _sp
+
+        assert kwargs["stdin"] == _sp.DEVNULL
+        assert kwargs["stdout"] == _sp.DEVNULL
+        assert kwargs["stderr"] == _sp.DEVNULL
+        assert kwargs["start_new_session"] is True
+
+    @patch.object(PortfolioApp, "run_worker")
+    @patch("stonks_cli.app.sys")
+    @patch("stonks_cli.app.subprocess.Popen")
+    def test_macos_launches_open_with_devnull(self, mock_popen, mock_sys, _mock_worker):
+        mock_sys.platform = "darwin"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com")
+
+        args, _ = mock_popen.call_args
+        assert args[0] == ["open", "https://example.com"]
+
+    @patch("stonks_cli.app.webbrowser.open")
+    @patch("stonks_cli.app.subprocess.Popen", side_effect=FileNotFoundError)
+    @patch("stonks_cli.app.sys")
+    def test_falls_back_to_webbrowser_when_xdg_open_missing(
+        self, mock_sys, _mock_popen, mock_wb
+    ):
+        mock_sys.platform = "linux"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com", new_tab=True)
+
+        mock_wb.assert_called_once_with("https://example.com", new=2)
+
+    @patch.object(PortfolioApp, "run_worker")
+    @patch("stonks_cli.app.sys")
+    @patch("stonks_cli.app.subprocess.Popen")
+    def test_reaps_child_via_textual_worker(self, mock_popen, mock_sys, mock_worker):
+        # Without reaping, ``xdg-open`` would linger as a zombie until the
+        # TUI itself exits.  Verify that a Textual worker is scheduled to
+        # call ``proc.wait`` so the kernel can clean up, and so the
+        # task is visible in devtools / reaped on app teardown.
+        mock_sys.platform = "linux"
+        fake_proc = MagicMock()
+        mock_popen.return_value = fake_proc
+
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com")
+
+        mock_worker.assert_called_once()
+        args, kwargs = mock_worker.call_args
+        assert args[0] is fake_proc.wait
+        assert kwargs["thread"] is True
+
+    @patch("stonks_cli.app.os")
+    @patch("stonks_cli.app.sys")
+    def test_windows_uses_startfile(self, mock_sys, mock_os):
+        # Windows path: bypasses subprocess / xdg-open and calls
+        # ``os.startfile`` directly, which detaches the URL handler
+        # natively without leaking stdio onto the TUI.
+        mock_sys.platform = "win32"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com")
+
+        mock_os.startfile.assert_called_once_with("https://example.com")
+
+    @patch("stonks_cli.app.webbrowser.open")
+    @patch("stonks_cli.app.os")
+    @patch("stonks_cli.app.sys")
+    def test_windows_falls_back_to_webbrowser_when_startfile_fails(
+        self, mock_sys, mock_os, mock_wb
+    ):
+        mock_sys.platform = "win32"
+        mock_os.startfile.side_effect = OSError("association missing")
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com", new_tab=True)
+
+        mock_wb.assert_called_once_with("https://example.com", new=2)
