@@ -374,7 +374,17 @@ class ExchangeSession:
         if calendar_name:
             try:
                 cal = ExchangeSession.load_calendar(calendar_name)
-                today = pd.Timestamp.now(tz=zoneinfo.ZoneInfo("UTC")).normalize()
+                # ``cal.is_session`` requires a *tz-naive* date and uses the
+                # exchange's local calendar day.  Build today's date in the
+                # exchange's local timezone so the right session is checked
+                # (and so the previous fallback path -- which fired whenever
+                # is_session raised on a tz-aware timestamp -- is no longer
+                # reached, masking real US holidays like Memorial Day).
+                today = (
+                    pd.Timestamp.now(tz=zoneinfo.ZoneInfo(tz_name))
+                    .normalize()
+                    .tz_localize(None)
+                )
                 return bool(cal.is_session(today))
             except (AttributeError, LookupError, ValueError) as exc:
                 logger.debug(
