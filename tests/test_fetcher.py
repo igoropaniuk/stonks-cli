@@ -693,6 +693,35 @@ class TestIsTradingDay:
             mock_dt.now.return_value.weekday.return_value = 2  # Wednesday
             assert ExchangeSession.is_trading_day(self._TZ) is True
 
+    @patch("stonks_cli.exchanges.pd.Timestamp.now")
+    def test_real_calendar_recognises_us_memorial_day(self, mock_now):
+        # Regression: ``cal.is_session`` requires a tz-naive timestamp, but a
+        # prior version passed a tz-aware UTC one and raised ``ValueError``.
+        # The except clause then fell through to the weekday check, which
+        # happily declared a Monday holiday a trading day.  This test runs
+        # the *real* exchange-calendars library to make sure a known US
+        # market holiday is detected as a non-trading day.
+        mock_now.return_value = pd.Timestamp("2026-05-25 12:00:00", tz="UTC")
+        assert ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS") is False
+
+    @patch("stonks_cli.exchanges.pd.Timestamp.now")
+    def test_real_calendar_recognises_ordinary_trading_day(self, mock_now):
+        mock_now.return_value = pd.Timestamp("2026-05-26 12:00:00", tz="UTC")
+        assert ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS") is True
+
+    @patch("stonks_cli.exchanges.pd.Timestamp.now")
+    def test_real_calendar_uses_exchange_local_date(self, mock_now):
+        # 2026-05-26 02:00 UTC == 2026-05-25 22:00 ET -- still Memorial Day
+        # in the exchange's local timezone, even though the UTC date has
+        # already rolled over to the 26th.  A fix that used the UTC date
+        # would look up the 26th (a regular trading day) and return True,
+        # masking the holiday.  The correct fix resolves "today" in the
+        # exchange's local tz and returns False.
+        mock_now.side_effect = lambda tz: pd.Timestamp(
+            "2026-05-26 02:00:00", tz="UTC"
+        ).astimezone(tz)
+        assert ExchangeSession.is_trading_day(self._TZ, calendar_name="XNYS") is False
+
 
 def _multi_day_close_df(
     prices: dict[str, list[float]],
