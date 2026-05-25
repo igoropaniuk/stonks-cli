@@ -2605,3 +2605,50 @@ async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> Non
         ]
         app.on_history_updated(HistoryUpdated(new_history))
         assert app._chat_history == new_history
+
+
+class TestOpenUrlSuppressesBrowserStdio:
+    """``PortfolioApp.open_url`` must mute the child browser's stdio so that
+    GL / GPU / D-Bus warnings logged by the browser don't bleed into the
+    controlling terminal and corrupt the TUI render.
+    """
+
+    @patch("stonks_cli.app.sys")
+    @patch("stonks_cli.app.subprocess.Popen")
+    def test_linux_launches_xdg_open_with_devnull(self, mock_popen, mock_sys):
+        mock_sys.platform = "linux"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com/article")
+
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        assert args[0] == ["xdg-open", "https://example.com/article"]
+        # The whole point of the override: stdio must be silenced.
+        import subprocess as _sp
+
+        assert kwargs["stdin"] == _sp.DEVNULL
+        assert kwargs["stdout"] == _sp.DEVNULL
+        assert kwargs["stderr"] == _sp.DEVNULL
+        assert kwargs["start_new_session"] is True
+
+    @patch("stonks_cli.app.sys")
+    @patch("stonks_cli.app.subprocess.Popen")
+    def test_macos_launches_open_with_devnull(self, mock_popen, mock_sys):
+        mock_sys.platform = "darwin"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com")
+
+        args, _ = mock_popen.call_args
+        assert args[0] == ["open", "https://example.com"]
+
+    @patch("stonks_cli.app.webbrowser.open")
+    @patch("stonks_cli.app.subprocess.Popen", side_effect=FileNotFoundError)
+    @patch("stonks_cli.app.sys")
+    def test_falls_back_to_webbrowser_when_xdg_open_missing(
+        self, mock_sys, _mock_popen, mock_wb
+    ):
+        mock_sys.platform = "linux"
+        app = PortfolioApp(portfolios=[], prices={}, forex_rates=USD_RATES)
+        app.open_url("https://example.com", new_tab=True)
+
+        mock_wb.assert_called_once_with("https://example.com", new=2)

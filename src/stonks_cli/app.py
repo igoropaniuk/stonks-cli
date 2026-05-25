@@ -1,7 +1,11 @@
 """Textual TUI for portfolio display."""
 
 import logging
+import os
+import subprocess
+import sys
 import threading
+import webbrowser
 from collections import deque
 from collections.abc import Callable
 from functools import partial
@@ -875,6 +879,47 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
 
     def on_news_feed_widget_open_url(self, message: NewsFeedWidget.OpenURL) -> None:
         self.open_url(message.url)
+
+    def open_url(self, url: str, *, new_tab: bool = True) -> None:
+        """Open *url* in the system browser, suppressing its stdio.
+
+        Textual's default ``open_url`` delegates to ``webbrowser.open``,
+        which ``Popen``s the browser without redirecting its stdout /
+        stderr.  Anything the browser logs (GL / GPU warnings, D-Bus
+        complaints, etc.) then leaks into the controlling terminal and
+        scribbles over the TUI.  We launch the OS URL handler ourselves
+        with stdio piped to ``DEVNULL`` and ``start_new_session=True``
+        so the child is detached cleanly, and fall back to
+        ``webbrowser.open`` if no system handler is available.
+        """
+        if sys.platform == "darwin":
+            launcher: list[str] | None = ["open", url]
+        elif sys.platform.startswith("win"):
+            launcher = None  # use os.startfile on Windows
+        else:
+            launcher = ["xdg-open", url]
+
+        if launcher is None:
+            try:
+                os.startfile(url)  # type: ignore[attr-defined]
+                return
+            except OSError:
+                webbrowser.open(url, new=2 if new_tab else 0)
+                return
+
+        try:
+            subprocess.Popen(  # noqa: S603 -- argv comes from a fixed list
+                launcher,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except (OSError, FileNotFoundError):
+            # No xdg-open / open on PATH -- fall back to webbrowser, which
+            # still leaks stdio but at least gets the user to the URL.
+            webbrowser.open(url, new=2 if new_tab else 0)
 
     # ------------------------------------------------------------------
     # Rendering helpers
