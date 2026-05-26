@@ -299,3 +299,39 @@ def portfolio_total(
             return None
         total += cash_pos.amount * rate
     return total
+
+
+def combined_portfolio_total(
+    portfolios: "list[Portfolio]",
+    prices: dict[str, float],
+    forex_rates: dict[str, dict[str, float]],
+) -> tuple[float | None, str]:
+    """Return ``(total, base_currency)`` summed across all *portfolios*.
+
+    The aggregate is computed in the *first* portfolio's ``base_currency`` --
+    every position and cash balance across every portfolio is converted into
+    that currency using ``forex_rates[base]``.  ``base`` is returned alongside
+    the total so callers can render the label without having to look it up
+    themselves.
+
+    Returns ``(None, base)`` when any underlying portfolio's value cannot be
+    computed (missing price or forex rate) so the UI can render "N/A" rather
+    than a misleading partial sum.  Returns ``(None, "USD")`` when the list
+    is empty.
+
+    Args:
+        portfolios: Loaded portfolios to aggregate.
+        prices: Last prices keyed by symbol (shared across all portfolios).
+        forex_rates: Nested forex map ``{base_currency: {position_currency: rate}}``.
+    """
+    if not portfolios:
+        return None, "USD"
+    base = portfolios[0].base_currency
+    rates = forex_rates.get(base, {})
+    total = 0.0
+    for p in portfolios:
+        sub = portfolio_total(p, prices, rates)
+        if sub is None:
+            return None, base
+        total += sub
+    return total, base

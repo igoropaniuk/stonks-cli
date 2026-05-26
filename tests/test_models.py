@@ -7,6 +7,7 @@ from stonks_cli.models import (
     Portfolio,
     Position,
     WatchlistItem,
+    combined_portfolio_total,
     daily_change_pct,
     portfolio_total,
 )
@@ -344,3 +345,72 @@ class TestPortfolioTotal:
         prices = {"VOW3": 120.0}
         rates = {"EUR": 1.1}  # EUR -> USD
         assert portfolio_total(p, prices, rates) == pytest.approx(5 * 120.0 * 1.1)
+
+
+class TestCombinedPortfolioTotal:
+    def test_empty_list_returns_none_usd(self):
+        total, base = combined_portfolio_total([], {}, {})
+        assert total is None
+        assert base == "USD"
+
+    def test_sums_across_portfolios_same_base(self):
+        p1 = Portfolio(
+            positions=[Position("AAPL", 10, 150.0)],
+            cash=[CashPosition("USD", 500.0)],
+            base_currency="USD",
+        )
+        p2 = Portfolio(
+            positions=[Position("NVDA", 5, 100.0)],
+            base_currency="USD",
+        )
+        prices = {"AAPL": 200.0, "NVDA": 120.0}
+        forex = {"USD": {"USD": 1.0}}
+        total, base = combined_portfolio_total([p1, p2], prices, forex)
+        # p1: 10*200 + 500 = 2500; p2: 5*120 = 600; combined = 3100
+        assert total == pytest.approx(3100.0)
+        assert base == "USD"
+
+    def test_uses_first_portfolio_base_currency(self):
+        # p1 base = EUR, p2 base = USD -- the aggregate is reported in EUR.
+        p1 = Portfolio(
+            positions=[Position("VOW3", 1, 100.0, currency="EUR")],
+            base_currency="EUR",
+        )
+        p2 = Portfolio(
+            positions=[Position("AAPL", 1, 100.0, currency="USD")],
+            base_currency="USD",
+        )
+        prices = {"VOW3": 200.0, "AAPL": 200.0}
+        # rates keyed by aggregate base ("EUR") -> {pos_currency: multiplier}
+        forex = {"EUR": {"EUR": 1.0, "USD": 0.9}}
+        total, base = combined_portfolio_total([p1, p2], prices, forex)
+        # p1 in EUR: 1*200*1.0 = 200; p2 USD->EUR: 1*200*0.9 = 180; total 380
+        assert total == pytest.approx(380.0)
+        assert base == "EUR"
+
+    def test_returns_none_when_any_portfolio_incomplete(self):
+        p1 = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+        p2 = Portfolio(positions=[Position("MISSING", 1, 50.0)])
+        prices = {"AAPL": 200.0}  # MISSING has no price
+        forex = {"USD": {"USD": 1.0}}
+        total, base = combined_portfolio_total([p1, p2], prices, forex)
+        assert total is None
+        assert base == "USD"
+
+    def test_returns_none_when_base_rates_absent(self):
+        # forex_rates has no entry for the first portfolio's base -> the
+        # nested rates dict is empty, so any non-empty portfolio fails.
+        p1 = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+        total, base = combined_portfolio_total([p1], {"AAPL": 200.0}, {})
+        assert total is None
+        assert base == "USD"
+
+    def test_single_portfolio_matches_portfolio_total(self):
+        p = Portfolio(
+            positions=[Position("AAPL", 10, 150.0)],
+            cash=[CashPosition("USD", 500.0)],
+        )
+        prices = {"AAPL": 200.0}
+        forex = {"USD": {"USD": 1.0}}
+        combined, _ = combined_portfolio_total([p], prices, forex)
+        assert combined == pytest.approx(portfolio_total(p, prices, {"USD": 1.0}))
