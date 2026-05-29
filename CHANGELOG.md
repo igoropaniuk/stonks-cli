@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-05-29
+
+### Added
+
+- Aggregate `Total (<base>)` label in the footer summed across all
+  portfolios loaded with `-p`, so users splitting their holdings across
+  work / personal / crypto files now see overall wealth at a glance
+  without manual addition.
+
+### Fixed
+
+- Minor currencies like `UAH` against a non-USD base no longer drop out
+  of the table and the aggregate total when Yahoo only publishes the
+  inverse pair (e.g. `EURUAH=X` exists but `UAHEUR=X` doesn't).
+- Clicking a news link no longer dumps the browser's GL / GPU warnings
+  onto the TUI on systems with non-standard GPU stacks; the browser is
+  now launched with its stdio detached.
+- US tickers are correctly tagged `CLS` instead of `STALE` on market
+  holidays such as Memorial Day -- the calendar check was silently
+  falling back to a weekend-only test and missing holidays.
+
 ## [0.6.3] - 2026-04-25
 
 ### Added
