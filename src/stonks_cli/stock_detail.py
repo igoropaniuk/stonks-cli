@@ -105,12 +105,22 @@ def _fiscal_quarter(ts) -> str:
 
 def _trailing_return(hist) -> str:
     """Calculate trailing total return from a price history DataFrame."""
-    if hist is None or hist.empty or len(hist) < 2:
+    if hist is None or hist.empty:
         return "N/A"
     try:
-        first = float(hist["Close"].iloc[0])
-        last = float(hist["Close"].iloc[-1])
-        if first == 0:
+        # yfinance sometimes returns trailing rows with ``NaN`` ``Close``
+        # for an incomplete current session.  Drop NaN rows before reading
+        # the endpoints so a missing last close doesn't make the trailing
+        # return render as ``- nan%`` in the UI.
+        closes = hist["Close"].dropna()
+        if len(closes) < 2:
+            return "N/A"
+        first = float(closes.iloc[0])
+        last = float(closes.iloc[-1])
+        # ``isfinite`` (rather than just ``isnan``) also rejects ``±inf``
+        # so a stray infinite close doesn't render as ``- inf%`` -- matches
+        # the convention already used by ``_finite`` above.
+        if first == 0 or not math.isfinite(first) or not math.isfinite(last):
             return "N/A"
         ret = (last - first) / first * 100
         sign = "+ " if ret >= 0 else "- "
