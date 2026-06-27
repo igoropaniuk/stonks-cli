@@ -152,6 +152,34 @@ class TestTrailingReturn:
         hist = pd.DataFrame({"Open": [100.0, 110.0]})
         assert _trailing_return(hist) == "N/A"
 
+    def test_trailing_nan_close_is_ignored(self):
+        # yfinance sometimes returns the most recent row with a NaN close
+        # (incomplete current session).  Without dropna() the trailing
+        # return would render as ``- nan%`` in the Performance Overview;
+        # the dropna() guard makes us fall back to the last real close.
+        hist = pd.DataFrame({"Close": [100.0, 110.0, float("nan")]})
+        assert _trailing_return(hist) == "+ 10.00%"
+
+    def test_only_nan_closes_returns_na(self):
+        hist = pd.DataFrame({"Close": [float("nan"), float("nan")]})
+        assert _trailing_return(hist) == "N/A"
+
+    def test_single_real_close_returns_na(self):
+        # Need at least two real closes to compute a return.
+        hist = pd.DataFrame({"Close": [100.0, float("nan")]})
+        assert _trailing_return(hist) == "N/A"
+
+    def test_inf_close_returns_na(self):
+        # ``dropna()`` only filters NaN -- an infinite close still gets
+        # through and would otherwise render as ``+ inf%``.  ``isfinite``
+        # catches it explicitly.
+        hist = pd.DataFrame({"Close": [100.0, float("inf")]})
+        assert _trailing_return(hist) == "N/A"
+
+    def test_negative_inf_close_returns_na(self):
+        hist = pd.DataFrame({"Close": [float("-inf"), 100.0]})
+        assert _trailing_return(hist) == "N/A"
+
 
 # ---------------------------------------------------------------------------
 # _calc_performance tests
