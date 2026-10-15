@@ -52,6 +52,8 @@ stonks demo # create demo portfolio
   - [Add a position](#add-a-position)
   - [Remove a position](#remove-a-position)
   - [Manage cash](#manage-cash)
+  - [Manage the watchlist](#manage-the-watchlist)
+  - [Portfolio settings](#portfolio-settings)
   - [List portfolios](#list-portfolios)
   - [Importing positions](#importing-positions)
   - [Health checks (doctor)](#health-checks-doctor)
@@ -193,8 +195,8 @@ value and are **not included** in the portfolio total. Press Enter on a
 watchlist row to open the detail screen.
 
 > The file is created and updated automatically when you use the `add`,
-> `remove`, `add-cash`, and `remove-cash` commands, so you only need to
-> create it manually if you prefer to seed your data by hand.
+> `remove`, `add-cash`, `remove-cash`, `watchlist`, and `set` commands, so
+> you only need to create it manually if you prefer to seed your data by hand.
 
 ### Ticker symbols and exchange suffixes
 
@@ -320,6 +322,8 @@ Commands:
   remove      Remove QUANTITY shares of SYMBOL from the portfolio.
   add-cash    Add AMOUNT of CURRENCY cash to the portfolio.
   remove-cash Remove AMOUNT of CURRENCY cash from the portfolio.
+  watchlist   Manage symbols tracked for price only (subcommands: add, remove, list).
+  set         Change portfolio settings (subcommands: name, base-currency).
   show        Print a snapshot of portfolio positions with current prices to stdout.
   dashboard   Display the current portfolio with live prices and P&L.
   list        List all portfolios in ~/.config/stonks/.
@@ -329,6 +333,12 @@ Commands:
   doctor      Run environment health checks.
   import      Import positions from a broker export (subcommands: ibkr).
 ```
+
+`-p` may be repeated for the read-only commands (`show`, `dashboard`,
+`doctor`, `watchlist list`) to work with several portfolios at once.
+Commands that modify a portfolio (`add`, `remove`, `add-cash`, `remove-cash`,
+`watchlist add`/`remove`, `set`, `import`) accept exactly one `-p` and exit
+with an error if more are given.
 
 ### Quick snapshot (stdout)
 
@@ -415,6 +425,36 @@ stonks remove-cash EUR 2000.00
 
 Cash is displayed in the dashboard below the stock positions and is included
 in the total portfolio value converted to the base currency.
+
+### Manage the watchlist
+
+```bash
+# Track a symbol without holding a position
+stonks watchlist add TSLA
+
+# Crypto: route pricing via CoinGecko and pin the coin ID
+stonks watchlist add LINK-USD --asset-type crypto --external-id chainlink
+
+# Stop tracking a symbol
+stonks watchlist remove TSLA
+
+# Print the watchlist (works with several -p flags)
+stonks watchlist list
+```
+
+Watchlist rows appear dimmed in the dashboard and are not counted in the
+portfolio total.
+
+### Portfolio settings
+
+```bash
+# Label shown in the dashboard and in multi-portfolio output
+stonks -p work set name "Work account"
+stonks -p work set name --clear
+
+# Currency used for the Total line (three-letter ISO 4217 code)
+stonks set base-currency EUR
+```
 
 ### List portfolios
 

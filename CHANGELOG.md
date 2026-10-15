@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `stonks watchlist add|remove|list` commands so the watchlist can be managed
+  from the shell instead of only through the TUI or by editing the YAML file.
+  `add` accepts `--asset-type` and `--external-id` for crypto routing.
+- `stonks set name NAME` (or `--clear`) and `stonks set base-currency CODE`
+  to change portfolio settings from the CLI.
+
+### Changed
+
+- Commands that modify a portfolio (`add`, `remove`, `add-cash`,
+  `remove-cash`, `watchlist add|remove`, `set`, `import`) now exit with an
+  error when more than one `-p` flag is given, instead of silently writing
+  to the first portfolio only.
+- A corrupt portfolio file now produces a one-line error from the mutating
+  commands rather than a traceback.
+
 ## [0.6.4] - 2026-05-29
 
 ### Added
@@ -401,6 +420,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Renamed `show` command to `dashboard`
 
+[Unreleased]: https://github.com/igoropaniuk/stonks-cli/compare/v0.6.4...HEAD
 [0.6.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/igoropaniuk/stonks-cli/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/igoropaniuk/stonks-cli/compare/v0.4.1...v0.4.2

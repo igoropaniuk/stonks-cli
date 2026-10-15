@@ -445,6 +445,210 @@ class TestDashboardMultiplePortfolios:
 
 
 # ---------------------------------------------------------------------------
+# watchlist
+# ---------------------------------------------------------------------------
+
+
+class TestWatchlist:
+    def test_add_creates_item(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "watchlist", "add", "tsla")
+        assert result.exit_code == 0, result.output
+        assert "Added TSLA" in result.output
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert [w.symbol for w in portfolio.watchlist] == ["TSLA"]
+
+    def test_add_with_asset_type_and_external_id(self, runner, portfolio_file):
+        result = invoke(
+            runner,
+            portfolio_file,
+            "watchlist",
+            "add",
+            "LINK-USD",
+            "--asset-type",
+            "crypto",
+            "--external-id",
+            "chainlink",
+        )
+        assert result.exit_code == 0, result.output
+        item = PortfolioStore(path=portfolio_file).load().get_watch("LINK-USD")
+        assert item is not None
+        assert item.asset_type == "crypto"
+        assert item.external_id == "chainlink"
+
+    def test_add_duplicate_fails(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "watchlist", "add", "TSLA")
+        result = invoke(runner, portfolio_file, "watchlist", "add", "tsla")
+        assert result.exit_code != 0
+        assert "already in the watchlist" in result.output
+
+    def test_add_keeps_existing_positions(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150")
+        invoke(runner, portfolio_file, "watchlist", "add", "TSLA")
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_position("AAPL") is not None
+        assert portfolio.get_watch("TSLA") is not None
+
+    def test_remove_deletes_item(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "watchlist", "add", "TSLA")
+        invoke(runner, portfolio_file, "watchlist", "add", "NVDA")
+        result = invoke(runner, portfolio_file, "watchlist", "remove", "tsla")
+        assert result.exit_code == 0, result.output
+        assert "Removed TSLA" in result.output
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert [w.symbol for w in portfolio.watchlist] == ["NVDA"]
+
+    def test_remove_missing_fails(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "watchlist", "remove", "TSLA")
+        assert result.exit_code != 0
+        assert "not in the watchlist" in result.output
+
+    def test_list_empty(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "watchlist", "list")
+        assert result.exit_code == 0
+        assert "Watchlist is empty." in result.output
+
+    def test_list_prints_symbols_with_extras(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "watchlist", "add", "TSLA")
+        invoke(
+            runner,
+            portfolio_file,
+            "watchlist",
+            "add",
+            "BTC-USD",
+            "--asset-type",
+            "crypto",
+            "--external-id",
+            "bitcoin",
+        )
+        result = invoke(runner, portfolio_file, "watchlist", "list")
+        assert result.exit_code == 0
+        assert result.output.splitlines() == ["TSLA", "BTC-USD  (crypto, bitcoin)"]
+
+    def test_list_accepts_multiple_portfolios(self, runner, tmp_path):
+        p1 = tmp_path / "p1.yaml"
+        p2 = tmp_path / "p2.yaml"
+        runner.invoke(main, ["-p", str(p1), "set", "name", "Work"])
+        runner.invoke(main, ["-p", str(p1), "watchlist", "add", "TSLA"])
+        result = runner.invoke(
+            main, ["-p", str(p1), "-p", str(p2), "watchlist", "list"]
+        )
+        assert result.exit_code == 0, result.output
+        lines = result.output.splitlines()
+        assert lines[0] == "Work"
+        assert "TSLA" in lines
+        assert "Portfolio 2" in lines
+        assert "Watchlist is empty." in lines
+
+    def test_list_reports_corrupt_file(self, runner, portfolio_file):
+        # A position missing its required fields makes PortfolioStore.load()
+        # raise ValueError; the CLI must turn that into a clean error.
+        portfolio_file.write_text("portfolio:\n  positions:\n    - symbol: AAPL\n")
+        result = runner.invoke(
+            main, ["--portfolio", str(portfolio_file), "watchlist", "list"]
+        )
+        assert result.exit_code != 0
+        assert "missing required field" in result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+# ---------------------------------------------------------------------------
+# set
+# ---------------------------------------------------------------------------
+
+
+class TestSet:
+    def test_set_name(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "set", "name", "My Portfolio")
+        assert result.exit_code == 0, result.output
+        assert "My Portfolio" in result.output
+        assert PortfolioStore(path=portfolio_file).load().name == "My Portfolio"
+
+    def test_set_name_preserves_contents(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "AAPL", "10", "150")
+        invoke(runner, portfolio_file, "add-cash", "EUR", "100")
+        invoke(runner, portfolio_file, "set", "name", "Work")
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.name == "Work"
+        assert portfolio.get_position("AAPL") is not None
+        assert portfolio.get_cash("EUR") is not None
+
+    def test_clear_name(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "set", "name", "Work")
+        result = invoke(runner, portfolio_file, "set", "name", "--clear")
+        assert result.exit_code == 0, result.output
+        assert "Cleared" in result.output
+        assert PortfolioStore(path=portfolio_file).load().name is None
+
+    def test_name_requires_value_or_clear(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "set", "name")
+        assert result.exit_code != 0
+        assert "NAME or --clear" in result.output
+
+    def test_name_rejects_value_with_clear(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "set", "name", "Work", "--clear")
+        assert result.exit_code != 0
+        assert "NAME or --clear" in result.output
+
+    def test_set_base_currency(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "set", "base-currency", "eur")
+        assert result.exit_code == 0, result.output
+        assert "EUR" in result.output
+        assert PortfolioStore(path=portfolio_file).load().base_currency == "EUR"
+
+    def test_set_base_currency_invalid(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "set", "base-currency", "EURO")
+        assert result.exit_code != 0
+        assert "Invalid currency code" in result.output
+        assert not portfolio_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# mutating commands with several -p flags
+# ---------------------------------------------------------------------------
+
+
+class TestMutatingCommandsRejectMultiplePortfolios:
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["add", "AAPL", "10", "150"],
+            ["remove", "AAPL", "10"],
+            ["add-cash", "USD", "100"],
+            ["remove-cash", "USD", "100"],
+            ["watchlist", "add", "TSLA"],
+            ["watchlist", "remove", "TSLA"],
+            ["set", "name", "Work"],
+            ["set", "base-currency", "EUR"],
+        ],
+        ids=lambda a: " ".join(a),
+    )
+    def test_rejected_and_nothing_written(self, runner, tmp_path, args):
+        p1 = tmp_path / "p1.yaml"
+        p2 = tmp_path / "p2.yaml"
+        result = runner.invoke(main, ["-p", str(p1), "-p", str(p2), *args])
+        assert result.exit_code != 0
+        assert "Pass exactly one -p flag" in result.output
+        assert str(p1) in result.output and str(p2) in result.output
+        assert not p1.exists() and not p2.exists()
+
+    def test_import_ibkr_rejected(self, runner, tmp_path):
+        csv = tmp_path / "positions.csv"
+        csv.write_text("Symbol,Position,OpenPrice,Currency\nAAPL,10,150,USD\n")
+        p1 = tmp_path / "p1.yaml"
+        p2 = tmp_path / "p2.yaml"
+        result = runner.invoke(
+            main, ["-p", str(p1), "-p", str(p2), "import", "ibkr", str(csv)]
+        )
+        assert result.exit_code != 0
+        assert "Pass exactly one -p flag" in result.output
+        assert not p1.exists() and not p2.exists()
+
+    def test_single_portfolio_still_works(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "add", "AAPL", "10", "150")
+        assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
 # show
 # ---------------------------------------------------------------------------
 

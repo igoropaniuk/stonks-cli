@@ -33,13 +33,38 @@ def _is_empty(portfolios: list[Portfolio]) -> bool:
 
 
 def _load_mutate_save(
-    store: PortfolioStore, fn: Callable[[Portfolio], None]
+    store: PortfolioStore, fn: Callable[[Portfolio], object]
 ) -> Portfolio:
-    """Load *store*, apply *fn*, persist, and return the mutated portfolio."""
-    portfolio = store.load()
-    fn(portfolio)
+    """Load *store*, apply *fn*, persist, and return the mutated portfolio.
+
+    Raises:
+        click.ClickException: If loading or applying *fn* raises ``ValueError``.
+    """
+    try:
+        portfolio = store.load()
+        fn(portfolio)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     store.save(portfolio)
     return portfolio
+
+
+def _mutable_store(ctx: click.Context) -> PortfolioStore:
+    """Return the single store a mutating command should write to.
+
+    Mutating commands (``add``, ``remove``, ``watchlist``, ``set``, ...)
+    operate on exactly one portfolio file.  Passing several ``-p`` flags
+    would be ambiguous, so it is rejected instead of silently picking the
+    first one.
+    """
+    stores: list[PortfolioStore] = ctx.obj["stores"]
+    if len(stores) > 1:
+        names = ", ".join(str(s.path) for s in stores)
+        raise click.ClickException(
+            f"'{ctx.command.name}' modifies a single portfolio but "
+            f"{len(stores)} were given (-p {names}). Pass exactly one -p flag."
+        )
+    return stores[0]
 
 
 @click.group(invoke_without_command=True)
@@ -75,7 +100,6 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
             PortfolioStore(path=PortfolioStore.resolve_path(p)) for p in portfolio
         ]
     ctx.obj["stores"] = stores
-    ctx.obj["store"] = stores[0]
     if ctx.invoked_subcommand is None:
         ctx.invoke(dashboard)
 
@@ -87,7 +111,7 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
 @click.pass_context
 def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
     """Add QUANTITY shares of SYMBOL at PRICE to the portfolio."""
-    store: PortfolioStore = ctx.obj["store"]
+    store = _mutable_store(ctx)
     portfolio = _load_mutate_save(
         store, lambda p: p.add_position(symbol, quantity, price)
     )
@@ -108,11 +132,8 @@ def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
 @click.pass_context
 def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
     """Remove QUANTITY shares of SYMBOL from the portfolio."""
-    store: PortfolioStore = ctx.obj["store"]
-    try:
-        _load_mutate_save(store, lambda p: p.remove_position(symbol, quantity))
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    store = _mutable_store(ctx)
+    _load_mutate_save(store, lambda p: p.remove_position(symbol, quantity))
     click.echo(f"Removed {quantity} * {symbol.upper()}")
 
 
@@ -167,7 +188,7 @@ def demo(refresh: float) -> None:
 @click.pass_context
 def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
     """Add AMOUNT of CURRENCY cash to the portfolio."""
-    store: PortfolioStore = ctx.obj["store"]
+    store = _mutable_store(ctx)
     portfolio = _load_mutate_save(store, lambda p: p.add_cash(currency, amount))
     cash = portfolio.get_cash(currency)
     if cash is None:
@@ -183,11 +204,8 @@ def add_cash(ctx: click.Context, currency: str, amount: float) -> None:
 @click.pass_context
 def remove_cash(ctx: click.Context, currency: str, amount: float) -> None:
     """Remove AMOUNT of CURRENCY cash from the portfolio."""
-    store: PortfolioStore = ctx.obj["store"]
-    try:
-        _load_mutate_save(store, lambda p: p.remove_cash(currency, amount))
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    store = _mutable_store(ctx)
+    _load_mutate_save(store, lambda p: p.remove_cash(currency, amount))
     click.echo(f"Removed {amount:.2f} {currency.upper()}")
 
 
@@ -271,6 +289,115 @@ def list_portfolios() -> None:
 
 
 # ---------------------------------------------------------------------------
+# watchlist group
+# ---------------------------------------------------------------------------
+
+
+@main.group("watchlist")
+def watchlist_group() -> None:
+    """Manage symbols tracked for price only (subcommands: add, remove, list)."""
+
+
+@watchlist_group.command("add")
+@click.argument("symbol")
+@click.option(
+    "--asset-type",
+    "asset_type",
+    default=None,
+    help="Asset class (e.g. 'crypto' to route pricing via CoinGecko).",
+)
+@click.option(
+    "--external-id",
+    "external_id",
+    default=None,
+    help="Provider-specific ID for unambiguous lookup (e.g. CoinGecko coin ID).",
+)
+@click.pass_context
+def watchlist_add(
+    ctx: click.Context,
+    symbol: str,
+    asset_type: str | None,
+    external_id: str | None,
+) -> None:
+    """Add SYMBOL to the watchlist."""
+    store = _mutable_store(ctx)
+    _load_mutate_save(store, lambda p: p.add_watch(symbol, asset_type, external_id))
+    click.echo(f"Added {symbol.upper()} to the watchlist")
+
+
+@watchlist_group.command("remove")
+@click.argument("symbol")
+@click.pass_context
+def watchlist_remove(ctx: click.Context, symbol: str) -> None:
+    """Remove SYMBOL from the watchlist."""
+    store = _mutable_store(ctx)
+    _load_mutate_save(store, lambda p: p.remove_watch(symbol))
+    click.echo(f"Removed {symbol.upper()} from the watchlist")
+
+
+@watchlist_group.command("list")
+@click.pass_context
+def watchlist_list(ctx: click.Context) -> None:
+    """Print the watchlist symbols to stdout."""
+    stores: list[PortfolioStore] = ctx.obj["stores"]
+    try:
+        portfolios = _load_portfolios(stores)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    for i, portfolio in enumerate(portfolios):
+        if len(portfolios) > 1:
+            label = portfolio.name or f"Portfolio {i + 1}"
+            if i:
+                click.echo()
+            click.echo(label)
+            click.echo("=" * len(label))
+        if not portfolio.watchlist:
+            click.echo("Watchlist is empty.")
+            continue
+        for item in portfolio.watchlist:
+            extras = [x for x in (item.asset_type, item.external_id) if x]
+            suffix = f"  ({', '.join(extras)})" if extras else ""
+            click.echo(f"{item.symbol}{suffix}")
+
+
+# ---------------------------------------------------------------------------
+# set group
+# ---------------------------------------------------------------------------
+
+
+@main.group("set")
+def set_group() -> None:
+    """Change portfolio settings (subcommands: name, base-currency)."""
+
+
+@set_group.command("name")
+@click.argument("name", required=False)
+@click.option("--clear", is_flag=True, help="Remove the portfolio name.")
+@click.pass_context
+def set_name(ctx: click.Context, name: str | None, clear: bool) -> None:
+    """Set the display NAME shown for the portfolio in the dashboard."""
+    if clear == bool(name):
+        raise click.UsageError("Provide either NAME or --clear, not both.")
+    store = _mutable_store(ctx)
+    _load_mutate_save(store, lambda p: p.set_name(None if clear else name))
+    if clear:
+        click.echo("Cleared portfolio name")
+    else:
+        click.echo(f"Set portfolio name to '{name}'")
+
+
+@set_group.command("base-currency")
+@click.argument("currency")
+@click.pass_context
+def set_base_currency(ctx: click.Context, currency: str) -> None:
+    """Set the base CURRENCY used for the portfolio total (e.g. EUR)."""
+    store = _mutable_store(ctx)
+    portfolio = _load_mutate_save(store, lambda p: p.set_base_currency(currency))
+    click.echo(f"Set base currency to {portfolio.base_currency}")
+
+
+# ---------------------------------------------------------------------------
 # import group
 # ---------------------------------------------------------------------------
 
@@ -301,7 +428,7 @@ def import_ibkr(ctx: click.Context, csv_file: Path) -> None:
     from stonks_cli.ibkr_importer import IBKRImportError, IBKRPosition, parse_ibkr_csv
     from stonks_cli.models import Position
 
-    store: PortfolioStore = ctx.obj["store"]
+    store = _mutable_store(ctx)
 
     # Parse CSV ---------------------------------------------------------------
     try:
