@@ -222,6 +222,60 @@ class Portfolio:
         """Return all positions and watchlist items as a flat list."""
         return list(self.positions) + list(self.watchlist)
 
+    def get_watch(self, symbol: str) -> WatchlistItem | None:
+        """Return the watchlist item for *symbol*, or None if not watched."""
+        symbol = symbol.upper()
+        return next((w for w in self.watchlist if w.symbol == symbol), None)
+
+    def add_watch(
+        self,
+        symbol: str,
+        asset_type: str | None = None,
+        external_id: str | None = None,
+    ) -> WatchlistItem:
+        """Add *symbol* to the watchlist and return the new item.
+
+        Raises:
+            ValueError: If the symbol is empty or already on the watchlist.
+        """
+        if self.get_watch(symbol) is not None:
+            raise ValueError(f"'{symbol.upper()}' is already in the watchlist")
+        item = WatchlistItem(
+            symbol=symbol, asset_type=asset_type, external_id=external_id
+        )
+        self.watchlist.append(item)
+        return item
+
+    def remove_watch(self, symbol: str) -> None:
+        """Remove *symbol* from the watchlist.
+
+        Raises:
+            ValueError: If the symbol is not on the watchlist.
+        """
+        existing = self.get_watch(symbol)
+        if existing is None:
+            raise ValueError(f"'{symbol.upper()}' is not in the watchlist")
+        self.watchlist.remove(existing)
+
+    def set_base_currency(self, currency: str) -> None:
+        """Set the base currency used for the portfolio total.
+
+        Raises:
+            ValueError: If *currency* is not a three-letter alphabetic code.
+        """
+        code = currency.strip().upper()
+        if len(code) != 3 or not code.isalpha():
+            raise ValueError(
+                f"Invalid currency code '{currency}': expected a three-letter "
+                "ISO 4217 code such as USD or EUR"
+            )
+        self.base_currency = code
+
+    def set_name(self, name: str | None) -> None:
+        """Set the portfolio display name; ``None`` or blank clears it."""
+        cleaned = (name or "").strip()
+        self.name = cleaned or None
+
     def remove_position(self, symbol: str, quantity: int | float) -> None:
         """Remove shares from the portfolio.
 

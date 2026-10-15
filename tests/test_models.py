@@ -291,6 +291,62 @@ class TestPortfolio:
         with pytest.raises(ValueError, match="Duplicate symbols in watchlist"):
             Portfolio(watchlist=items)
 
+    def test_get_watch_is_case_insensitive(self):
+        p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+        assert p.get_watch("tsla") is p.watchlist[0]
+        assert p.get_watch("NVDA") is None
+
+    def test_add_watch_appends_normalised_item(self):
+        p = Portfolio()
+        item = p.add_watch("btc-usd", asset_type="CRYPTO", external_id="bitcoin")
+        assert p.watchlist == [item]
+        assert item.symbol == "BTC-USD"
+        assert item.asset_type == "crypto"
+        assert item.external_id == "bitcoin"
+
+    def test_add_watch_duplicate_raises(self):
+        p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+        with pytest.raises(ValueError, match="already in the watchlist"):
+            p.add_watch("tsla")
+        assert len(p.watchlist) == 1
+
+    def test_add_watch_empty_symbol_raises(self):
+        with pytest.raises(ValueError, match="Symbol cannot be empty"):
+            Portfolio().add_watch("")
+
+    def test_remove_watch_deletes_item(self):
+        p = Portfolio(watchlist=[WatchlistItem("TSLA"), WatchlistItem("NVDA")])
+        p.remove_watch("tsla")
+        assert [w.symbol for w in p.watchlist] == ["NVDA"]
+
+    def test_remove_watch_missing_raises(self):
+        with pytest.raises(ValueError, match="not in the watchlist"):
+            Portfolio().remove_watch("TSLA")
+
+    # --- settings ---
+
+    def test_set_base_currency_normalises(self):
+        p = Portfolio()
+        p.set_base_currency(" eur ")
+        assert p.base_currency == "EUR"
+
+    @pytest.mark.parametrize("bad", ["", "EU", "EURO", "E1R", "US D"])
+    def test_set_base_currency_rejects_invalid(self, bad):
+        p = Portfolio()
+        with pytest.raises(ValueError, match="Invalid currency code"):
+            p.set_base_currency(bad)
+        assert p.base_currency == "USD"
+
+    def test_set_name_strips_and_clears(self):
+        p = Portfolio()
+        p.set_name("  Work  ")
+        assert p.name == "Work"
+        p.set_name("   ")
+        assert p.name is None
+        p.set_name("Personal")
+        p.set_name(None)
+        assert p.name is None
+
 
 class TestDailyChangePct:
     def test_positive_change(self):
