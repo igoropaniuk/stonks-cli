@@ -8,7 +8,8 @@ import httpx
 from stonks_cli.bond_fetcher import SOURCE_LABEL, BondPriceFetcher, BondQuote
 from stonks_cli.bonds import BondInfo
 from stonks_cli.crypto_fetcher import CryptoFetcher
-from stonks_cli.fetcher import PriceFetcher
+from stonks_cli.exchanges import quote_price_divisor
+from stonks_cli.fetcher import PriceFetcher, QuoteInfo
 from stonks_cli.market_session import Session
 from stonks_cli.models import Portfolio
 
@@ -109,6 +110,29 @@ def _fetch_crypto_data(
         return {}, {}, {}
 
 
+def _apply_quote_info(snap: MarketSnapshot, quote_info: dict[str, QuoteInfo]) -> None:
+    """Record exchange codes and convert minor-unit quotes to the major unit.
+
+    LSE tickers are quoted in pence, Johannesburg in cents and Tel Aviv in
+    agorot.  Positions and cost bases are kept in pounds, rand and shekels,
+    so prices and previous closes for those tickers are divided by 100 here,
+    before any valuation happens.
+    """
+    for symbol, info in quote_info.items():
+        if info.exchange:
+            snap.exchange_codes[symbol] = info.exchange
+        divisor = quote_price_divisor(info.currency)
+        if divisor == 1.0:
+            continue
+        logger.debug(
+            "Scaling %s from %s to major unit (/%g)", symbol, info.currency, divisor
+        )
+        if symbol in snap.prices:
+            snap.prices[symbol] /= divisor
+        if symbol in snap.prev_closes:
+            snap.prev_closes[symbol] /= divisor
+
+
 def _fetch_forex_data(
     fetcher: PriceFetcher,
     portfolios: list[Portfolio],
@@ -148,7 +172,7 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
     snap.sessions.update(eq_sessions)
     snap.prev_closes.update(eq_prev)
 
-    snap.exchange_codes = fetcher.fetch_exchange_names(all_symbols)
+    _apply_quote_info(snap, fetcher.fetch_quote_info(all_symbols))
 
     if bonds:
         _apply_bond_quotes(snap, BondPriceFetcher().fetch_quotes(bonds))

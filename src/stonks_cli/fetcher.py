@@ -3,6 +3,7 @@
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
+from typing import NamedTuple
 
 import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
@@ -123,6 +124,13 @@ def _yf_download_close(
     if isinstance(close, pd.Series):
         close = close.to_frame(name=symbols[0])
     return close
+
+
+class QuoteInfo(NamedTuple):
+    """Static facts about how Yahoo quotes a ticker."""
+
+    exchange: str | None  # yfinance exchange code, e.g. "NMS", "LSE"
+    currency: str | None  # quote currency, e.g. "USD", "GBp"
 
 
 class PriceFetcher:
@@ -336,8 +344,13 @@ class PriceFetcher:
 
         return result
 
-    def fetch_exchange_names(self, symbols: list[str]) -> dict[str, str]:
-        """Return yfinance exchange codes for all equity symbols (US and non-US).
+    def fetch_quote_info(self, symbols: list[str]) -> dict[str, QuoteInfo]:
+        """Return the yfinance exchange code and quote currency per equity symbol.
+
+        Both come from the same ``fast_info`` lookup, so this costs no more
+        than fetching the exchange code alone.  The quote currency is what
+        Yahoo prices the ticker in (``"USD"``, ``"EUR"``, or a minor unit
+        such as ``"GBp"`` for LSE pence quotes).
 
         Crypto pairs (see :func:`is_crypto_symbol`) are skipped -- they have
         no exchange code in yfinance.  All other symbols (plain US tickers,
@@ -358,21 +371,41 @@ class PriceFetcher:
         if not equities:
             return {}
 
-        def _get(sym: str) -> tuple[str, str | None]:
+        def _get(sym: str) -> tuple[str, QuoteInfo | None]:
             try:
-                return sym, yf.Ticker(sym).fast_info.exchange
+                fast_info = yf.Ticker(sym).fast_info
+                exchange = fast_info.exchange
+                currency = fast_info.currency
             except Exception as exc:  # noqa: BLE001
-                logger.debug("Cannot fetch exchange name for %s: %s", sym, exc)
+                logger.debug("Cannot fetch quote info for %s: %s", sym, exc)
                 return sym, None
+            # fast_info returns None for unknown fields; guard against
+            # non-string values from odd tickers as well.
+            return sym, QuoteInfo(
+                exchange=exchange if isinstance(exchange, str) else None,
+                currency=currency if isinstance(currency, str) else None,
+            )
 
-        result: dict[str, str] = {}
+        result: dict[str, QuoteInfo] = {}
         with ThreadPoolExecutor(
             max_workers=min(_MAX_EXCHANGE_FETCH_WORKERS, len(equities))
         ) as pool:
-            for sym, code in pool.map(_get, equities):
-                if code:
-                    result[sym] = code
+            for sym, info in pool.map(_get, equities):
+                if info is not None and (info.exchange or info.currency):
+                    result[sym] = info
         return result
+
+    def fetch_exchange_names(self, symbols: list[str]) -> dict[str, str]:
+        """Return yfinance exchange codes for all equity symbols (US and non-US).
+
+        Thin wrapper over :meth:`fetch_quote_info` kept for callers that
+        only need the exchange code.
+        """
+        return {
+            sym: info.exchange
+            for sym, info in self.fetch_quote_info(symbols).items()
+            if info.exchange
+        }
 
     def fetch_forex_rates(
         self, currencies: list[str], base: str = "USD"

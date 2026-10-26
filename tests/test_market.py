@@ -4,9 +4,11 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from stonks_cli.bond_fetcher import BondQuote, BondSource
 from stonks_cli.bonds import BondInfo
+from stonks_cli.fetcher import QuoteInfo
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
@@ -36,11 +38,18 @@ def _make_fetcher_mock(
     exchange_names: dict | None = None,
     prev_closes: dict | None = None,
     forex_rates: dict | None = None,
+    quote_currencies: dict | None = None,
 ) -> MagicMock:
     m = MagicMock()
     m.fetch_best_equity_prices.return_value = best_equity_prices or {}
     m.fetch_prices.return_value = prices or {}
     m.fetch_exchange_names.return_value = exchange_names or {}
+    codes = exchange_names or {}
+    currencies = quote_currencies or {}
+    m.fetch_quote_info.return_value = {
+        sym: QuoteInfo(codes.get(sym), currencies.get(sym, "USD"))
+        for sym in set(codes) | set(currencies)
+    }
     m.fetch_previous_closes.return_value = prev_closes or {}
     m.fetch_forex_rates.return_value = forex_rates or {}
     return m
@@ -269,7 +278,7 @@ class TestBondsInSnapshot:
             snap = build_market_snapshot([portfolio])
 
         fetcher.fetch_best_equity_prices.assert_called_once_with(["AAPL"])
-        fetcher.fetch_exchange_names.assert_called_once_with(["AAPL"])
+        fetcher.fetch_quote_info.assert_called_once_with(["AAPL"])
         bond_fetcher.fetch_quotes.assert_called_once_with({"UST5.0SEP31": bond.bond})
         assert snap.prices["UST5.0SEP31"] == 99.75
         assert snap.prev_closes["UST5.0SEP31"] == 100.0
@@ -301,3 +310,49 @@ class TestBondsInSnapshot:
         ):
             build_market_snapshot([portfolio])
         bond_cls.assert_not_called()
+
+
+class TestMinorUnitQuotes:
+    def test_pence_quotes_are_converted_to_pounds(self) -> None:
+        bp = Position(symbol="BP.L", quantity=100, avg_cost=5.0, currency="GBP")
+        aapl = Position(symbol="AAPL", quantity=1, avg_cost=100.0)
+        portfolio = _make_portfolio(positions=[bp, aapl], base_currency="GBP")
+        fetcher = _make_fetcher_mock(
+            best_equity_prices={"BP.L": (625.7, "regular"), "AAPL": (200.0, "regular")},
+            prev_closes={"BP.L": 620.0, "AAPL": 198.0},
+            exchange_names={"BP.L": "LSE", "AAPL": "NMS"},
+            quote_currencies={"BP.L": "GBp", "AAPL": "USD"},
+            forex_rates={"GBP": 1.0, "USD": 0.8},
+        )
+        with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
+            snap = build_market_snapshot([portfolio])
+
+        assert snap.prices["BP.L"] == pytest.approx(6.257)
+        assert snap.prev_closes["BP.L"] == pytest.approx(6.20)
+        assert snap.exchange_codes["BP.L"] == "LSE"
+        # Other quotes untouched.
+        assert snap.prices["AAPL"] == 200.0
+        assert snap.prev_closes["AAPL"] == 198.0
+        # 100 shares x 6.257 GBP, not x 625.7.
+        assert bp.market_value(snap.prices["BP.L"]) == pytest.approx(625.7)
+
+    @pytest.mark.parametrize("currency", ["GBX", "ZAc", "ILA"])
+    def test_other_minor_units(self, currency: str) -> None:
+        pos = Position(symbol="X.Y", quantity=1, avg_cost=1.0)
+        fetcher = _make_fetcher_mock(
+            best_equity_prices={"X.Y": (1000.0, "regular")},
+            quote_currencies={"X.Y": currency},
+        )
+        with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
+            snap = build_market_snapshot([_make_portfolio(positions=[pos])])
+        assert snap.prices["X.Y"] == pytest.approx(10.0)
+
+    def test_real_pound_quote_is_not_scaled(self) -> None:
+        pos = Position(symbol="X.L", quantity=1, avg_cost=1.0, currency="GBP")
+        fetcher = _make_fetcher_mock(
+            best_equity_prices={"X.L": (12.5, "regular")},
+            quote_currencies={"X.L": "GBP"},
+        )
+        with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
+            snap = build_market_snapshot([_make_portfolio(positions=[pos])])
+        assert snap.prices["X.L"] == 12.5
