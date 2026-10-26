@@ -101,7 +101,7 @@ class StockDetailScreen(
         yield Label(f"  {self._symbol} -- Details", classes="section-title")
         yield Label("", id="company-name")
         yield LoadingIndicator(id="loading")
-        yield Label("", id="error-msg")
+        yield Label("", id="error-msg", markup=False)
         yield VerticalScroll(id="detail-scroll")
         yield Footer()
 

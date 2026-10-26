@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, cast
 
 from openai import AsyncOpenAI
+from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -28,6 +29,21 @@ if TYPE_CHECKING:
     from stonks_cli.news_fetcher import NewsItem
 
 logger = logging.getLogger(__name__)
+
+
+def _user_message(content: str) -> Text:
+    """Render a user prompt with a styled prefix and the text verbatim.
+
+    Built as a ``Text`` rather than a markup string so a prompt containing
+    ``[/]`` or ``[b]`` can't break (or be interpreted as) Textual markup.
+    """
+    return Text.assemble(("You: ", "bold cyan"), content)
+
+
+def _error_message(message: str) -> Text:
+    """Render an error line in red without parsing *message* as markup."""
+    return Text(f"Error: {message}", style="red")
+
 
 _DEFAULT_MODEL = "gpt-5.4-mini"
 
@@ -266,9 +282,7 @@ class ChatScreen(Screen, inherit_bindings=False):
     def _replay_history(self, log: VerticalScroll) -> None:
         for msg in self._history:
             if msg["role"] == "user":
-                log.mount(
-                    Static(f"[bold cyan]You:[/] {msg['content']}", classes="user-msg")
-                )
+                log.mount(Static(_user_message(msg["content"]), classes="user-msg"))
             elif msg["role"] == "assistant":
                 log.mount(
                     Static("[bold green]Assistant:[/]", classes="assistant-header")
@@ -284,7 +298,7 @@ class ChatScreen(Screen, inherit_bindings=False):
 
     def _send(self, prompt: str) -> None:
         log = self.query_one("#chat-log", VerticalScroll)
-        log.mount(Static(f"[bold cyan]You:[/] {prompt}", classes="user-msg"))
+        log.mount(Static(_user_message(prompt), classes="user-msg"))
         self._history.append({"role": "user", "content": prompt})
         self._stream_response(list(self._history))
 
@@ -381,13 +395,13 @@ class ChatScreen(Screen, inherit_bindings=False):
                 log.scroll_end(animate=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Chat request failed: %s", exc)
-            await log.mount(Static(f"[red]Error: {exc}[/]", classes="chat-error"))
+            await log.mount(Static(_error_message(str(exc)), classes="chat-error"))
             return
 
         error = _validate_reply(full_reply)
         if error:
             logger.warning("Invalid reply from model: %s", error)
-            await log.mount(Static(f"[red]Error: {error}[/]", classes="chat-error"))
+            await log.mount(Static(_error_message(error), classes="chat-error"))
             return
 
         self._history.append({"role": "assistant", "content": full_reply})

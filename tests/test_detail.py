@@ -445,12 +445,13 @@ async def test_detail_screen_shows_error():
             app.push_screen(screen)
             await pilot.pause()
 
-        screen._show_error("Connection failed")
+        screen._show_error("Connection failed: [Errno 111] refused")
         await pilot.pause()
 
         assert screen.query_one("#loading").display is False
         err = screen.query_one("#error-msg", Label)
-        assert "Connection failed" in str(err.content)
+        # Bracketed text must survive: it is an error string, not markup.
+        assert "Connection failed: [Errno 111] refused" in str(err.content)
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 from stonks_cli.chat import (
     ChatScreen,
@@ -675,3 +676,41 @@ async def test_stream_response_success_writes_to_log(monkeypatch):
         )
         await pilot.pause()
         assert len(list(log.children)) > lines_before
+
+
+@pytest.mark.asyncio
+async def test_user_prompt_with_markup_characters_renders_verbatim(monkeypatch):
+    """A prompt containing "[/]" used to raise MarkupError when mounted."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    p = Portfolio()
+    snap = _make_snap()
+    app = await _make_chat_app([p], snap)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        with patch.object(ChatScreen, "_stream_response"):
+            screen._send("show [b]bold[/b] and [/] please")
+        await pilot.pause()
+        msgs = [str(w.render()) for w in screen.query(".user-msg")]
+    assert msgs == ["You: show [b]bold[/b] and [/] please"]
+
+
+@pytest.mark.asyncio
+async def test_chat_error_message_is_not_parsed_as_markup(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    p = Portfolio()
+    snap = _make_snap()
+    app = await _make_chat_app([p], snap)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        log = screen.query_one("#chat-log")
+        from stonks_cli.chat import _error_message
+
+        await log.mount(
+            Static(_error_message("bad [token] here"), classes="chat-error")
+        )
+        await pilot.pause()
+        errs = [str(w.render()) for w in screen.query(".chat-error")]
+    # The screen may already show its own "waiting for prices" notice.
+    assert "Error: bad [token] here" in errs
