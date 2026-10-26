@@ -15,6 +15,7 @@ from stonks_cli.models import Portfolio
 from stonks_cli.show import format_show_table
 from stonks_cli.storage import (
     PORTFOLIO_CONFIG_DIR,
+    PortfolioConflictError,
     PortfolioStore,
     seed_demo_portfolio,
 )
@@ -43,9 +44,9 @@ def _load_mutate_save(
     try:
         portfolio = store.load()
         fn(portfolio)
-    except ValueError as exc:
+        store.save(portfolio)
+    except (ValueError, PortfolioConflictError) as exc:
         raise click.ClickException(str(exc)) from exc
-    store.save(portfolio)
     return portfolio
 
 

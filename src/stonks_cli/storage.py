@@ -1,7 +1,10 @@
 """Portfolio persistence: read and write the portfolio YAML file."""
 
+import hashlib
 import importlib.resources
 import logging
+import os
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -14,6 +17,15 @@ from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+class PortfolioConflictError(Exception):
+    """The portfolio file changed on disk since this store last read it.
+
+    Raised by :meth:`PortfolioStore.save` so a long-running process (the
+    TUI) doesn't silently overwrite edits made elsewhere (the CLI, an
+    editor) while it held an older copy in memory.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +112,7 @@ def _serialize_watchlist_item(w: WatchlistItem) -> dict:
 
 
 PORTFOLIO_CONFIG_DIR = Path.home() / ".config" / "stonks"
+_UNTRACKED = object()
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
 
 
@@ -159,6 +172,24 @@ class PortfolioStore:
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or DEFAULT_PORTFOLIO_PATH
+        # Digest of the file content this store last read or wrote.  ``None``
+        # means the file did not exist then; the sentinel ``_UNTRACKED``
+        # means the store has never touched the file, so no conflict check
+        # is possible.
+        self._known_digest: str | None | object = _UNTRACKED
+
+    def _digest_on_disk(self) -> str | None:
+        """Return a digest of the file's current bytes, or None if absent."""
+        try:
+            return hashlib.sha256(self.path.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            return None
+
+    def changed_on_disk(self) -> bool:
+        """True when the file differs from what this store last read or wrote."""
+        if self._known_digest is _UNTRACKED:
+            return False
+        return self._digest_on_disk() != self._known_digest
 
     def _parse_section(
         self, section: dict, key: str, parser: Callable[[dict], T], label: str
@@ -191,17 +222,18 @@ class PortfolioStore:
         Raises:
             ValueError: If the file exists but cannot be parsed.
         """
-        if not self.path.exists():
+        try:
+            raw = self.path.read_bytes()
+        except FileNotFoundError:
+            self._known_digest = None
             return Portfolio()
+        self._known_digest = hashlib.sha256(raw).hexdigest()
 
-        with self.path.open() as fh:
-            try:
-                data = yaml.safe_load(fh)
-            except yaml.YAMLError as exc:
-                logger.error("Failed to parse portfolio file %s: %s", self.path, exc)
-                raise ValueError(
-                    f"Cannot parse portfolio file {self.path}: {exc}"
-                ) from exc
+        try:
+            data = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            logger.error("Failed to parse portfolio file %s: %s", self.path, exc)
+            raise ValueError(f"Cannot parse portfolio file {self.path}: {exc}") from exc
 
         try:
             section = (data or {}).get("portfolio", {}) or {}
@@ -223,11 +255,23 @@ class PortfolioStore:
             name=section.get("name") or None,
         )
 
-    def save(self, portfolio: Portfolio) -> None:
+    def save(self, portfolio: Portfolio, *, force: bool = False) -> None:
         """Persist the portfolio to disk.
 
+        The file is written to a temporary sibling and renamed into place,
+        so a crash mid-write never leaves a truncated portfolio behind.
+
         Creates parent directories if they do not exist.
+
+        Raises:
+            PortfolioConflictError: If the file changed on disk since this
+                store last read or wrote it and *force* is False.
         """
+        if not force and self.changed_on_disk():
+            raise PortfolioConflictError(
+                f"{self.path} was modified outside this session; "
+                "reload it before saving"
+            )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "portfolio": {
@@ -240,11 +284,32 @@ class PortfolioStore:
                 ],
             }
         }
-        with self.path.open("w") as fh:
-            yaml.dump(
-                data,
-                fh,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            )
+        text = yaml.dump(
+            data,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
+        # Write bytes, not text: text mode turns "\n" into "\r\n" on
+        # Windows, and the digest must match what is actually on disk.
+        raw = text.encode("utf-8")
+        self._write_atomically(raw)
+        self._known_digest = hashlib.sha256(raw).hexdigest()
+
+    def _write_atomically(self, raw: bytes) -> None:
+        """Write *raw* to a temp file next to the target, then rename it over."""
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
+        )
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(raw)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_name, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise

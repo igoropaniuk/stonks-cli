@@ -10,7 +10,11 @@ import yaml
 import stonks_cli.storage as storage_module
 from stonks_cli.bonds import BondInfo
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
-from stonks_cli.storage import PortfolioStore, seed_sample_portfolio
+from stonks_cli.storage import (
+    PortfolioConflictError,
+    PortfolioStore,
+    seed_sample_portfolio,
+)
 
 
 def make_store(tmp_path: Path) -> PortfolioStore:
@@ -601,3 +605,87 @@ class TestBondStorage:
         write_yaml(store.path, data)
         with pytest.raises(ValueError, match="frequency must be one of"):
             store.load()
+
+
+# ---------------------------------------------------------------------------
+# Atomic writes and conflict detection
+# ---------------------------------------------------------------------------
+
+
+def _aapl() -> Portfolio:
+    return Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=1.0)])
+
+
+class TestAtomicSave:
+    def test_no_temp_files_left_behind(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(_aapl())
+        assert [p.name for p in tmp_path.iterdir()] == ["portfolio.yaml"]
+
+    def test_failed_write_keeps_previous_file(self, tmp_path: Path, monkeypatch):
+        store = make_store(tmp_path)
+        store.save(_aapl())
+        before = store.path.read_bytes()
+
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(storage_module.os, "replace", boom)
+        with pytest.raises(OSError, match="disk full"):
+            store.save(Portfolio())
+        assert store.path.read_bytes() == before
+        assert [p.name for p in tmp_path.iterdir()] == ["portfolio.yaml"]
+
+
+class TestConflictDetection:
+    def test_external_change_after_load_is_rejected(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(_aapl())
+        portfolio = store.load()
+        # Another process (e.g. the CLI) edits the file meanwhile.
+        other = make_store(tmp_path)
+        other.save(Portfolio(cash=[CashPosition(currency="EUR", amount=5.0)]))
+
+        assert store.changed_on_disk()
+        with pytest.raises(PortfolioConflictError, match="modified outside"):
+            store.save(portfolio)
+        # The other process's edit survived.
+        assert make_store(tmp_path).load().get_cash("EUR") is not None
+
+    def test_force_overwrites(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(_aapl())
+        portfolio = store.load()
+        make_store(tmp_path).save(Portfolio())
+        store.save(portfolio, force=True)
+        assert make_store(tmp_path).load().get_position("AAPL") is not None
+
+    def test_own_save_updates_known_state(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = store.load()  # file absent
+        store.save(portfolio)
+        assert not store.changed_on_disk()
+        store.save(portfolio)  # second save must not conflict with the first
+
+    def test_file_created_externally_after_empty_load(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        portfolio = store.load()  # file absent
+        make_store(tmp_path).save(_aapl())
+        with pytest.raises(PortfolioConflictError):
+            store.save(portfolio)
+
+    def test_untracked_store_never_conflicts(self, tmp_path: Path):
+        make_store(tmp_path).save(_aapl())
+        fresh = make_store(tmp_path)  # never loaded
+        assert not fresh.changed_on_disk()
+        fresh.save(Portfolio())
+        assert make_store(tmp_path).load().positions == []
+
+    def test_load_resets_conflict(self, tmp_path: Path):
+        store = make_store(tmp_path)
+        store.save(_aapl())
+        store.load()
+        make_store(tmp_path).save(Portfolio())
+        reloaded = store.load()
+        assert reloaded.positions == []
+        store.save(reloaded)  # no conflict after reloading

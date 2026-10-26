@@ -749,6 +749,44 @@ async def test_save_calls_store() -> None:
 
 
 @pytest.mark.asyncio
+async def test_save_conflict_reloads_and_keeps_external_edit(tmp_path) -> None:
+    """If the file changed on disk since it was loaded (e.g. a CLI edit while
+    the TUI is open), saving must not clobber it: the portfolio is reloaded,
+    the in-memory edit dropped, and the user told to repeat it."""
+    from stonks_cli.storage import PortfolioStore
+
+    store = PortfolioStore(path=tmp_path / "p.yaml")
+    store.save(Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=1.0)]))
+    loaded = store.load()
+    app = PortfolioApp(
+        portfolios=[loaded], prices={}, forex_rates=USD_RATES, stores=[store]
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # CLI adds cash while the TUI holds the old copy.
+        PortfolioStore(path=store.path).save(
+            Portfolio(
+                positions=[Position(symbol="AAPL", quantity=1, avg_cost=1.0)],
+                cash=[CashPosition(currency="EUR", amount=5.0)],
+            )
+        )
+        # TUI edit on the stale copy.
+        app.portfolios[0].add_position("NVDA", 1, 1.0)
+        app._save_and_refresh(0)
+        await pilot.pause()
+
+        err = app.query_one("#error", Static)
+        assert err.has_class("visible")
+        assert "reloaded" in str(err.render())
+        # In-memory state now mirrors the disk, which kept the CLI's edit.
+        assert app.portfolios[0].get_cash("EUR") is not None
+        assert app.portfolios[0].get_position("NVDA") is None
+    on_disk = PortfolioStore(path=store.path).load()
+    assert on_disk.get_cash("EUR") is not None
+    assert on_disk.get_position("NVDA") is None
+
+
+@pytest.mark.asyncio
 async def test_save_no_store_does_not_raise() -> None:
     """_save with no stores is a no-op."""
     p = Portfolio(positions=[Position(symbol="AAPL", quantity=1, avg_cost=100.0)])

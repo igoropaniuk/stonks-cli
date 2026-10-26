@@ -56,7 +56,7 @@ from stonks_cli.portfolio_table import (
     build_row_data,
     to_tui_rows,
 )
-from stonks_cli.storage import PortfolioStore
+from stonks_cli.storage import PortfolioConflictError, PortfolioStore
 
 logger = logging.getLogger(__name__)
 
@@ -625,9 +625,28 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
                 pass
         return 0
 
-    def _save(self, idx: int) -> None:
-        if idx < len(self.stores):
-            self.stores[idx].save(self.portfolios[idx])
+    def _save(self, idx: int) -> bool:
+        """Persist portfolio *idx*; return False if it was changed on disk.
+
+        When the file was modified outside the TUI (for example by the CLI)
+        since it was loaded, saving would overwrite that change.  Instead
+        the portfolio is reloaded from disk, the in-memory edit is
+        discarded, and the user is told to repeat it.
+        """
+        if idx >= len(self.stores):
+            return True
+        store = self.stores[idx]
+        try:
+            store.save(self.portfolios[idx])
+        except PortfolioConflictError:
+            logger.warning("Portfolio %s changed on disk; reloading", store.path)
+            self.portfolios[idx] = store.load()
+            self._show_error(
+                f"{store.path.name} was changed outside the app and has been "
+                "reloaded. Please repeat your edit."
+            )
+            return False
+        return True
 
     def _save_and_refresh(self, idx: int) -> None:
         """Persist portfolio *idx* and repaint the tables."""
