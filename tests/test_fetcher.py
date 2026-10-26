@@ -502,6 +502,26 @@ class TestFetchExchangeNames:
         assert result == {}
 
 
+class TestShareClassesAreNotCrypto:
+    """A dash alone must not make a ticker crypto (BRK-B, BF-B)."""
+
+    def test_exchange_names_fetched_for_share_classes(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker(
+                {"BRK-B": "NYQ", "BF-B": "NYQ"}[sym]
+            )
+            result = fetcher.fetch_exchange_names(["BRK-B", "BF-B", "BTC-USD"])
+        assert result == {"BRK-B": "NYQ", "BF-B": "NYQ"}
+
+    def test_share_class_label_is_exchange(self):
+        assert exchange_label("BRK-B", "NYQ") == "NYSE"
+        assert exchange_label("BRK-B") == "NYSE/NASDAQ"
+
+    def test_share_class_follows_us_session(self, fetcher: PriceFetcher):
+        assert ExchangeSession.hours_for("BRK-B") is not None
+        assert ExchangeSession.hours_for("BTC-USD") is None
+
+
 class TestExchangeLabel:
     def test_crypto_returns_crypto(self):
         assert exchange_label("BTC-USD") == "Crypto"

@@ -8,7 +8,7 @@ import pandas as pd  # type: ignore[import-untyped]
 import yfinance as yf
 
 from stonks_cli.crypto_fetcher import CryptoFetcher as CryptoFetcher  # noqa: F401
-from stonks_cli.exchanges import ExchangeSession
+from stonks_cli.exchanges import ExchangeSession, is_crypto_symbol
 from stonks_cli.market_session import Session
 from stonks_cli.stock_detail import StockDetail  # re-export for backward compat
 
@@ -339,9 +339,10 @@ class PriceFetcher:
     def fetch_exchange_names(self, symbols: list[str]) -> dict[str, str]:
         """Return yfinance exchange codes for all equity symbols (US and non-US).
 
-        Crypto symbols (containing '-') are skipped -- they have no exchange
-        code in yfinance.  All other symbols (plain US tickers and those with
-        a dot suffix) are queried concurrently.
+        Crypto pairs (see :func:`is_crypto_symbol`) are skipped -- they have
+        no exchange code in yfinance.  All other symbols (plain US tickers,
+        share classes like ``BRK-B``, and dot-suffixed tickers) are queried
+        concurrently.
 
         Uses a thread pool so that N symbols are fetched concurrently rather
         than sequentially.
@@ -353,7 +354,7 @@ class PriceFetcher:
             Mapping of uppercase symbol -> yfinance exchange code
             (e.g. ``{"AAPL": "NMS", "ASML.AS": "AMS", "7203.T": "TKY"}``).
         """
-        equities = [s.upper() for s in symbols if "-" not in s]
+        equities = [s.upper() for s in symbols if not is_crypto_symbol(s)]
         if not equities:
             return {}
 
