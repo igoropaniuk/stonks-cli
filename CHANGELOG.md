@@ -35,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backtests skip bond positions and list them under "Skipped (no historical
   data)".
 
+### Fixed
+
+- A lowercase `currency` on a position no longer blanks the row and the
+  portfolio total; position currencies are normalised like cash ones.
+- Share classes with a dash (`BRK-B`, `BF-B`) are no longer treated as
+  crypto: they get their real exchange label and market session.
+- London tickers quoted in pence (and Johannesburg cents, Tel Aviv agorot)
+  are converted to the major unit, so a `.L` position in GBP is no longer
+  valued 100 times too high.
+- Crypto symbols CoinGecko cannot price now fall back to yfinance per
+  symbol instead of silently disappearing.
+- Forex rates for minor currencies against a non-USD base can be crossed
+  through USD; unresolved currencies and yfinance download failures are
+  now written to the log file.
+
 ## [0.6.4] - 2026-05-29
 
 ### Added
