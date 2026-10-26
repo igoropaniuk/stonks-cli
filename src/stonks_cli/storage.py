@@ -116,26 +116,6 @@ _UNTRACKED = object()
 DEFAULT_PORTFOLIO_PATH = PORTFOLIO_CONFIG_DIR / "portfolio.yaml"
 
 
-def seed_sample_portfolio() -> bool:
-    """Copy the bundled sample portfolio to ~/.config/stonks/portfolio.yaml.
-
-    Only acts when the config directory contains no .yaml files at all.
-
-    Returns:
-        True if the sample was written, False if portfolios already exist.
-    """
-    if PORTFOLIO_CONFIG_DIR.exists() and any(PORTFOLIO_CONFIG_DIR.glob("*.yaml")):
-        return False
-    sample = (
-        importlib.resources.files("stonks_cli.data")
-        .joinpath("sample_portfolio.yaml")
-        .read_text(encoding="utf-8")
-    )
-    DEFAULT_PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DEFAULT_PORTFOLIO_PATH.write_text(sample, encoding="utf-8")
-    return True
-
-
 def seed_demo_portfolio(path: Path) -> None:
     """Write the bundled sample portfolio to *path* (always overwrites)."""
     sample = (
