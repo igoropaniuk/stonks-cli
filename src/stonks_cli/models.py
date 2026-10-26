@@ -67,7 +67,10 @@ class Position:
             raise ValueError("Quantity must be positive")
         if self.avg_cost <= 0:
             raise ValueError("Average cost must be positive")
+        if not self.currency or not self.currency.strip():
+            raise ValueError("Currency cannot be empty")
         self.symbol = self.symbol.upper()
+        self.currency = self.currency.strip().upper()
         if self.asset_type is not None:
             self.asset_type = self.asset_type.lower()
         if self.bond is not None:
@@ -90,10 +93,12 @@ class Position:
             raise ValueError("Quantity must be positive")
         if avg_cost <= 0:
             raise ValueError("Average cost must be positive")
+        if not currency or not currency.strip():
+            raise ValueError("Currency cannot be empty")
         self.symbol = symbol.upper()
         self.quantity = quantity
         self.avg_cost = avg_cost
-        self.currency = currency
+        self.currency = currency.strip().upper()
         self.asset_type = asset_type.lower() if asset_type is not None else None
         self.external_id = external_id
         self.bond = bond
