@@ -87,27 +87,34 @@ def _fetch_crypto_data(
 ) -> tuple[dict[str, float], dict[str, str], dict[str, float]]:
     """Return prices, sessions, and previous closes for crypto symbols.
 
-    Tries CoinGecko first; falls back to yfinance on network/HTTP errors.
-    Returns empty dicts if an unexpected error occurs.
+    Tries CoinGecko first.  Any symbol CoinGecko could not price -- whether
+    the request raised, was swallowed and logged inside ``CryptoFetcher``
+    (rate limit, unknown coin), or simply came back empty -- is then looked
+    up on yfinance, which lists the major ``BASE-USD`` pairs.  The fallback
+    is per symbol, so one failing coin never hides the others.
     """
+    prices: dict[str, float] = {}
+    prev_closes: dict[str, float] = {}
     try:
-        crypto_fetcher = CryptoFetcher()
-        prices, prev_closes = crypto_fetcher.fetch_prices_and_changes(
+        prices, prev_closes = CryptoFetcher().fetch_prices_and_changes(
             crypto_symbols, external_ids=external_ids
         )
-        sessions = {sym: "regular" for sym in prices}
-        return prices, sessions, prev_closes
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning(
-            "CoinGecko fetch failed (%s); falling back to yfinance for crypto.", exc
-        )
-        prices = fetcher.fetch_prices(crypto_symbols)
-        sessions = {sym: "regular" for sym in prices}
-        prev_closes = fetcher.fetch_previous_closes(crypto_symbols)
-        return prices, sessions, prev_closes
+        logger.warning("CoinGecko fetch failed (%s); trying yfinance.", exc)
     except Exception as exc:  # noqa: BLE001
-        logger.error("Unexpected error during CoinGecko fetch: %s", exc)
-        return {}, {}, {}
+        logger.error("Unexpected error during CoinGecko fetch: %s", exc, exc_info=True)
+
+    missing = [sym for sym in crypto_symbols if sym not in prices]
+    if missing:
+        logger.info("No CoinGecko price for %s; trying yfinance.", ", ".join(missing))
+        yf_prices = fetcher.fetch_prices(missing)
+        prices.update(yf_prices)
+        found = [sym for sym in missing if sym in yf_prices]
+        if found:
+            prev_closes.update(fetcher.fetch_previous_closes(found))
+
+    sessions: dict[str, str] = {sym: Session.REGULAR for sym in prices}
+    return prices, sessions, prev_closes
 
 
 def _apply_quote_info(snap: MarketSnapshot, quote_info: dict[str, QuoteInfo]) -> None:

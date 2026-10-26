@@ -192,8 +192,9 @@ class TestBuildMarketSnapshot:
         ):
             snap = build_market_snapshot([portfolio])
 
-        # Unexpected exception is swallowed; prices absent
-        assert "XRP-USD" not in snap.prices
+        # The error is logged and yfinance is still tried for the symbol.
+        fetcher.fetch_prices.assert_called_with(["XRP-USD"])
+        assert "XRP-USD" not in snap.prices  # yfinance mock had nothing either
 
     def test_external_ids_passed_to_crypto_fetcher(self) -> None:
         pos = Position(
@@ -356,3 +357,59 @@ class TestMinorUnitQuotes:
         with patch("stonks_cli.market.PriceFetcher", return_value=fetcher):
             snap = build_market_snapshot([_make_portfolio(positions=[pos])])
         assert snap.prices["X.L"] == 12.5
+
+
+class TestCryptoPerSymbolFallback:
+    """CryptoFetcher swallows most errors and returns an empty or partial
+    result, so the fallback must key off missing symbols, not exceptions."""
+
+    def test_empty_coingecko_result_falls_back_to_yfinance(self) -> None:
+        pos = Position(
+            symbol="BTC-USD", quantity=1.0, avg_cost=30000.0, asset_type="crypto"
+        )
+        portfolio = _make_portfolio(positions=[pos])
+        fetcher = _make_fetcher_mock(
+            prices={"BTC-USD": 51000.0}, prev_closes={"BTC-USD": 50000.0}
+        )
+        crypto = _make_crypto_mock(prices={}, prev_closes={})  # rate-limited
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=fetcher),
+            patch("stonks_cli.market.CryptoFetcher", return_value=crypto),
+        ):
+            snap = build_market_snapshot([portfolio])
+
+        assert snap.prices["BTC-USD"] == 51000.0
+        assert snap.prev_closes["BTC-USD"] == 50000.0
+        assert snap.sessions["BTC-USD"] == "regular"
+        fetcher.fetch_prices.assert_called_once_with(["BTC-USD"])
+        fetcher.fetch_previous_closes.assert_any_call(["BTC-USD"])
+
+    def test_only_missing_symbols_go_to_yfinance(self) -> None:
+        btc = Position(symbol="BTC-USD", quantity=1, avg_cost=1.0, asset_type="crypto")
+        eth = Position(symbol="ETH-USD", quantity=1, avg_cost=1.0, asset_type="crypto")
+        portfolio = _make_portfolio(positions=[btc, eth])
+        fetcher = _make_fetcher_mock(prices={"ETH-USD": 2100.0})
+        crypto = _make_crypto_mock(
+            prices={"BTC-USD": 50000.0}, prev_closes={"BTC-USD": 49000.0}
+        )
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=fetcher),
+            patch("stonks_cli.market.CryptoFetcher", return_value=crypto),
+        ):
+            snap = build_market_snapshot([portfolio])
+
+        assert snap.prices == {"BTC-USD": 50000.0, "ETH-USD": 2100.0}
+        assert snap.prev_closes["BTC-USD"] == 49000.0
+        fetcher.fetch_prices.assert_called_once_with(["ETH-USD"])
+
+    def test_nothing_fetched_when_coingecko_has_everything(self) -> None:
+        pos = Position(symbol="BTC-USD", quantity=1, avg_cost=1.0, asset_type="crypto")
+        portfolio = _make_portfolio(positions=[pos])
+        fetcher = _make_fetcher_mock()
+        crypto = _make_crypto_mock(prices={"BTC-USD": 50000.0})
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=fetcher),
+            patch("stonks_cli.market.CryptoFetcher", return_value=crypto),
+        ):
+            build_market_snapshot([portfolio])
+        fetcher.fetch_prices.assert_not_called()
