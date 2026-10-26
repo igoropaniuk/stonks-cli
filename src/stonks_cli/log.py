@@ -93,6 +93,15 @@ def setup_logging(level: int = logging.WARNING) -> None:
             )
         )
         logger.addHandler(fh)
+        # yfinance reports per-symbol download failures on its own logger
+        # (not as exceptions).  Capture those in the log file, where they
+        # explain missing prices and forex rates, but keep them off the
+        # console: they fire on every refresh for symbols Yahoo doesn't
+        # list and would clutter the terminal.
+        yf_logger = logging.getLogger("yfinance")
+        yf_logger.setLevel(logging.WARNING)
+        yf_logger.propagate = False
+        yf_logger.addHandler(fh)
     except OSError:
         logger.warning(
             "Failed to set up file logging to %s; continuing with console only.",

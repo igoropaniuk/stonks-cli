@@ -187,3 +187,29 @@ class TestCleanupStaleLogFiles:
         missing = tmp_path / "nonexistent"
         with patch("stonks_cli.log.LOG_DIR", missing):
             _cleanup_stale_log_files()  # must not raise
+
+
+def test_yfinance_warnings_go_to_the_log_file_only(tmp_path, monkeypatch):
+    """yfinance reports failed downloads on its own logger; they belong in
+    the file (to explain missing prices) but not on the console."""
+    import stonks_cli.log as log_module
+    from stonks_cli.log import setup_logging
+
+    log_file = tmp_path / "stonks.log"
+    monkeypatch.setattr(log_module, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(log_module, "LOG_FILE", log_file)
+    yf_logger = logging.getLogger("yfinance")
+    saved = (yf_logger.handlers[:], yf_logger.level, yf_logger.propagate)
+    yf_logger.handlers.clear()
+    try:
+        setup_logging(level=logging.WARNING)
+        yf_logger.error("$UAHEUR=X: possibly delisted")
+        for h in yf_logger.handlers:
+            h.flush()
+        assert "UAHEUR=X" in log_file.read_text()
+        assert all(isinstance(h, logging.FileHandler) for h in yf_logger.handlers)
+        assert yf_logger.propagate is False
+    finally:
+        yf_logger.handlers = saved[0]
+        yf_logger.setLevel(saved[1])
+        yf_logger.propagate = saved[2]

@@ -442,7 +442,14 @@ class PriceFetcher:
         # (it never does for distinct currencies, but the guard is free).
         direct_syms = [f"{c}{base}=X" for c in non_base]
         inverse_syms = [f"{base}{c}=X" for c in non_base]
-        all_syms = list(dict.fromkeys(direct_syms + inverse_syms))
+        # Third route for a non-USD base: cross through USD.  Minor
+        # currencies (UAH, ...) are always quoted against USD even when
+        # neither pair against the base exists or a request for it fails.
+        cross_syms: list[str] = []
+        if base != "USD":
+            cross_syms = [f"{c}USD=X" for c in non_base if c != "USD"]
+            cross_syms += [f"USD{base}=X", f"{base}USD=X"]
+        all_syms = list(dict.fromkeys(direct_syms + inverse_syms + cross_syms))
 
         close = _yf_download_close(
             all_syms, period="1d", description="forex", auto_adjust=False
@@ -451,20 +458,44 @@ class PriceFetcher:
             _last_close_per_symbol(close, all_syms) if close is not None else {}
         )
 
+        # Forex rates are always strictly positive in reality; checking
+        # ``> 0`` also drops the NaN values yfinance sometimes returns for
+        # unavailable symbols (NaN comparisons all evaluate False) without
+        # an explicit ``math.isnan`` guard.
+        def positive(sym: str) -> float | None:
+            value = downloaded.get(sym)
+            return value if value is not None and value > 0 else None
+
+        usd_to_base: float | None = None
+        if base != "USD":
+            usd_to_base = positive(f"USD{base}=X")
+            if usd_to_base is None:
+                base_to_usd = positive(f"{base}USD=X")
+                usd_to_base = 1.0 / base_to_usd if base_to_usd else None
+
+        unresolved: list[str] = []
         for currency in non_base:
-            # Forex rates are always strictly positive in reality; checking
-            # ``> 0`` also drops the NaN values yfinance sometimes returns
-            # for unavailable symbols (NaN comparisons all evaluate False)
-            # without an explicit ``math.isnan`` guard.
-            direct_sym = f"{currency}{base}=X"
-            direct_rate = downloaded.get(direct_sym)
-            if direct_rate is not None and direct_rate > 0:
+            direct_rate = positive(f"{currency}{base}=X")
+            if direct_rate is not None:
                 rates[currency] = direct_rate
                 continue
-            inverse_sym = f"{base}{currency}=X"
-            inv_rate = downloaded.get(inverse_sym)
-            if inv_rate is not None and inv_rate > 0:
+            inv_rate = positive(f"{base}{currency}=X")
+            if inv_rate is not None:
                 rates[currency] = 1.0 / inv_rate
+                continue
+            to_usd = positive(f"{currency}USD=X") if currency != "USD" else 1.0
+            if to_usd is not None and usd_to_base is not None:
+                rates[currency] = to_usd * usd_to_base
+                logger.info("Forex %s->%s resolved via USD cross rate", currency, base)
+                continue
+            unresolved.append(currency)
+        if unresolved:
+            logger.warning(
+                "No forex rate for %s -> %s from Yahoo; rows in these currencies "
+                "will show N/A",
+                ", ".join(unresolved),
+                base,
+            )
         return rates
 
     def fetch_stock_detail(self, symbol: str) -> StockDetail:

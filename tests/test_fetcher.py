@@ -406,6 +406,43 @@ class TestFetchForexRates:
         assert rates["UAH"] == pytest.approx(1.0 / 51.68)
 
     @patch("stonks_cli.fetcher.yf.download")
+    def test_cross_rate_via_usd_when_base_pairs_missing(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        # Yahoo has no UAHEUR=X; if EURUAH=X also fails (one request in a
+        # sequential batch), the only remaining route is UAH->USD->EUR.
+        mock_dl.return_value = _close_df({"UAHUSD=X": 0.0222, "USDEUR=X": 0.89})
+        rates = fetcher.fetch_forex_rates(["UAH"], base="EUR")
+        assert rates["UAH"] == pytest.approx(0.0222 * 0.89)
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_cross_rate_uses_reciprocal_of_base_usd_pair(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        mock_dl.return_value = _close_df({"UAHUSD=X": 0.0222, "EURUSD=X": 1.12})
+        rates = fetcher.fetch_forex_rates(["UAH"], base="EUR")
+        assert rates["UAH"] == pytest.approx(0.0222 / 1.12)
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_cross_symbols_only_requested_for_non_usd_base(
+        self, mock_dl, fetcher: PriceFetcher
+    ):
+        mock_dl.return_value = _close_df({"EURUSD=X": 1.1})
+        fetcher.fetch_forex_rates(["EUR"], base="USD")
+        tickers = mock_dl.call_args.kwargs["tickers"]
+        assert tickers == ["EURUSD=X", "USDEUR=X"]
+
+    @patch("stonks_cli.fetcher.yf.download")
+    def test_unresolved_currency_is_logged(
+        self, mock_dl, fetcher: PriceFetcher, caplog
+    ):
+        mock_dl.return_value = _close_df({"USDEUR=X": 0.89})
+        with caplog.at_level("WARNING", logger="stonks_cli.fetcher"):
+            rates = fetcher.fetch_forex_rates(["USD", "UAH"], base="EUR")
+        assert "UAH" not in rates
+        assert "No forex rate for UAH -> EUR" in caplog.text
+
+    @patch("stonks_cli.fetcher.yf.download")
     def test_inverse_zero_rate_treated_as_missing(self, mock_dl, fetcher: PriceFetcher):
         # If Yahoo were to return a bogus zero rate for the inverse pair
         # we'd divide by zero -- guard against that and drop the
