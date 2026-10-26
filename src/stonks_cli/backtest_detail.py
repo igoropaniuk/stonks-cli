@@ -88,7 +88,7 @@ class BacktestScreen(
             id="bt-subtitle",
         )
         yield LoadingIndicator(id="loading")
-        yield Label("", id="error-msg")
+        yield Label("", id="error-msg", markup=False)
         yield VerticalScroll(id="bt-scroll")
         yield Footer()
 

@@ -400,11 +400,15 @@ class NewsItemRow(Horizontal):
 
     def compose(self) -> ComposeResult:
         ticker = f" {self._item.symbol}" if self._item.symbol else ""
+        # Headlines and sources are untrusted text: "[Update] ..." or a
+        # closing-tag lookalike must render verbatim, not as Textual markup.
         yield Static(
-            f"{self._item.published_at}{ticker}", classes="news-meta news-prefix"
+            f"{self._item.published_at}{ticker}",
+            classes="news-meta news-prefix",
+            markup=False,
         )
-        yield Static(self._item.headline, classes="news-headline")
-        yield Static(f" ({self._item.source})", classes="news-meta")
+        yield Static(self._item.headline, classes="news-headline", markup=False)
+        yield Static(f" ({self._item.source})", classes="news-meta", markup=False)
 
     def on_click(self) -> None:
         self.post_message(self.Selected(self._index))

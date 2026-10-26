@@ -19,6 +19,7 @@ from stonks_cli.forms import (
 )
 from stonks_cli.market import MarketSnapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
+from stonks_cli.news_fetcher import NewsItem
 from stonks_cli.portfolio_table import TABLE_COLUMNS
 
 # Capture before autouse fixture in conftest.py replaces it with a lambda
@@ -2743,6 +2744,31 @@ async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> Non
         ]
         app.on_history_updated(HistoryUpdated(new_history))
         assert app._chat_history == new_history
+
+
+@pytest.mark.asyncio
+async def test_news_headline_with_brackets_is_not_parsed_as_markup() -> None:
+    """A headline like "[Update] Apple beats" must keep its bracketed word;
+    rendering it as markup silently dropped "[Update]"."""
+    from stonks_cli.app import NewsItemRow
+
+    item = NewsItem(
+        headline="[Update] Apple beats [/] estimates",
+        source="Re[u]ters",
+        published_at="10:00",
+        url="https://example.com",
+    )
+
+    class TestApp(App):
+        def compose(self):
+            yield NewsItemRow(item, 0)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        texts = [str(w.render()) for w in app.query(".news-headline, .news-meta")]
+    assert "[Update] Apple beats [/] estimates" in texts
+    assert " (Re[u]ters)" in texts
 
 
 class TestOpenUrlSuppressesBrowserStdio:
