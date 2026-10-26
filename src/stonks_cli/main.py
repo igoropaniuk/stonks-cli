@@ -457,25 +457,45 @@ def import_ibkr(ctx: click.Context, csv_file: Path) -> None:
     portfolio.positions.clear()
 
     # Import positions --------------------------------------------------------
+    # The same symbol can appear more than once (several accounts, several
+    # lots).  Merge those rows into one position with a weighted average
+    # cost; Portfolio rejects duplicate symbols, so appending them as-is
+    # would write a file that can no longer be loaded.
     skipped: list[str] = []
-    imported = 0
+    merged: list[str] = []
     for pos in ibkr_positions:
+        existing = portfolio.get_position(pos.symbol)
         try:
-            portfolio.positions.append(
-                Position(
-                    symbol=pos.symbol,
-                    quantity=pos.quantity,
-                    avg_cost=pos.avg_price,
-                    currency=pos.currency,
+            if existing is None:
+                portfolio.positions.append(
+                    Position(
+                        symbol=pos.symbol,
+                        quantity=pos.quantity,
+                        avg_cost=pos.avg_price,
+                        currency=pos.currency,
+                    )
                 )
-            )
-            imported += 1
+            elif existing.currency != pos.currency.upper():
+                raise ValueError(
+                    f"currency {pos.currency} differs from the "
+                    f"{existing.currency} row already imported"
+                )
+            else:
+                portfolio.add_position(pos.symbol, pos.quantity, pos.avg_price)
+                merged.append(pos.symbol.upper())
         except ValueError as exc:
             skipped.append(f"{pos.symbol}: {exc}")
 
-    store.save(portfolio)
+    try:
+        store.save(portfolio)
+    except PortfolioConflictError as exc:
+        raise click.ClickException(str(exc)) from exc
 
+    imported = len(portfolio.positions)
     click.echo(f"+ Imported {imported} position(s) from Interactive Brokers export")
+    if merged:
+        names = ", ".join(sorted(set(merged)))
+        click.echo(f"  Merged duplicate rows for: {names}")
     if skipped:
         click.echo(f"  Skipped {len(skipped)} row(s):")
         for msg in skipped:
