@@ -980,6 +980,47 @@ class TestImportIbkr:
         assert aapl.quantity == pytest.approx(10.0)
         assert aapl.avg_cost == pytest.approx(175.50)
 
+    def test_duplicate_symbols_are_merged(self, runner, portfolio_file, tmp_path):
+        """The same stock held in two accounts appears twice in the export.
+        Appending both used to write a file Portfolio() refuses to load."""
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,CurrencyPrimary,ListingExchange
+            AAPL,10,100.00,USD,NASDAQ
+            MSFT,5,350.00,USD,NASDAQ
+            AAPL,5,160.00,USD,NASDAQ
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code == 0, result.output
+        assert "Imported 2" in result.output
+        assert "Merged duplicate rows for: AAPL" in result.output
+
+        portfolio = PortfolioStore(path=portfolio_file).load()  # must not raise
+        aapl = portfolio.get_position("AAPL")
+        assert aapl is not None
+        assert aapl.quantity == pytest.approx(15.0)
+        assert aapl.avg_cost == pytest.approx(120.0)  # (10*100 + 5*160) / 15
+
+    def test_duplicate_symbol_with_other_currency_is_skipped(
+        self, runner, portfolio_file, tmp_path
+    ):
+        csv = self._csv(
+            tmp_path,
+            """\
+            Symbol,Quantity,CostBasisPrice,CurrencyPrimary,ListingExchange
+            AAPL,10,100.00,USD,NASDAQ
+            AAPL,5,90.00,EUR,NASDAQ
+            """,
+        )
+        result = invoke(runner, portfolio_file, "import", "ibkr", str(csv))
+        assert result.exit_code == 0, result.output
+        assert "Skipped 1 row(s)" in result.output
+        assert "currency EUR differs" in result.output
+        portfolio = PortfolioStore(path=portfolio_file).load()
+        assert portfolio.get_position("AAPL").quantity == pytest.approx(10.0)
+
     def test_exchange_suffix_applied_to_symbol(self, runner, portfolio_file, tmp_path):
         csv = self._csv(
             tmp_path,
