@@ -1,6 +1,7 @@
 """Exchange metadata, session detection, and calendar utilities."""
 
 import logging
+import re
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
@@ -250,16 +251,37 @@ _YF_CODE_TO_LABEL: dict[str, str] = {
 }
 
 
-def exchange_info_for(symbol: str) -> ExchangeInfo | None:
+# Crypto pairs on Yahoo look like ``BTC-USD``: a base symbol, a dash, and a
+# three- or four-letter quote currency.  Share classes also use a dash
+# (``BRK-B``, ``BF-B``) but with a one-letter suffix, so they don't match.
+_CRYPTO_PAIR_RE = re.compile(r"^[A-Z0-9]+-[A-Z]{3,4}$")
+
+
+def is_crypto_symbol(symbol: str, asset_type: str | None = None) -> bool:
+    """Return ``True`` when *symbol* should be treated as a cryptocurrency.
+
+    An explicit *asset_type* is authoritative: ``"crypto"`` means crypto and
+    any other value means not crypto.  Without one, the symbol is a crypto
+    pair only when it looks like ``BASE-QUOTE`` with a currency-code suffix,
+    so ``BRK-B`` is an equity while ``BTC-USD`` is crypto.
+    """
+    if asset_type is not None:
+        return asset_type.lower() == "crypto"
+    return _CRYPTO_PAIR_RE.match(symbol.upper()) is not None
+
+
+def exchange_info_for(
+    symbol: str, asset_type: str | None = None
+) -> ExchangeInfo | None:
     """Return the :class:`ExchangeInfo` for *symbol*, or ``None`` for crypto.
 
     Resolution order:
-    - Symbol contains ``'-'``           -> crypto, return ``None``
+    - :func:`is_crypto_symbol`          -> crypto, return ``None``
     - Symbol contains ``'.'``           -> look up suffix in ``_EXCHANGES``
-    - Plain ticker (no dot, no dash)    -> return ``_US_EXCHANGE``
+    - Plain ticker (no dot)             -> return ``_US_EXCHANGE``
     """
-    if "-" in symbol:
-        return None  # crypto
+    if is_crypto_symbol(symbol, asset_type):
+        return None
     if "." in symbol:
         return _EXCHANGES.get(symbol.rsplit(".", 1)[1])
     return _US_EXCHANGE
@@ -275,12 +297,11 @@ def exchange_label(
     Resolution order:
     1. asset_type == 'bond' with a     -> *exchange_code* as-is: the bond's
        non-yfinance *exchange_code*       price source, e.g. "UST" or "Manual"
-    2. asset_type == 'crypto'          -> "Crypto"
-    3. Crypto (contains '-')          -> "Crypto"
-    4. *exchange_code* in lookup table -> mapped display name
-    5. Known exchange suffix           -> short name from the suffix label table
-    6. Unknown suffix                  -> the raw suffix (e.g. "XY")
-    7. Plain US ticker, no code        -> "NYSE/NASDAQ"
+    2. :func:`is_crypto_symbol`        -> "Crypto"
+    3. *exchange_code* in lookup table -> mapped display name
+    4. Known exchange suffix           -> short name from the suffix label table
+    5. Unknown suffix                  -> the raw suffix (e.g. "XY")
+    6. Plain US ticker, no code        -> "NYSE/NASDAQ"
     """
     # Bond positions carry their price-source label as the exchange code.
     # A bond *ETF* tagged ``asset_type: bond`` has a real yfinance code and
@@ -291,7 +312,7 @@ def exchange_label(
         and exchange_code not in _YF_CODE_TO_LABEL
     ):
         return exchange_code
-    if asset_type == "crypto" or "-" in symbol:
+    if is_crypto_symbol(symbol, asset_type):
         return "Crypto"
     if exchange_code and exchange_code in _YF_CODE_TO_LABEL:
         return _YF_CODE_TO_LABEL[exchange_code]

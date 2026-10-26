@@ -2,7 +2,14 @@
 
 import zoneinfo
 
-from stonks_cli.exchanges import _EXCHANGES, exchange_label
+import pytest
+
+from stonks_cli.exchanges import (
+    _EXCHANGES,
+    exchange_info_for,
+    exchange_label,
+    is_crypto_symbol,
+)
 
 
 def test_all_exchanges_have_valid_timezone() -> None:
@@ -36,3 +43,24 @@ def test_bond_etf_keeps_exchange_label() -> None:
     # Bond ETFs tagged asset_type: bond still map their yfinance code.
     assert exchange_label("TLT", "NMS", "bond") == "NASDAQ"
     assert exchange_label("TLT", None, "bond") == "NYSE/NASDAQ"
+
+
+class TestIsCryptoSymbol:
+    @pytest.mark.parametrize("symbol", ["BTC-USD", "eth-eur", "SOL-USDT", "LINK-USD"])
+    def test_crypto_pairs(self, symbol):
+        assert is_crypto_symbol(symbol)
+
+    @pytest.mark.parametrize("symbol", ["BRK-B", "BF-B", "AAPL", "ASML.AS", "RDS-A"])
+    def test_equities(self, symbol):
+        assert not is_crypto_symbol(symbol)
+
+    def test_asset_type_is_authoritative(self):
+        assert is_crypto_symbol("bitcoin", asset_type="crypto")
+        assert is_crypto_symbol("AAPL", asset_type="CRYPTO")
+        assert not is_crypto_symbol("BTC-USD", asset_type="equity")
+
+    def test_exchange_info_for_share_class(self):
+        info = exchange_info_for("BRK-B")
+        assert info is not None and info.tz_name == "America/New_York"
+        assert exchange_info_for("BTC-USD") is None
+        assert exchange_info_for("BTC-USD", asset_type="equity") is not None
