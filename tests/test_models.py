@@ -104,6 +104,31 @@ class TestPosition:
         assert pos.market_value(60000.0) == pytest.approx(15000.0)
 
 
+class TestPositionCurrency:
+    def test_currency_is_upper_cased_and_stripped(self):
+        pos = Position(symbol="ASML.AS", quantity=1, avg_cost=1.0, currency=" eur ")
+        assert pos.currency == "EUR"
+
+    def test_update_upper_cases_currency(self):
+        pos = Position(symbol="ASML.AS", quantity=1, avg_cost=1.0)
+        pos.update("ASML.AS", 1, 1.0, "gbp")
+        assert pos.currency == "GBP"
+
+    @pytest.mark.parametrize("bad", ["", "   "])
+    def test_empty_currency_raises(self, bad):
+        with pytest.raises(ValueError, match="Currency cannot be empty"):
+            Position(symbol="ASML.AS", quantity=1, avg_cost=1.0, currency=bad)
+
+    def test_lowercase_currency_still_converts_in_total(self):
+        # Forex rates are keyed by upper-case code; a lowercase YAML value
+        # used to miss the lookup and blank the whole total.
+        pos = Position(symbol="ASML.AS", quantity=2, avg_cost=1.0, currency="eur")
+        total = portfolio_total(
+            Portfolio(positions=[pos]), {"ASML.AS": 100.0}, {"USD": 1.0, "EUR": 1.1}
+        )
+        assert total == pytest.approx(220.0)
+
+
 class TestWatchlistItem:
     def test_valid_creation(self):
         item = WatchlistItem(symbol="TSLA")
