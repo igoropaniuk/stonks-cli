@@ -1,12 +1,14 @@
 """Tests for stonks_cli.storage."""
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
 
 import stonks_cli.storage as storage_module
+from stonks_cli.bonds import BondInfo
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 from stonks_cli.storage import PortfolioStore, seed_sample_portfolio
 
@@ -469,3 +471,133 @@ class TestAssetType:
         store.save(Portfolio(watchlist=[WatchlistItem(symbol="TSLA")]))
         data = yaml.safe_load(store.path.read_text())
         assert "asset_type" not in data["portfolio"]["watchlist"][0]
+
+
+# ---------------------------------------------------------------------------
+# Bond positions
+# ---------------------------------------------------------------------------
+
+
+class TestBondStorage:
+    BOND_YAML = {
+        "portfolio": {
+            "positions": [
+                {
+                    "symbol": "UST5.0SEP31",
+                    "quantity": 15,
+                    "avg_cost": 100.47,
+                    "currency": "USD",
+                    "bond": {
+                        "maturity": "2031-09-30",
+                        "coupon": 5.0,
+                        "cusip": "91282crn3",
+                    },
+                }
+            ]
+        }
+    }
+
+    def test_load_bond_with_defaults(self, tmp_path):
+        store = make_store(tmp_path)
+        write_yaml(store.path, self.BOND_YAML)
+        pos = store.load().positions[0]
+        assert pos.asset_type == "bond"
+        assert pos.bond is not None
+        assert pos.bond.maturity == date(2031, 9, 30)
+        assert pos.bond.coupon == 5.0
+        assert pos.bond.face_value == 1000.0
+        assert pos.bond.frequency == 2
+        assert pos.bond.cusip == "91282CRN3"
+        assert pos.bond.price is None
+
+    def test_yaml_date_maturity_is_accepted(self, tmp_path):
+        # Unquoted 2031-09-30 is parsed by YAML as a date, not a string.
+        store = make_store(tmp_path)
+        store.path.write_text(
+            "portfolio:\n"
+            "  positions:\n"
+            "    - symbol: B\n"
+            "      quantity: 1\n"
+            "      avg_cost: 99\n"
+            "      bond:\n"
+            "        maturity: 2031-09-30\n"
+            "        coupon: 5\n"
+        )
+        assert store.load().positions[0].bond is not None
+
+    def test_round_trip_omits_defaults(self, tmp_path):
+        store = make_store(tmp_path)
+        bond = BondInfo(maturity=date(2031, 9, 30), coupon=5.0, price=100.47)
+        store.save(
+            Portfolio(positions=[Position("UST5.0SEP31", 15, 100.47, bond=bond)])
+        )
+        raw = yaml.safe_load(store.path.read_text())
+        saved = raw["portfolio"]["positions"][0]
+        assert saved["asset_type"] == "bond"
+        assert saved["bond"] == {
+            "maturity": date(2031, 9, 30),
+            "coupon": 5.0,
+            "price": 100.47,
+        }
+        assert store.load().positions[0].bond == bond
+
+    def test_round_trip_keeps_non_default_terms(self, tmp_path):
+        store = make_store(tmp_path)
+        bond = BondInfo(
+            maturity=date(2030, 6, 1),
+            coupon=4.0,
+            face_value=100.0,
+            frequency=1,
+            cusip="037833AK6",
+        )
+        store.save(Portfolio(positions=[Position("CORP", 10, 98.0, bond=bond)]))
+        assert store.load().positions[0].bond == bond
+
+    def test_missing_bond_field_reports_file(self, tmp_path):
+        store = make_store(tmp_path)
+        data = {
+            "portfolio": {
+                "positions": [
+                    {
+                        "symbol": "B",
+                        "quantity": 1,
+                        "avg_cost": 99,
+                        "bond": {"maturity": "2031-09-30"},
+                    }
+                ]
+            }
+        }
+        write_yaml(store.path, data)
+        with pytest.raises(ValueError, match="Invalid position entry.*'coupon'"):
+            store.load()
+
+    def test_bond_not_a_mapping_reports_file(self, tmp_path):
+        store = make_store(tmp_path)
+        data = {
+            "portfolio": {
+                "positions": [
+                    {"symbol": "B", "quantity": 1, "avg_cost": 99, "bond": "yes"}
+                ]
+            }
+        }
+        write_yaml(store.path, data)
+        with pytest.raises(ValueError, match="Invalid position entry.*mapping"):
+            store.load()
+
+    def test_invalid_bond_terms_raise(self, tmp_path):
+        store = make_store(tmp_path)
+        data = {
+            "portfolio": {
+                "positions": [
+                    {
+                        "symbol": "B",
+                        "quantity": 1,
+                        "avg_cost": 99,
+                        "bond": {"maturity": "2031-09-30", "coupon": 5, "frequency": 3},
+                    }
+                ]
+            }
+        }
+        write_yaml(store.path, data)
+        with pytest.raises(ValueError, match="frequency must be one of"):
+            store.load()

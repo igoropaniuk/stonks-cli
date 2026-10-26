@@ -158,14 +158,15 @@ class PortfolioTableWidget(Widget):
     class RowSelected(Message):
         """Posted when the user selects a row in this widget's table."""
 
-        def __init__(self, meta: RowMeta) -> None:
+        def __init__(self, meta: RowMeta, portfolio: Portfolio | None = None) -> None:
             self.meta = meta
+            self.portfolio = portfolio
             super().__init__()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         meta = self.get_meta_for_key(str(event.row_key.value))
         if meta is not None:
-            self.post_message(self.RowSelected(meta))
+            self.post_message(self.RowSelected(meta, self._portfolio))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         col = event.column_index
@@ -812,6 +813,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
                 currency=pos.currency,
                 asset_type=pos.asset_type,
                 external_id=pos.external_id or "",
+                bond=pos.bond,
             ),
             partial(self._handle_edit_position, portfolio, idx, pos),
         )
@@ -917,8 +919,14 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         selection = self._get_active_selection()
         if selection is None:
             return
-        _, _, _, meta = selection
+        portfolio, _, _, meta = selection
         if meta.kind == RowKind.CASH:
+            return
+        if self._bond_position(portfolio, meta) is not None:
+            self.notify(
+                "Charts aren't available for bonds. Press f for bond details.",
+                severity="warning",
+            )
             return
         from stonks_cli.chart import CandleChartScreen
 
@@ -959,17 +967,35 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         selection = self._get_active_selection()
         if selection is None:
             return
-        _, _, _, meta = selection
-        if meta.kind == RowKind.CASH:
-            return
-        self.push_screen(StockDetailScreen(meta.symbol))
+        portfolio, _, _, meta = selection
+        self._open_detail(portfolio, meta)
 
     def on_portfolio_table_widget_row_selected(
         self, event: PortfolioTableWidget.RowSelected
     ) -> None:
-        if event.meta.kind == RowKind.CASH:
+        self._open_detail(event.portfolio, event.meta)
+
+    @staticmethod
+    def _bond_position(portfolio: Portfolio | None, meta: RowMeta) -> Position | None:
+        """Return the bond position behind *meta*, or None if it isn't one."""
+        if portfolio is None or meta.kind != RowKind.POSITION:
+            return None
+        pos = portfolio.get_position(meta.symbol)
+        return pos if pos is not None and pos.is_bond else None
+
+    def _open_detail(self, portfolio: Portfolio | None, meta: RowMeta) -> None:
+        """Open the bond or stock detail screen for the selected row."""
+        if meta.kind == RowKind.CASH:
             return
-        self.push_screen(StockDetailScreen(event.meta.symbol))
+        bond_pos = self._bond_position(portfolio, meta)
+        if bond_pos is not None:
+            from stonks_cli.bond_detail import BondDetailScreen
+
+            self.push_screen(
+                BondDetailScreen(bond_pos, self._snap.bond_quotes.get(bond_pos.symbol))
+            )
+            return
+        self.push_screen(StockDetailScreen(meta.symbol))
 
     def on_news_feed_widget_open_url(self, message: NewsFeedWidget.OpenURL) -> None:
         self.open_url(message.url)
@@ -1121,11 +1147,16 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     # ------------------------------------------------------------------
 
     def _collect_symbols(self) -> list[str]:
-        """Return unique equity/watchlist symbols across all portfolios."""
+        """Return unique equity/watchlist symbols across all portfolios.
+
+        Bonds are left out: their symbols are user-chosen labels with no
+        news feed behind them.
+        """
         symbols: set[str] = set()
         for portfolio in self.portfolios:
             for pos in portfolio.positions:
-                symbols.add(pos.symbol)
+                if not pos.is_bond:
+                    symbols.add(pos.symbol)
             for item in portfolio.watchlist:
                 symbols.add(item.symbol)
         return list(symbols)

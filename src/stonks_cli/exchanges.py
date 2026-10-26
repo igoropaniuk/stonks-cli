@@ -273,13 +273,24 @@ def exchange_label(
     """Return a short exchange name for *symbol*.
 
     Resolution order:
-    1. asset_type == 'crypto'          -> "Crypto"
-    2. Crypto (contains '-')          -> "Crypto"
-    3. *exchange_code* in lookup table -> mapped display name
-    4. Known exchange suffix           -> short name from the suffix label table
-    5. Unknown suffix                  -> the raw suffix (e.g. "XY")
-    6. Plain US ticker, no code        -> "NYSE/NASDAQ"
+    1. asset_type == 'bond' with a     -> *exchange_code* as-is: the bond's
+       non-yfinance *exchange_code*       price source, e.g. "UST" or "Manual"
+    2. asset_type == 'crypto'          -> "Crypto"
+    3. Crypto (contains '-')          -> "Crypto"
+    4. *exchange_code* in lookup table -> mapped display name
+    5. Known exchange suffix           -> short name from the suffix label table
+    6. Unknown suffix                  -> the raw suffix (e.g. "XY")
+    7. Plain US ticker, no code        -> "NYSE/NASDAQ"
     """
+    # Bond positions carry their price-source label as the exchange code.
+    # A bond *ETF* tagged ``asset_type: bond`` has a real yfinance code and
+    # falls through to the normal mapping below.
+    if (
+        asset_type == "bond"
+        and exchange_code
+        and exchange_code not in _YF_CODE_TO_LABEL
+    ):
+        return exchange_code
     if asset_type == "crypto" or "-" in symbol:
         return "Crypto"
     if exchange_code and exchange_code in _YF_CODE_TO_LABEL:

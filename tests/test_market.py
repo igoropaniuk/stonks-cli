@@ -1,9 +1,12 @@
 """Tests for stonks_cli.market.build_market_snapshot."""
 
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import httpx
 
+from stonks_cli.bond_fetcher import BondQuote, BondSource
+from stonks_cli.bonds import BondInfo
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
@@ -235,3 +238,66 @@ class TestBuildMarketSnapshot:
 
         assert snap.prices == {}
         assert snap.sessions == {}
+
+
+# ---------------------------------------------------------------------------
+# Bonds
+# ---------------------------------------------------------------------------
+
+
+class TestBondsInSnapshot:
+    def _bond_position(self):
+        return Position(
+            symbol="UST5.0SEP31",
+            quantity=15,
+            avg_cost=100.47,
+            bond=BondInfo(maturity=date(2031, 9, 30), coupon=5.0, cusip="91282CRN3"),
+        )
+
+    def test_bonds_bypass_yfinance_and_carry_source_label(self):
+        bond = self._bond_position()
+        stock = Position(symbol="AAPL", quantity=1, avg_cost=100.0)
+        portfolio = _make_portfolio(positions=[bond, stock])
+        fetcher = _make_fetcher_mock(best_equity_prices={"AAPL": (175.0, "regular")})
+        bond_fetcher = MagicMock()
+        quote = BondQuote(99.75, 100.0, BondSource.FEDINVEST, date(2026, 10, 14))
+        bond_fetcher.fetch_quotes.return_value = {"UST5.0SEP31": quote}
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=fetcher),
+            patch("stonks_cli.market.BondPriceFetcher", return_value=bond_fetcher),
+        ):
+            snap = build_market_snapshot([portfolio])
+
+        fetcher.fetch_best_equity_prices.assert_called_once_with(["AAPL"])
+        fetcher.fetch_exchange_names.assert_called_once_with(["AAPL"])
+        bond_fetcher.fetch_quotes.assert_called_once_with({"UST5.0SEP31": bond.bond})
+        assert snap.prices["UST5.0SEP31"] == 99.75
+        assert snap.prev_closes["UST5.0SEP31"] == 100.0
+        assert snap.sessions["UST5.0SEP31"] == "regular"
+        assert snap.exchange_codes["UST5.0SEP31"] == "UST"
+        assert snap.bond_quotes["UST5.0SEP31"] == quote
+
+    def test_unpriced_bond_is_labelled_bond(self):
+        portfolio = _make_portfolio(positions=[self._bond_position()])
+        bond_fetcher = MagicMock()
+        bond_fetcher.fetch_quotes.return_value = {}
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=_make_fetcher_mock()),
+            patch("stonks_cli.market.BondPriceFetcher", return_value=bond_fetcher),
+        ):
+            snap = build_market_snapshot([portfolio])
+        assert "UST5.0SEP31" not in snap.prices
+        assert snap.exchange_codes["UST5.0SEP31"] == "Bond"
+
+    def test_no_bonds_skips_bond_fetcher(self):
+        portfolio = _make_portfolio(
+            positions=[
+                Position(symbol="TLT", quantity=1, avg_cost=90.0, asset_type="bond")
+            ]
+        )
+        with (
+            patch("stonks_cli.market.PriceFetcher", return_value=_make_fetcher_mock()),
+            patch("stonks_cli.market.BondPriceFetcher") as bond_cls,
+        ):
+            build_market_snapshot([portfolio])
+        bond_cls.assert_not_called()

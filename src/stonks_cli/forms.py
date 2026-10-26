@@ -1,5 +1,6 @@
 """Modal form dialogs for add/edit operations in the portfolio TUI."""
 
+from datetime import date
 from typing import Any, TypeVar
 
 from textual.app import ComposeResult
@@ -8,7 +9,14 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Select
 from textual.widgets._select import NoSelection
 
-from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
+from stonks_cli.bonds import DEFAULT_FACE_VALUE, DEFAULT_FREQUENCY, BondInfo
+from stonks_cli.dto import (
+    BacktestConfig,
+    BondFields,
+    CashResult,
+    EquityResult,
+    WatchResult,
+)
 
 _FormResultT = TypeVar("_FormResultT")
 
@@ -57,6 +65,18 @@ def _validate_positive_float(raw: str, label_str: str, err: Label) -> float | No
     return val
 
 
+def _validate_non_negative_float(raw: str, label_str: str, err: Label) -> float | None:
+    """Parse *raw* as a float >= 0; update *err* and return None on failure."""
+    try:
+        val = float(raw)
+        if val < 0:
+            raise ValueError
+    except ValueError:
+        err.update(f"{label_str} must be zero or a positive number")
+        return None
+    return val
+
+
 # ---------------------------------------------------------------------------
 # Asset type options (shared across equity and watchlist forms)
 # ---------------------------------------------------------------------------
@@ -68,6 +88,15 @@ _ASSET_TYPE_OPTIONS: list[tuple[str, str | None]] = [
     ("Bond", "bond"),
     ("Commodity", "commodity"),
     ("Forex", "forex"),
+]
+
+_BOND_ASSET_TYPE = "bond"
+
+_FREQUENCY_OPTIONS: list[tuple[str, int]] = [
+    ("Semi-annual", 2),
+    ("Annual", 1),
+    ("Quarterly", 4),
+    ("Monthly", 12),
 ]
 
 
@@ -142,9 +171,24 @@ class TypeSelectScreen(ModalScreen[str | None]):
 
 
 class EquityFormScreen(BaseFormScreen[EquityResult]):
-    """Form for adding or editing an equity position."""
+    """Form for adding or editing an equity, crypto, ETF or bond position.
+
+    Choosing the "Bond" asset type reveals the bond-terms fields and hides
+    the external-ID field, which bonds don't use.
+    """
 
     AUTO_FOCUS = "#symbol"
+
+    # The bond fields make the form taller than small terminals; let it scroll.
+    DEFAULT_CSS = """
+    EquityFormScreen > Vertical { max-height: 100%; overflow-y: auto; }
+    EquityFormScreen .pair { height: auto; }
+    EquityFormScreen .pair > Vertical { width: 1fr; height: auto; }
+    EquityFormScreen .pair > Vertical:first-child { margin-right: 1; }
+    EquityFormScreen #bond-fields { height: auto; }
+    EquityFormScreen #external-fields { height: auto; }
+    EquityFormScreen .hint { color: $text-muted; }
+    """
 
     def __init__(
         self,
@@ -155,23 +199,26 @@ class EquityFormScreen(BaseFormScreen[EquityResult]):
         currency: str = "USD",
         asset_type: str | None = None,
         external_id: str = "",
+        bond: BondInfo | None = None,
     ) -> None:
         super().__init__(title)
         self._symbol = symbol
         self._qty = qty
         self._avg_cost = avg_cost
         self._currency = currency
-        self._asset_type = asset_type
+        self._asset_type = _BOND_ASSET_TYPE if bond is not None else asset_type
         self._external_id = external_id
+        self._bond = bond
 
     def compose(self) -> ComposeResult:
+        bond = self._bond
         with Vertical():
             yield Label(self._title)
             yield Label("Symbol", classes="field-label")
             yield Input(value=self._symbol, placeholder="e.g. AAPL", id="symbol")
-            yield Label("Quantity", classes="field-label")
+            yield Label("Quantity", classes="field-label", id="qty-label")
             yield Input(value=self._qty, placeholder="e.g. 10 or 0.25", id="qty")
-            yield Label("Avg Cost", classes="field-label")
+            yield Label("Avg Cost", classes="field-label", id="avg-cost-label")
             yield Input(value=self._avg_cost, placeholder="e.g. 150.00", id="avg_cost")
             yield Label("Currency", classes="field-label")
             yield Input(value=self._currency, placeholder="USD", id="currency")
@@ -182,16 +229,138 @@ class EquityFormScreen(BaseFormScreen[EquityResult]):
                 allow_blank=False,
                 id="asset_type",
             )
-            yield Label("External ID (e.g. CoinGecko coin ID)", classes="field-label")
-            yield Input(
-                value=self._external_id,
-                placeholder="e.g. bitcoin",
-                id="external_id",
-            )
+            with Vertical(id="external-fields"):
+                yield Label(
+                    "External ID (e.g. CoinGecko coin ID)", classes="field-label"
+                )
+                yield Input(
+                    value=self._external_id,
+                    placeholder="e.g. bitcoin",
+                    id="external_id",
+                )
+            with Vertical(id="bond-fields"):
+                yield Label(
+                    "Leave maturity and coupon blank for a bond ETF.",
+                    classes="field-label hint",
+                )
+                with Horizontal(classes="pair"):
+                    with Vertical():
+                        yield Label("Maturity", classes="field-label")
+                        yield Input(
+                            value=bond.maturity.isoformat() if bond else "",
+                            placeholder="YYYY-MM-DD",
+                            id="maturity",
+                        )
+                    with Vertical():
+                        yield Label("Coupon %", classes="field-label")
+                        yield Input(
+                            value=f"{bond.coupon:g}" if bond else "",
+                            placeholder="e.g. 5.0",
+                            id="coupon",
+                        )
+                with Horizontal(classes="pair"):
+                    with Vertical():
+                        yield Label("Face value", classes="field-label")
+                        yield Input(
+                            value=f"{bond.face_value:g}"
+                            if bond
+                            else f"{DEFAULT_FACE_VALUE:g}",
+                            id="face_value",
+                        )
+                    with Vertical():
+                        yield Label("Coupons", classes="field-label")
+                        yield Select(
+                            _FREQUENCY_OPTIONS,
+                            value=bond.frequency if bond else DEFAULT_FREQUENCY,
+                            allow_blank=False,
+                            id="frequency",
+                        )
+                with Horizontal(classes="pair"):
+                    with Vertical():
+                        yield Label("CUSIP (optional)", classes="field-label")
+                        yield Input(
+                            value=(bond.cusip or "") if bond else "",
+                            placeholder="e.g. 91282CRN3",
+                            id="cusip",
+                        )
+                    with Vertical():
+                        yield Label("Price % (optional)", classes="field-label")
+                        yield Input(
+                            value=f"{bond.price:g}"
+                            if bond and bond.price is not None
+                            else "",
+                            placeholder="auto",
+                            id="bond_price",
+                        )
             yield Label("", id="error", classes="error")
             with Horizontal(classes="buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self._sync_bond_fields(self._asset_type)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "asset_type":
+            value = event.value
+            self._sync_bond_fields(None if isinstance(value, NoSelection) else value)
+
+    def _sync_bond_fields(self, asset_type: object) -> None:
+        """Show bond fields for bonds, external ID for everything else."""
+        is_bond = asset_type == _BOND_ASSET_TYPE
+        self.query_one("#bond-fields").display = is_bond
+        self.query_one("#external-fields").display = not is_bond
+        self.query_one("#qty-label", Label).update(
+            "Quantity (number of bonds)" if is_bond else "Quantity"
+        )
+        self.query_one("#avg-cost-label", Label).update(
+            "Avg Cost (% of par)" if is_bond else "Avg Cost"
+        )
+
+    def _read_bond_fields(self, err: Label) -> BondFields | None:
+        """Validate the bond inputs; update *err* and return None on failure."""
+        maturity_raw = self.query_one("#maturity", Input).value.strip()
+        if not _validate_required(maturity_raw, "Maturity", err):
+            return None
+        try:
+            maturity = date.fromisoformat(maturity_raw)
+        except ValueError:
+            err.update("Maturity must be a date like 2031-09-30")
+            return None
+        coupon = _validate_non_negative_float(
+            self.query_one("#coupon", Input).value.strip(), "Coupon", err
+        )
+        if coupon is None:
+            return None
+        face_value = _validate_positive_float(
+            self.query_one("#face_value", Input).value.strip(), "Face value", err
+        )
+        if face_value is None:
+            return None
+        frequency_val = self.query_one("#frequency", Select).value
+        frequency = (
+            DEFAULT_FREQUENCY
+            if isinstance(frequency_val, NoSelection)
+            else int(frequency_val)
+        )
+        cusip = self.query_one("#cusip", Input).value.strip().upper() or None
+        if cusip is not None and (len(cusip) != 9 or not cusip.isalnum()):
+            err.update("CUSIP must be 9 letters or digits")
+            return None
+        price_raw = self.query_one("#bond_price", Input).value.strip()
+        price: float | None = None
+        if price_raw:
+            price = _validate_positive_float(price_raw, "Price", err)
+            if price is None:
+                return None
+        return BondFields(
+            maturity=maturity,
+            coupon=coupon,
+            face_value=face_value,
+            frequency=frequency,
+            cusip=cusip,
+            price=price,
+        )
 
     def _submit(self) -> None:
         symbol = self.query_one("#symbol", Input).value.strip().upper()
@@ -202,7 +371,12 @@ class EquityFormScreen(BaseFormScreen[EquityResult]):
         asset_type: str | None = (
             None if isinstance(asset_type_val, NoSelection) else asset_type_val
         )
-        external_id = self.query_one("#external_id", Input).value.strip() or None
+        is_bond = asset_type == _BOND_ASSET_TYPE
+        external_id = (
+            None
+            if is_bond
+            else self.query_one("#external_id", Input).value.strip() or None
+        )
         err = self.query_one("#error", Label)
         if not _validate_required(symbol, "Symbol", err):
             return
@@ -212,15 +386,26 @@ class EquityFormScreen(BaseFormScreen[EquityResult]):
         avg_cost = _validate_positive_float(avg_cost_str, "Avg cost", err)
         if avg_cost is None:
             return
-        self.dismiss(
-            EquityResult(
-                symbol=symbol,
-                qty=qty,
-                avg_cost=avg_cost,
-                currency=currency,
-                asset_type=asset_type,
-                external_id=external_id,
-            )
+        result = EquityResult(
+            symbol=symbol,
+            qty=qty,
+            avg_cost=avg_cost,
+            currency=currency,
+            asset_type=asset_type,
+            external_id=external_id,
+        )
+        if is_bond and self._has_bond_terms():
+            bond = self._read_bond_fields(err)
+            if bond is None:
+                return
+            result["bond"] = bond
+        self.dismiss(result)
+
+    def _has_bond_terms(self) -> bool:
+        """False when maturity and coupon are both blank (e.g. a bond ETF)."""
+        return any(
+            self.query_one(f"#{field}", Input).value.strip()
+            for field in ("maturity", "coupon")
         )
 
 

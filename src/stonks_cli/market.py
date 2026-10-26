@@ -5,11 +5,17 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from stonks_cli.bond_fetcher import SOURCE_LABEL, BondPriceFetcher, BondQuote
+from stonks_cli.bonds import BondInfo
 from stonks_cli.crypto_fetcher import CryptoFetcher
 from stonks_cli.fetcher import PriceFetcher
+from stonks_cli.market_session import Session
 from stonks_cli.models import Portfolio
 
 logger = logging.getLogger(__name__)
+
+# Exchange-column label for a bond that no source could price.
+UNPRICED_BOND_LABEL = "Bond"
 
 
 @dataclass
@@ -22,6 +28,29 @@ class MarketSnapshot:
     # Keyed by base currency, then by position currency.
     forex_rates: dict[str, dict[str, float]] = field(default_factory=dict)
     prev_closes: dict[str, float] = field(default_factory=dict)
+    # Source and as-of date for each bond price, keyed by symbol.
+    bond_quotes: dict[str, BondQuote] = field(default_factory=dict)
+
+
+def _collect_bonds(portfolios: list[Portfolio]) -> dict[str, BondInfo]:
+    """Return bond terms keyed by symbol; the first portfolio listing it wins."""
+    bonds: dict[str, BondInfo] = {}
+    for portfolio in portfolios:
+        for pos in portfolio.positions:
+            if pos.bond is not None and pos.symbol not in bonds:
+                bonds[pos.symbol] = pos.bond
+    return bonds
+
+
+def _apply_bond_quotes(snap: MarketSnapshot, quotes: dict[str, BondQuote]) -> None:
+    for symbol, quote in quotes.items():
+        snap.prices[symbol] = quote.price
+        # End-of-day data: no live session, so no badge and no STALE flag.
+        snap.sessions[symbol] = Session.REGULAR
+        if quote.prev_close is not None:
+            snap.prev_closes[symbol] = quote.prev_close
+        snap.exchange_codes[symbol] = SOURCE_LABEL[quote.source]
+        snap.bond_quotes[symbol] = quote
 
 
 def _collect_asset_symbols(
@@ -100,14 +129,17 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
 
     Equity prices are sourced from yfinance (3-tier: extended -> daily batch
     -> individual).  Crypto prices are sourced from CoinGecko with a yfinance
-    fallback.  Sessions for batch/single fallbacks are derived via
-    ``current_session()`` rather than being hardcoded.
+    fallback.  Bond prices come from :class:`BondPriceFetcher` (manual price,
+    Treasury FedInvest, or a yield-curve model).  Sessions for batch/single
+    fallbacks are derived via ``current_session()`` rather than being
+    hardcoded.
     """
     fetcher = PriceFetcher()
     snap = MarketSnapshot()
 
+    bonds = _collect_bonds(portfolios)
     asset_types, external_ids = _collect_asset_symbols(portfolios)
-    all_symbols = list(asset_types)
+    all_symbols = [s for s in asset_types if s not in bonds]
     crypto_symbols = [s for s in all_symbols if asset_types.get(s) == "crypto"]
     equity_symbols = [s for s in all_symbols if s not in crypto_symbols]
 
@@ -117,6 +149,11 @@ def build_market_snapshot(portfolios: list[Portfolio]) -> MarketSnapshot:
     snap.prev_closes.update(eq_prev)
 
     snap.exchange_codes = fetcher.fetch_exchange_names(all_symbols)
+
+    if bonds:
+        _apply_bond_quotes(snap, BondPriceFetcher().fetch_quotes(bonds))
+        for symbol in bonds:
+            snap.exchange_codes.setdefault(symbol, UNPRICED_BOND_LABEL)
 
     if crypto_symbols:
         cr_prices, cr_sessions, cr_prev = _fetch_crypto_data(
