@@ -21,7 +21,7 @@ and submit changes.
 ### Clone the repository
 
 ```bash
-git clone https://github.com/igorpaniuk/stonks-cli.git
+git clone https://github.com/igoropaniuk/stonks-cli.git
 cd stonks-cli
 ```
 

@@ -127,6 +127,8 @@ from `~/.config/stonks/portfolio.yaml`; you can override this with the
 
 ```yaml
 portfolio:
+  name: Personal          # optional label shown in the dashboard
+  base_currency: EUR      # currency of the Total line; defaults to USD
   positions:
     - symbol: AAPL
       quantity: 10
@@ -164,6 +166,15 @@ portfolio:
       asset_type: crypto
       external_id: chainlink
 ```
+
+**Portfolio** fields:
+
+| Field           | Type   | Required | Description                                                     |
+| --------------- | ------ | -------- | --------------------------------------------------------------- |
+| `name`          | string | no       | Label shown above the table and in multi-portfolio output       |
+| `base_currency` | string | no       | ISO 4217 code the Total line is converted to; defaults to `USD` |
+
+Both can also be set with `stonks set name` and `stonks set base-currency`.
 
 **Positions** fields:
 
@@ -609,32 +620,34 @@ the terminal is resized.
 US equities on exchanges that support extended hours show a session tag next
 to the price:
 
-| Tag   | Session                   |
-| ----- | ------------------------- |
-| `PRE` | Pre-market                |
-| `AH`  | After-hours / post-market |
-| `CLS` | Market closed             |
-| *(none)* | Regular trading hours  |
+| Tag      | Session                                                              |
+| -------- | -------------------------------------------------------------------- |
+| `PRE`    | Pre-market                                                           |
+| `AH`     | After-hours / post-market                                            |
+| `CLS`    | Market closed                                                        |
+| `STALE`  | Exchange is open but the data source only has an earlier day's price |
+| *(none)* | Regular trading hours                                                |
 
 Non-US equities and crypto show no tag during regular hours and `CLS` when the
-market is closed (using holiday-aware calendar data).
+market is closed (using holiday-aware calendar data). A `STALE` row shows `--`
+for the daily change rather than a misleading `0.00`.
 
 ### Keyboard shortcuts
 
-| Key      | Action                                            |
-| -------- | ------------------------------------------------- |
-| `a`      | Add a new position (equity, crypto, ETF, cash)    |
-| `e`      | Edit the currently selected position              |
-| `r`      | Remove the currently selected position            |
-| `Enter`  | Open the detail screen for the selected row       |
-| `f`      | Open the detail screen for the selected row       |
-| `g`      | Open the candlestick chart (not for bonds)        |
-| `Tab`    | Switch focus between portfolio tables             |
-| `c`      | Open the AI chat assistant                        |
-| `b`      | Run a portfolio backtest                          |
-| `n`      | Toggle the news feed panel                        |
-| `l`      | Open the log viewer                               |
-| `q`      | Quit                                              |
+| Key     | Action                                              |
+| ------- | --------------------------------------------------- |
+| `a`     | Add a position, cash balance or watchlist item      |
+| `e`     | Edit the selected position, cash or watchlist row   |
+| `r`     | Remove the selected position, cash or watchlist row |
+| `Enter` | Open the detail screen for the selected row         |
+| `f`     | Open the detail screen for the selected row         |
+| `g`     | Open the candlestick chart (not for bonds)          |
+| `Tab`   | Switch focus between portfolio tables               |
+| `c`     | Open the AI chat assistant                          |
+| `b`     | Run a portfolio backtest                            |
+| `n`     | Toggle the news feed panel                          |
+| `l`     | Open the log viewer                                 |
+| `q`     | Quit                                                |
 
 Column headers are clickable -- click once to sort ascending, again to sort
 descending.

@@ -22,14 +22,14 @@ Before tagging, document everything that changed since the last release in
 3. Add a reference link at the bottom of the file:
 
    ```text
-   [X.Y.Z]: https://github.com/igorpaniuk/stonks-cli/compare/vA.B.C...vX.Y.Z
+   [X.Y.Z]: https://github.com/igoropaniuk/stonks-cli/compare/vA.B.C...vX.Y.Z
    ```
 
    For the first release (e.g., v0.1.0), link to the release tag directly, as there
    is no previous version to compare with:
 
    ```text
-   [0.1.0]: https://github.com/igorpaniuk/stonks-cli/releases/tag/v0.1.0
+   [0.1.0]: https://github.com/igoropaniuk/stonks-cli/releases/tag/v0.1.0
    ```
 
 4. Commit the changelog update:
