@@ -450,11 +450,15 @@ stonks add AAPL 10 150.00
 # Add a non-US stock (ASML on Euronext Amsterdam)
 stonks add ASML.AS 5 680.00
 
-# Add crypto (symbol is resolved automatically via the bundled coin map)
+# Add crypto: a BASE-USD symbol is tagged asset_type: crypto automatically.
+# Fractional quantities are fine.
 stonks add BTC-USD 0.5 60000.00
 
-# For precise control, set external_id directly in the YAML:
-#   external_id: bitcoin
+# The CoinGecko coin ID is filled in from the bundled map when the ticker is
+# unambiguous; otherwise it is looked up via CoinGecko search at refresh time.
+# To pin it (or set the currency / asset type) explicitly:
+stonks add BTC-USD 0.5 60000.00 --external-id bitcoin
+stonks add ASML.AS 5 680.00 --currency EUR --asset-type equity
 
 # Use a named portfolio (resolves to ~/.config/stonks/work.yaml)
 stonks -p work add NVDA 2 800.00

@@ -72,6 +72,88 @@ class TestAdd:
         invoke(runner, portfolio_file, "add", "AAPL", "10", "150.0")
         assert portfolio_file.exists()
 
+    def test_fractional_quantity_accepted(self, runner, portfolio_file):
+        result = invoke(runner, portfolio_file, "add", "BTC-USD", "0.5", "60000")
+        assert result.exit_code == 0, result.output
+        pos = PortfolioStore(path=portfolio_file).load().get_position("BTC-USD")
+        assert pos is not None
+        assert pos.quantity == pytest.approx(0.5)
+
+    @pytest.mark.parametrize("args", [["AAPL", "0", "150"], ["AAPL", "1", "0"]])
+    def test_non_positive_values_rejected(self, runner, portfolio_file, args):
+        result = invoke(runner, portfolio_file, "add", *args)
+        assert result.exit_code != 0
+        assert "positive" in result.output
+        assert not portfolio_file.exists()
+
+    def test_crypto_symbol_is_tagged(self, runner, portfolio_file):
+        """README promises BTC-USD is priced via CoinGecko: that needs
+        asset_type=crypto.  BTC is an ambiguous ticker (many coins use it),
+        so it is not in the bundled map and the ID is resolved by CoinGecko
+        search at refresh time; external_id stays unset here."""
+        result = invoke(runner, portfolio_file, "add", "btc-usd", "0.5", "60000")
+        assert result.exit_code == 0, result.output
+        assert "crypto" in result.output
+        pos = PortfolioStore(path=portfolio_file).load().get_position("BTC-USD")
+        assert pos.asset_type == "crypto"
+        assert pos.external_id is None
+
+    def test_unambiguous_crypto_gets_coin_id_from_bundled_map(
+        self, runner, portfolio_file
+    ):
+        import importlib.resources
+        import json
+
+        mapping = json.loads(
+            importlib.resources.files("stonks_cli.data")
+            .joinpath("coingecko_coins.json")
+            .read_text(encoding="utf-8")
+        )
+        sym, cg_id = next(
+            (k, v) for k, v in sorted(mapping.items()) if k.isalpha() and len(k) > 2
+        )
+        result = invoke(runner, portfolio_file, "add", f"{sym}-USD", "1", "1")
+        assert result.exit_code == 0, result.output
+        pos = PortfolioStore(path=portfolio_file).load().get_position(f"{sym}-USD")
+        assert pos.asset_type == "crypto"
+        assert pos.external_id == cg_id
+
+    def test_share_class_is_not_tagged_crypto(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "BRK-B", "1", "400")
+        pos = PortfolioStore(path=portfolio_file).load().get_position("BRK-B")
+        assert pos.asset_type is None
+        assert pos.external_id is None
+
+    def test_explicit_options_win(self, runner, portfolio_file):
+        result = invoke(
+            runner,
+            portfolio_file,
+            "add",
+            "ASML.AS",
+            "2",
+            "680",
+            "--currency",
+            "eur",
+            "--asset-type",
+            "etf",
+            "--external-id",
+            "x",
+        )
+        assert result.exit_code == 0, result.output
+        pos = PortfolioStore(path=portfolio_file).load().get_position("ASML.AS")
+        assert (pos.currency, pos.asset_type, pos.external_id) == ("EUR", "etf", "x")
+
+    def test_top_up_keeps_existing_metadata(self, runner, portfolio_file):
+        invoke(
+            runner, portfolio_file, "add", "ASML.AS", "2", "680", "--currency", "EUR"
+        )
+        invoke(
+            runner, portfolio_file, "add", "ASML.AS", "1", "700", "--currency", "USD"
+        )
+        pos = PortfolioStore(path=portfolio_file).load().get_position("ASML.AS")
+        assert pos.currency == "EUR"
+        assert pos.quantity == 3
+
 
 # ---------------------------------------------------------------------------
 # remove
@@ -95,6 +177,13 @@ class TestRemove:
         pos = portfolio.get_position("AAPL")
         assert pos is not None
         assert pos.quantity == 60
+
+    def test_removes_fractional_quantity(self, runner, portfolio_file):
+        invoke(runner, portfolio_file, "add", "BTC-USD", "0.5", "60000")
+        result = invoke(runner, portfolio_file, "remove", "BTC-USD", "0.25")
+        assert result.exit_code == 0, result.output
+        pos = PortfolioStore(path=portfolio_file).load().get_position("BTC-USD")
+        assert pos.quantity == pytest.approx(0.25)
 
     def test_error_on_unknown_symbol(self, runner, portfolio_file):
         result = invoke(runner, portfolio_file, "remove", "MSFT", "10")

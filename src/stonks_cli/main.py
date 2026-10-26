@@ -9,6 +9,8 @@ import click
 
 from stonks_cli import __version__
 from stonks_cli.app import DEFAULT_REFRESH_INTERVAL, PortfolioApp
+from stonks_cli.exchanges import is_crypto_symbol
+from stonks_cli.helpers import fmt_qty
 from stonks_cli.log import setup_logging
 from stonks_cli.market import build_market_snapshot
 from stonks_cli.models import Portfolio
@@ -105,37 +107,98 @@ def main(ctx: click.Context, portfolio: tuple[str, ...], log_level: str) -> None
         ctx.invoke(dashboard)
 
 
+def _positive(ctx: click.Context, param: click.Parameter, value: float) -> float:
+    if value <= 0:
+        raise click.BadParameter("must be a positive number")
+    return value
+
+
 @main.command()
 @click.argument("symbol")
-@click.argument("quantity", type=int)
-@click.argument("price", type=float)
+@click.argument("quantity", type=float, callback=_positive)
+@click.argument("price", type=float, callback=_positive)
+@click.option(
+    "--currency",
+    default=None,
+    help="ISO 4217 code of the position (default USD; ignored when topping up).",
+)
+@click.option(
+    "--asset-type",
+    "asset_type",
+    default=None,
+    help=(
+        "Asset class, e.g. 'crypto'.  Symbols like BTC-USD are tagged crypto "
+        "automatically."
+    ),
+)
+@click.option(
+    "--external-id",
+    "external_id",
+    default=None,
+    help="Provider-specific ID (e.g. CoinGecko coin ID) for unambiguous lookup.",
+)
 @click.pass_context
-def add(ctx: click.Context, symbol: str, quantity: int, price: float) -> None:
-    """Add QUANTITY shares of SYMBOL at PRICE to the portfolio."""
+def add(
+    ctx: click.Context,
+    symbol: str,
+    quantity: float,
+    price: float,
+    currency: str | None,
+    asset_type: str | None,
+    external_id: str | None,
+) -> None:
+    """Add QUANTITY units of SYMBOL bought at PRICE to the portfolio.
+
+    QUANTITY may be fractional (e.g. 0.5 for half a bitcoin).  A new
+    crypto position is tagged ``asset_type: crypto`` and its CoinGecko
+    coin ID is filled in from the bundled coin map when known.
+    """
     store = _mutable_store(ctx)
-    portfolio = _load_mutate_save(
-        store, lambda p: p.add_position(symbol, quantity, price)
-    )
+
+    def mutate(p: Portfolio) -> None:
+        existing = p.get_position(symbol)
+        p.add_position(symbol, quantity, price)
+        if existing is not None:
+            return  # top-up: keep the existing currency/type/id
+        pos = p.get_position(symbol)
+        assert pos is not None
+        if currency:
+            pos.currency = currency.strip().upper()
+        pos.asset_type = asset_type or ("crypto" if is_crypto_symbol(symbol) else None)
+        if pos.asset_type == "crypto":
+            from stonks_cli.crypto_fetcher import resolve_coin_id
+
+            pos.external_id = external_id or resolve_coin_id(symbol)
+        else:
+            pos.external_id = external_id
+
+    portfolio = _load_mutate_save(store, mutate)
     pos = portfolio.get_position(symbol)
     if pos is None:
         raise click.ClickException(
             f"Position '{symbol.upper()}' not found after adding"
         )
+    tag = f", {pos.asset_type}" if pos.asset_type else ""
     click.echo(
-        f"Added {quantity} * {symbol.upper()} @ {price:.2f}  "
-        f"(position: {pos.quantity} shares, avg cost {pos.avg_cost:.2f})"
+        f"Added {fmt_qty(quantity)} * {symbol.upper()} @ {price:.2f}  "
+        f"(position: {fmt_qty(pos.quantity)} shares, "
+        f"avg cost {pos.avg_cost:.2f}{tag})"
     )
 
 
 @main.command()
 @click.argument("symbol")
-@click.argument("quantity", type=int)
+@click.argument("quantity", type=float, callback=_positive)
 @click.pass_context
-def remove(ctx: click.Context, symbol: str, quantity: int) -> None:
-    """Remove QUANTITY shares of SYMBOL from the portfolio."""
+def remove(ctx: click.Context, symbol: str, quantity: float) -> None:
+    """Remove QUANTITY units of SYMBOL from the portfolio.
+
+    QUANTITY may be fractional.  Removing the whole holding deletes the
+    position.
+    """
     store = _mutable_store(ctx)
     _load_mutate_save(store, lambda p: p.remove_position(symbol, quantity))
-    click.echo(f"Removed {quantity} * {symbol.upper()}")
+    click.echo(f"Removed {fmt_qty(quantity)} * {symbol.upper()}")
 
 
 @main.command()
