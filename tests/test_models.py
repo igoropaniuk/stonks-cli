@@ -1,7 +1,10 @@
 """Tests for stonks_cli.models."""
 
+from datetime import date
+
 import pytest
 
+from stonks_cli.bonds import BondInfo
 from stonks_cli.models import (
     CashPosition,
     Portfolio,
@@ -470,3 +473,56 @@ class TestCombinedPortfolioTotal:
         forex = {"USD": {"USD": 1.0}}
         combined, _ = combined_portfolio_total([p], prices, forex)
         assert combined == pytest.approx(portfolio_total(p, prices, {"USD": 1.0}))
+
+
+# ---------------------------------------------------------------------------
+# Bond positions
+# ---------------------------------------------------------------------------
+
+
+UST_2031 = BondInfo(maturity=date(2031, 9, 30), coupon=5.0)
+
+
+class TestBondPosition:
+    bond = UST_2031
+
+    def _pos(self, **kwargs):
+        args = {"symbol": "UST5.0SEP31", "quantity": 15, "avg_cost": 100.47}
+        return Position(**{**args, **kwargs, "bond": self.bond})
+
+    def test_asset_type_forced_to_bond(self):
+        assert self._pos(asset_type="equity").asset_type == "bond"
+        assert self._pos().is_bond
+
+    def test_plain_position_is_not_bond(self):
+        assert not Position(symbol="TLT", quantity=1, avg_cost=90.0).is_bond
+
+    def test_market_value_includes_accrued_interest(self):
+        pos = self._pos()
+        value = pos.market_value(100.47, as_of=date(2026, 10, 15))
+        # 15 x 1000 x 100.47% + 15 x 25 x 15/182 accrued
+        assert value == pytest.approx(15070.5 + 15 * 25 * 15 / 182)
+
+    def test_market_value_on_coupon_date_has_no_accrual(self):
+        pos = self._pos()
+        assert pos.market_value(99.75, as_of=date(2026, 9, 30)) == pytest.approx(
+            14962.5
+        )
+
+    def test_unrealized_pnl_on_clean_price(self):
+        assert self._pos().unrealized_pnl(99.75) == pytest.approx(-108.0)
+
+    def test_update_sets_and_clears_bond(self):
+        pos = self._pos()
+        pos.update("UST5.0SEP31", 10, 100.0, "USD", "bond", None, bond=None)
+        assert pos.bond is None
+        assert pos.market_value(100.0) == pytest.approx(1000.0)
+        pos.update("UST5.0SEP31", 10, 100.0, "USD", None, None, bond=self.bond)
+        assert pos.is_bond and pos.asset_type == "bond"
+
+    def test_portfolio_total_uses_bond_value(self):
+        pos = self._pos()
+        total = portfolio_total(
+            Portfolio(positions=[pos]), {pos.symbol: 100.0}, {"USD": 1.0}
+        )
+        assert total == pytest.approx(pos.market_value(100.0))

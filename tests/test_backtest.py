@@ -1,5 +1,6 @@
 """Unit tests for the backtesting engine."""
 
+from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
@@ -9,10 +10,12 @@ from stonks_cli.backtest import (
     BacktestResult,
     _best_worst_year,
     _cagr,
+    _compute_weights,
     _max_drawdown,
     _sharpe,
     run_backtest,
 )
+from stonks_cli.bonds import BondInfo
 from stonks_cli.dto import BacktestConfig
 from stonks_cli.models import Portfolio, Position
 
@@ -585,3 +588,34 @@ class TestClosestDateIndexEdge:
         # "2025-01-06" is closer to index 2 ("2025-01-07") but the implementation
         # uses floor/bisect-left behaviour and returns the lower neighbour.
         assert _closest_date_index(dates, "2025-01-06") == 1
+
+
+class TestBondsExcluded:
+    BOND = Position(
+        "UST5.0SEP31",
+        15,
+        100.47,
+        bond=BondInfo(maturity=date(2031, 9, 30), coupon=5.0),
+    )
+
+    def test_weights_ignore_bonds(self):
+        portfolio = Portfolio(positions=[Position("AAPL", 10, 150.0), self.BOND])
+        assert _compute_weights(portfolio) == {"AAPL": 1.0}
+
+    def test_bond_only_portfolio_raises(self):
+        with pytest.raises(ValueError, match="no equity positions"):
+            run_backtest(Portfolio(positions=[self.BOND]), _default_config())
+
+    @patch("stonks_cli.backtest.yf.download")
+    def test_bonds_reported_as_skipped(self, mock_download):
+        n = len(_DATES_3Y)
+        df = _make_prices(
+            _DATES_3Y,
+            {"AAPL": _flat_prices(150, n), "SPY": _flat_prices(400, n)},
+        )
+        mock_download.return_value = pd.concat({"Close": df}, axis=1)
+        portfolio = Portfolio(positions=[Position("AAPL", 10, 150.0), self.BOND])
+        result = run_backtest(portfolio, _default_config())
+        assert result.skipped_symbols == ["UST5.0SEP31"]
+        requested = mock_download.call_args.args[0]
+        assert "UST5.0SEP31" not in requested

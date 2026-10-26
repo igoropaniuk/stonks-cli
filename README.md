@@ -31,6 +31,7 @@ stonks demo # create demo portfolio
 - **AI chat assistant** -- ask questions about your portfolio
 - **Watchlist** -- track symbols without a position; dimmed in the dashboard
 - **Cryptocurrency** -- `BTC-USD`-style symbols priced via CoinGecko
+- **Bonds** -- Treasuries priced from Treasury data, others at a manual price
 - **Multi-portfolio** -- side-by-side YAML files with multiple `-p` flags
 - **Multi-currency** -- totals converted to a base currency using forex rates
 
@@ -45,6 +46,7 @@ stonks demo # create demo portfolio
   - [Europe](#europe)
   - [Asia-Pacific](#asia-pacific)
   - [Cryptocurrency](#cryptocurrency)
+  - [Bonds](#bonds)
   - [Examples](#examples)
 - [Usage](#usage)
   - [Quick snapshot (stdout)](#quick-snapshot-stdout)
@@ -173,6 +175,7 @@ portfolio:
 | `currency`    | string        | no       | ISO 4217 code; defaults to `USD`                             |
 | `asset_type`  | string        | no       | Asset class: `equity`, `crypto`, `etf`, `bond`, `commodity`, `forex` |
 | `external_id` | string        | no       | Provider-specific ID used for price lookup  |
+| `bond`        | mapping       | no       | Bond terms; see [Bonds](#bonds)                              |
 
 **Cash** fields:
 
@@ -288,6 +291,62 @@ symbols that map to multiple coins and avoids a runtime search API call.
 If `external_id` is omitted, stonks-cli resolves the coin automatically using
 a bundled symbol map (11 000+ entries) and falls back to the CoinGecko
 `/search` endpoint for ambiguous symbols, ranked by market cap.
+
+### Bonds
+
+Add a `bond` block to a position to track an individual bond. `quantity` is
+the number of bonds and `avg_cost` is the clean purchase price in percent of
+par, as brokers quote it.
+
+```yaml
+portfolio:
+  positions:
+    - symbol: UST5.0SEP31        # any unique label
+      quantity: 15               # number of bonds
+      avg_cost: 100.47           # clean price, percent of par
+      currency: USD
+      bond:
+        maturity: 2031-09-30
+        coupon: 5.0              # annual rate, percent
+        cusip: 91282CRN3         # enables automatic Treasury pricing
+        # face_value: 1000       # par per bond (default 1000)
+        # frequency: 2           # coupons per year: 1, 2, 4 or 12 (default 2)
+        # price: 100.47          # manual clean price; overrides fetched prices
+```
+
+| Field        | Type   | Required | Description                                              |
+| ------------ | ------ | -------- | -------------------------------------------------------- |
+| `maturity`   | date   | yes      | Maturity date, `YYYY-MM-DD`                              |
+| `coupon`     | float  | yes      | Annual coupon rate in percent (`0` for zero-coupon)      |
+| `face_value` | float  | no       | Par amount of one bond; defaults to `1000`               |
+| `frequency`  | int    | no       | Coupons per year: `1`, `2`, `4` or `12`; defaults to `2` |
+| `cusip`      | string | no       | Nine-character CUSIP                                     |
+| `price`      | float  | no       | Manual clean price in percent of par                     |
+
+Each bond is priced from the first source that works. The Exchange column
+shows which one was used.
+
+| Source                                                         | Label       | Applies to                              |
+| -------------------------------------------------------------- | ----------- | --------------------------------------- |
+| Manual `price` from the YAML                                   | `Manual`    | Any bond                                |
+| [Treasury FedInvest][fedinvest] end-of-day price for the CUSIP | `UST`       | U.S. Treasuries (CUSIP starting `912`)  |
+| Model price from the [Treasury par yield curve][par-curve]     | `UST model` | U.S. Treasuries not listed by FedInvest |
+
+Both Treasury sources publish once a day, so prices are fetched at most once
+an hour. FedInvest posts the current day's prices after about 1 p.m. Eastern;
+until then the previous business day's price is shown. Bonds that are not
+U.S. Treasuries need a manual `price`.
+
+Market value is the clean value plus accrued interest, which is what the
+position would fetch if sold. Unrealized P&L uses the clean price only, so
+accrued interest is not counted as a gain. Bonds are left out of backtests,
+since there is no price history for individual bonds.
+
+[fedinvest]: https://www.treasurydirect.gov/GA-FI/FedInvest/todaySecurityPriceDate
+[par-curve]: https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve
+
+> Bond ETFs such as `TLT` are ordinary tickers. Add them without a `bond`
+> block; `asset_type: bond` on its own is just a label.
 
 ### Examples
 
@@ -560,7 +619,7 @@ market is closed (using holiday-aware calendar data).
 | `r`      | Remove the currently selected position            |
 | `Enter`  | Open the detail screen for the selected row       |
 | `f`      | Open the detail screen for the selected row       |
-| `g`      | Open the candlestick chart for the selected row   |
+| `g`      | Open the candlestick chart (not for bonds)        |
 | `Tab`    | Switch focus between portfolio tables             |
 | `c`      | Open the AI chat assistant                        |
 | `b`      | Run a portfolio backtest                          |
@@ -630,6 +689,10 @@ Zooming recentres on the candle under the cursor.
 
 Press **Enter** on any equity or watchlist row to open a full-screen detail
 view. Press **Escape** or **Q** to return to the dashboard.
+
+On a bond row, **Enter** or **f** opens a bond view instead. It shows the
+terms, the price source, the yield to maturity, and the clean value, accrued
+interest and market value. See [Bonds](#bonds).
 
 The detail screen displays:
 

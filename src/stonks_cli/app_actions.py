@@ -2,7 +2,8 @@
 
 import logging
 
-from stonks_cli.dto import CashResult, EquityResult, WatchResult
+from stonks_cli.bonds import BondInfo
+from stonks_cli.dto import BondFields, CashResult, EquityResult, WatchResult
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 from stonks_cli.portfolio_table import RowKind
 
@@ -14,10 +15,25 @@ def watch_item(portfolio: Portfolio, symbol: str) -> WatchlistItem | None:
     return next((w for w in portfolio.watchlist if w.symbol == symbol), None)
 
 
+def _bond_info(fields: BondFields | None) -> BondInfo | None:
+    """Convert form bond fields to :class:`BondInfo` (raises ValueError)."""
+    if fields is None:
+        return None
+    return BondInfo(
+        maturity=fields["maturity"],
+        coupon=fields["coupon"],
+        face_value=fields["face_value"],
+        frequency=fields["frequency"],
+        cusip=fields["cusip"],
+        price=fields["price"],
+    )
+
+
 def add_equity(result: EquityResult, portfolio: Portfolio) -> str | None:
     """Apply an add-equity form result to *portfolio*; return an error or None."""
     is_new = portfolio.get_position(result["symbol"]) is None
     try:
+        bond = _bond_info(result.get("bond"))
         portfolio.add_position(result["symbol"], result["qty"], result["avg_cost"])
     except ValueError as exc:
         logger.warning("Failed to add equity %s: %s", result["symbol"], exc)
@@ -28,6 +44,11 @@ def add_equity(result: EquityResult, portfolio: Portfolio) -> str | None:
             pos.currency = result["currency"]
         pos.asset_type = result.get("asset_type")
         pos.external_id = result.get("external_id")
+        if bond is not None:
+            pos.bond = bond
+        if pos.bond is not None:
+            # Topping up an existing bond keeps it a bond.
+            pos.asset_type = "bond"
     return None
 
 
@@ -121,6 +142,7 @@ def edit_position(
             result["currency"],
             result.get("asset_type"),
             result.get("external_id"),
+            bond=_bond_info(result.get("bond")),
         )
     except ValueError as exc:
         logger.warning("Failed to edit position %s: %s", new_symbol, exc)

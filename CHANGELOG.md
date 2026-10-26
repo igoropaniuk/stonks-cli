@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `add` accepts `--asset-type` and `--external-id` for crypto routing.
 - `stonks set name NAME` (or `--clear`) and `stonks set base-currency CODE`
   to change portfolio settings from the CLI.
+- Bond positions. A `bond` block in the YAML (maturity, coupon, optional
+  CUSIP, face value, frequency and manual price) values the position as
+  face value x clean price plus accrued interest.  U.S. Treasuries are
+  priced daily from Treasury FedInvest by CUSIP, falling back to a model
+  price from the Treasury par yield curve; other bonds use a manual price.
+  The Exchange column shows the price source.
+- TUI support for bonds: choosing the "Bond" asset type in the add/edit form
+  reveals the bond fields, and `f` / Enter on a bond opens a detail view
+  with terms, price source, yield to maturity and a value breakdown.
 
 ### Changed
 
@@ -23,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the first portfolio only.
 - A corrupt portfolio file now produces a one-line error from the mutating
   commands rather than a traceback.
+- Backtests skip bond positions and list them under "Skipped (no historical
+  data)".
 
 ## [0.6.4] - 2026-05-29
 

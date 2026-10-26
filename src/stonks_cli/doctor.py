@@ -108,22 +108,27 @@ def check_portfolio(path: Path) -> Portfolio | None:
 
 def check_symbols(items: list[Position | WatchlistItem]) -> bool:
     """Probe each symbol and report any that cannot be fetched."""
+    from stonks_cli.bond_fetcher import SOURCE_LABEL, BondPriceFetcher
+    from stonks_cli.bonds import BondInfo
     from stonks_cli.crypto_fetcher import CryptoFetcher
 
-    # Collect equity and crypto symbols separately
+    # Collect equity, crypto and bond symbols separately
     equity_symbols: list[str] = []
     crypto_symbols: list[str] = []
     crypto_external_ids: dict[str, str] = {}
+    bonds: dict[str, BondInfo] = {}
 
     for item in items:
-        if item.asset_type == "crypto":
+        if isinstance(item, Position) and item.bond is not None:
+            bonds[item.symbol] = item.bond
+        elif item.asset_type == "crypto":
             crypto_symbols.append(item.symbol)
             if item.external_id:
                 crypto_external_ids[item.symbol] = item.external_id
         else:
             equity_symbols.append(item.symbol)
 
-    if not equity_symbols and not crypto_symbols:
+    if not equity_symbols and not crypto_symbols and not bonds:
         return True
 
     click.echo("\nSymbol validation")
@@ -173,6 +178,23 @@ def check_symbols(items: list[Position | WatchlistItem]) -> bool:
                     "no price returned -- check symbol or add external_id to YAML",
                 )
                 all_ok = False
+
+    # --- Bonds via BondPriceFetcher (manual, FedInvest, or yield curve) ---
+    if bonds:
+        quotes = BondPriceFetcher().fetch_quotes(bonds)
+        for sym in bonds:
+            quote = quotes.get(sym)
+            if quote is None:
+                _warn(
+                    sym,
+                    "no bond price -- add a Treasury cusip or a manual price to YAML",
+                )
+                all_ok = False
+            else:
+                _ok(
+                    sym,
+                    f"price: {quote.price:.4f} ({SOURCE_LABEL[quote.source]})",
+                )
 
     return all_ok
 

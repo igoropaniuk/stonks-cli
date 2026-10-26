@@ -1,6 +1,10 @@
 """Unit tests for TUI action mutation helpers."""
 
+from datetime import date
+
 from stonks_cli import app_actions
+from stonks_cli.bonds import BondInfo
+from stonks_cli.dto import EquityResult
 from stonks_cli.market_session import Session
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 from stonks_cli.portfolio_table import RowKind
@@ -220,3 +224,71 @@ def test_watch_item_returns_matching_symbol() -> None:
 
 def test_session_enum_still_behaves_like_string() -> None:
     assert Session.REGULAR == "regular"
+
+
+# ---------------------------------------------------------------------------
+# Bonds
+# ---------------------------------------------------------------------------
+
+
+def _bond_result(**overrides) -> EquityResult:
+    result = EquityResult(
+        symbol="UST5.0SEP31",
+        qty=15,
+        avg_cost=100.47,
+        currency="USD",
+        asset_type="bond",
+        external_id=None,
+        bond={
+            "maturity": date(2031, 9, 30),
+            "coupon": 5.0,
+            "face_value": 1000.0,
+            "frequency": 2,
+            "cusip": "91282CRN3",
+            "price": None,
+        },
+    )
+    result.update(overrides)  # type: ignore[typeddict-item]
+    return result
+
+
+class TestBondActions:
+    def test_add_equity_creates_bond(self):
+        portfolio = Portfolio()
+        assert app_actions.add_equity(_bond_result(), portfolio) is None
+        pos = portfolio.positions[0]
+        assert pos.bond == BondInfo(
+            maturity=date(2031, 9, 30), coupon=5.0, cusip="91282CRN3"
+        )
+        assert pos.asset_type == "bond"
+
+    def test_add_equity_invalid_bond_terms_returns_error(self):
+        portfolio = Portfolio()
+        bad = _bond_result()
+        assert bad["bond"] is not None
+        bad["bond"]["frequency"] = 3
+        err = app_actions.add_equity(bad, portfolio)
+        assert err is not None and "frequency" in err
+        assert portfolio.positions == []
+
+    def test_topping_up_bond_keeps_terms(self):
+        portfolio = Portfolio()
+        app_actions.add_equity(_bond_result(), portfolio)
+        app_actions.add_equity(
+            _bond_result(qty=5, avg_cost=99.0, asset_type=None, bond=None), portfolio
+        )
+        pos = portfolio.positions[0]
+        assert pos.quantity == 20
+        assert pos.bond is not None
+        assert pos.asset_type == "bond"
+
+    def test_edit_position_can_remove_bond_terms(self):
+        portfolio = Portfolio()
+        app_actions.add_equity(_bond_result(), portfolio)
+        pos = portfolio.positions[0]
+        err = app_actions.edit_position(
+            portfolio, pos, _bond_result(asset_type=None, bond=None)
+        )
+        assert err is None
+        assert pos.bond is None
+        assert pos.asset_type is None

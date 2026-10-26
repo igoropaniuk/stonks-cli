@@ -1,8 +1,12 @@
 """Domain models for the stonks portfolio tracker."""
 
 from dataclasses import dataclass, field
+from datetime import date
 
+from stonks_cli.bonds import BondInfo, accrued_interest, clean_value
 from stonks_cli.market_session import Session
+
+BOND_ASSET_TYPE = "bond"
 
 
 @dataclass
@@ -39,10 +43,13 @@ class Position:
     """Represents a single holding in the portfolio.
 
     Attributes:
-        symbol: The stock ticker (e.g. 'AAPL').
-        quantity: Number of shares held.
-        avg_cost: Average cost per share paid.
+        symbol: The stock ticker (e.g. 'AAPL'), or any unique label for a bond.
+        quantity: Number of shares held, or number of bonds for a bond.
+        avg_cost: Average cost per share paid.  For a bond this is the clean
+            purchase price in percent of par (e.g. ``100.47``).
         currency: Currency of the position (default 'USD').
+        bond: Bond terms.  When set, the position is valued as a bond and
+            ``asset_type`` is forced to ``"bond"``.
     """
 
     symbol: str
@@ -51,6 +58,7 @@ class Position:
     currency: str = "USD"
     asset_type: str | None = None
     external_id: str | None = None
+    bond: BondInfo | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol:
@@ -62,6 +70,8 @@ class Position:
         self.symbol = self.symbol.upper()
         if self.asset_type is not None:
             self.asset_type = self.asset_type.lower()
+        if self.bond is not None:
+            self.asset_type = BOND_ASSET_TYPE
 
     def update(
         self,
@@ -71,6 +81,7 @@ class Position:
         currency: str,
         asset_type: str | None = None,
         external_id: str | None = None,
+        bond: BondInfo | None = None,
     ) -> None:
         """Update all fields with the same normalisation as __post_init__."""
         if not symbol:
@@ -85,14 +96,38 @@ class Position:
         self.currency = currency
         self.asset_type = asset_type.lower() if asset_type is not None else None
         self.external_id = external_id
+        self.bond = bond
+        if bond is not None:
+            self.asset_type = BOND_ASSET_TYPE
 
-    def market_value(self, last_price: float) -> float:
-        """Return total market value at the given price."""
-        return self.quantity * last_price
+    @property
+    def is_bond(self) -> bool:
+        """True when the position carries bond terms."""
+        return self.bond is not None
+
+    def market_value(self, last_price: float, as_of: date | None = None) -> float:
+        """Return total market value at the given price.
+
+        For a bond, *last_price* is a clean price in percent of par and the
+        result includes interest accrued up to *as_of* (default: today),
+        i.e. what the position would fetch if sold.
+        """
+        if self.bond is None:
+            return self.quantity * last_price
+        settle = as_of or date.today()
+        return clean_value(
+            self.bond, self.quantity, last_price
+        ) + self.quantity * accrued_interest(self.bond, settle)
 
     def unrealized_pnl(self, last_price: float) -> float:
-        """Return unrealized P&L at the given price."""
-        return (last_price - self.avg_cost) * self.quantity
+        """Return unrealized P&L at the given price.
+
+        For a bond the P&L is measured on the clean price, so accrued
+        interest (income, not a price gain) is excluded.
+        """
+        if self.bond is None:
+            return (last_price - self.avg_cost) * self.quantity
+        return clean_value(self.bond, self.quantity, last_price - self.avg_cost)
 
 
 @dataclass

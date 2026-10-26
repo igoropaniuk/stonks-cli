@@ -95,11 +95,16 @@ def _best_worst_year(years: list[str], returns: list[float]) -> tuple[str, str]:
 
 
 def _compute_weights(portfolio: Portfolio) -> dict[str, float]:
-    """Return symbol -> fractional weight based on current cost basis."""
-    total_cost = sum(p.quantity * p.avg_cost for p in portfolio.positions)
+    """Return symbol -> fractional weight based on current cost basis.
+
+    Bond positions are excluded: yfinance has no price history for
+    individual bonds, so they cannot take part in the simulation.
+    """
+    positions = [p for p in portfolio.positions if not p.is_bond]
+    total_cost = sum(p.quantity * p.avg_cost for p in positions)
     return {
         p.symbol: (p.quantity * p.avg_cost) / total_cost if total_cost else 0
-        for p in portfolio.positions
+        for p in positions
     }
 
 
@@ -300,7 +305,8 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
     The portfolio's current allocation weights are used throughout the
     backtest period.  Historical prices are fetched from yfinance.
     """
-    symbols = [p.symbol for p in portfolio.positions]
+    bond_symbols = [p.symbol for p in portfolio.positions if p.is_bond]
+    symbols = [p.symbol for p in portfolio.positions if not p.is_bond]
     if not symbols:
         raise ValueError("Portfolio has no equity positions to backtest")
 
@@ -351,6 +357,6 @@ def run_backtest(portfolio: Portfolio, config: BacktestConfig) -> BacktestResult
         portfolio_final=portfolio_vals[-1],
         benchmark_final=benchmark_vals[-1],
         total_contributions=total_contributed,
-        skipped_symbols=skipped,
+        skipped_symbols=sorted(bond_symbols) + skipped,
     )
     return result

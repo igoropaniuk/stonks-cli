@@ -8,6 +8,7 @@ from typing import TypeVar
 
 import yaml
 
+from stonks_cli.bonds import DEFAULT_FACE_VALUE, DEFAULT_FREQUENCY, BondInfo
 from stonks_cli.models import CashPosition, Portfolio, Position, WatchlistItem
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,21 @@ T = TypeVar("T")
 # ---------------------------------------------------------------------------
 
 
+def _parse_bond(b: dict) -> BondInfo:
+    if not isinstance(b, dict):
+        raise TypeError("'bond' must be a mapping")
+    return BondInfo(
+        maturity=b["maturity"],
+        coupon=float(b["coupon"]),
+        face_value=float(b.get("face_value", DEFAULT_FACE_VALUE)),
+        frequency=int(b.get("frequency", DEFAULT_FREQUENCY)),
+        cusip=str(b["cusip"]) if b.get("cusip") is not None else None,
+        price=float(b["price"]) if b.get("price") is not None else None,
+    )
+
+
 def _parse_position(p: dict) -> Position:
+    bond = p.get("bond")
     return Position(
         symbol=p["symbol"],
         quantity=p["quantity"],
@@ -28,6 +43,7 @@ def _parse_position(p: dict) -> Position:
         currency=p.get("currency", "USD"),
         asset_type=p.get("asset_type"),
         external_id=p.get("external_id"),
+        bond=_parse_bond(bond) if bond is not None else None,
     )
 
 
@@ -48,6 +64,17 @@ def _parse_watchlist_item(w: dict) -> WatchlistItem:
 # ---------------------------------------------------------------------------
 
 
+def _serialize_bond(b: BondInfo) -> dict:
+    return {
+        "maturity": b.maturity,
+        "coupon": b.coupon,
+        **({"face_value": b.face_value} if b.face_value != DEFAULT_FACE_VALUE else {}),
+        **({"frequency": b.frequency} if b.frequency != DEFAULT_FREQUENCY else {}),
+        **({"cusip": b.cusip} if b.cusip else {}),
+        **({"price": b.price} if b.price is not None else {}),
+    }
+
+
 def _serialize_position(p: Position) -> dict:
     return {
         "symbol": p.symbol,
@@ -56,6 +83,7 @@ def _serialize_position(p: Position) -> dict:
         "currency": p.currency,
         **({"asset_type": p.asset_type} if p.asset_type else {}),
         **({"external_id": p.external_id} if p.external_id else {}),
+        **({"bond": _serialize_bond(p.bond)} if p.bond is not None else {}),
     }
 
 
@@ -148,10 +176,12 @@ class PortfolioStore:
         """
         try:
             return [parser(item) for item in section.get(key) or []]
-        except (KeyError, TypeError) as exc:
+        except KeyError as exc:
             raise ValueError(
                 f"Invalid {label} entry in {self.path}: missing required field {exc}"
             ) from exc
+        except TypeError as exc:
+            raise ValueError(f"Invalid {label} entry in {self.path}: {exc}") from exc
 
     def load(self) -> Portfolio:
         """Load the portfolio from disk.
