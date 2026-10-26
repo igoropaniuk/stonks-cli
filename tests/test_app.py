@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from textual.app import App
 from textual.binding import Binding
-from textual.css.query import NoMatches
+from textual.css.query import NoMatches, TooManyMatches
 from textual.widgets import Button, DataTable, Input, Label, Static
 
 from stonks_cli import app_actions
@@ -2600,6 +2600,25 @@ def _static_content(widget: Static) -> str:
     return str(widget.render())
 
 
+async def _combined_total(app: PortfolioApp, pilot, attempts: int = 50) -> Static:
+    """Return the footer's aggregate-total Static once it is mounted.
+
+    ``Footer`` recomposes itself after its bindings settle, which removes
+    and re-mounts its children asynchronously.  On slow runners (Windows CI)
+    a single ``pilot.pause()`` can land in the gap between removal and
+    re-mount, so the label is briefly missing (``NoMatches``) or present
+    twice (``TooManyMatches``).  Keep yielding to the event loop until
+    exactly one instance exists.
+    """
+    footer = app.query_one(_FooterWithTotal)
+    for _ in range(attempts):
+        try:
+            return footer.query_one(f".{_FooterWithTotal._TOTAL_CLASS}", Static)
+        except (NoMatches, TooManyMatches):
+            await pilot.pause()
+    raise AssertionError("combined-total label never settled in the footer")
+
+
 @pytest.mark.asyncio
 async def test_combined_total_widget_hidden_in_single_portfolio_mode(
     portfolio: Portfolio,
@@ -2611,7 +2630,7 @@ async def test_combined_total_widget_hidden_in_single_portfolio_mode(
     app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
     async with app.run_test() as pilot:
         await pilot.pause()
-        widget = app.query_one(_FooterWithTotal).query_one(".combined-total", Static)
+        widget = await _combined_total(app, pilot)
         assert "-hidden" in widget.classes
 
     multi = PortfolioApp(
@@ -2621,7 +2640,7 @@ async def test_combined_total_widget_hidden_in_single_portfolio_mode(
     )
     async with multi.run_test() as pilot:
         await pilot.pause()
-        widget = multi.query_one(_FooterWithTotal).query_one(".combined-total", Static)
+        widget = await _combined_total(multi, pilot)
         assert "-hidden" not in widget.classes
 
 
@@ -2641,7 +2660,7 @@ async def test_combined_total_widget_renders_value(portfolio: Portfolio) -> None
     )
     async with app.run_test() as pilot:
         await pilot.pause()
-        widget = app.query_one(_FooterWithTotal).query_one(".combined-total", Static)
+        widget = await _combined_total(app, pilot)
         text = _static_content(widget)
         # portfolio fixture: AAPL 100 @ 200 + NVDA 200 @ 150 = 50_000;
         # second: MSFT 10 @ 300 = 3_000; total 53_000
@@ -2666,7 +2685,7 @@ async def test_combined_total_widget_renders_na_on_missing_price(
     )
     async with app.run_test() as pilot:
         await pilot.pause()
-        widget = app.query_one(_FooterWithTotal).query_one(".combined-total", Static)
+        widget = await _combined_total(app, pilot)
         text = _static_content(widget)
         assert "N/A" in text
 
