@@ -9,6 +9,11 @@ from stonks_cli.market_session import Session
 BOND_ASSET_TYPE = "bond"
 
 
+def _fmt_qty(qty: int | float) -> str:
+    """Format a quantity for messages: ``100`` not ``100.0``, ``0.25`` as is."""
+    return str(int(qty)) if float(qty).is_integer() else str(qty)
+
+
 @dataclass
 class CashPosition:
     """A cash holding in a given currency.
@@ -330,8 +335,8 @@ class Portfolio:
             raise ValueError(f"Position '{symbol.upper()}' not found in portfolio")
         if quantity > existing.quantity:
             raise ValueError(
-                f"Cannot remove {quantity} shares of {existing.symbol}: "
-                f"only {existing.quantity} held"
+                f"Cannot remove {_fmt_qty(quantity)} shares of {existing.symbol}: "
+                f"only {_fmt_qty(existing.quantity)} held"
             )
         if quantity == existing.quantity:
             self.positions.remove(existing)
