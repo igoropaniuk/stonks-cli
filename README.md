@@ -244,6 +244,11 @@ Append the appropriate suffix to the base ticker symbol.
 | `.WA`  | Warsaw Stock Exchange    | Poland      |
 | `.AT`  | Athens Stock Exchange    | Greece      |
 
+> Yahoo quotes London tickers in pence (`GBp`). stonks-cli converts those
+> prices to pounds, so enter `avg_cost` in pounds and set `currency: GBP`.
+> The same applies to Johannesburg (`ZAc`, cents) and Tel Aviv (`ILA`,
+> agorot) quotes.
+
 ### Asia-Pacific
 
 | Suffix  | Exchange                       | Country     |

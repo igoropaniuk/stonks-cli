@@ -9,6 +9,7 @@ from stonks_cli.exchanges import (
     exchange_info_for,
     exchange_label,
     is_crypto_symbol,
+    quote_price_divisor,
 )
 
 
@@ -64,3 +65,20 @@ class TestIsCryptoSymbol:
         assert info is not None and info.tz_name == "America/New_York"
         assert exchange_info_for("BTC-USD") is None
         assert exchange_info_for("BTC-USD", asset_type="equity") is not None
+
+
+@pytest.mark.parametrize(
+    ("currency", "divisor"),
+    [
+        ("GBp", 100.0),
+        ("GBX", 100.0),
+        ("ZAc", 100.0),
+        ("ILA", 100.0),
+        ("GBP", 1.0),
+        ("USD", 1.0),
+        ("EUR", 1.0),
+        (None, 1.0),
+    ],
+)
+def test_quote_price_divisor(currency, divisor):
+    assert quote_price_divisor(currency) == divisor

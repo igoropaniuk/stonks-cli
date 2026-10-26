@@ -11,7 +11,7 @@ import pytest
 
 from stonks_cli.crypto_fetcher import CryptoFetcher
 from stonks_cli.exchanges import ExchangeSession, exchange_label
-from stonks_cli.fetcher import PriceFetcher
+from stonks_cli.fetcher import PriceFetcher, QuoteInfo
 from stonks_cli.stock_detail import _finite
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
@@ -433,11 +433,40 @@ class TestFetchForexRates:
         assert "USDGBP=X" in tickers
 
 
-def _make_ticker(exchange_code: str | None):
-    """Return a mock yf.Ticker whose fast_info.exchange is *exchange_code*."""
+def _make_ticker(exchange_code: str | None, currency: str | None = "USD"):
+    """Return a mock yf.Ticker whose fast_info has the given exchange/currency."""
     ticker = MagicMock()
     ticker.fast_info.exchange = exchange_code
+    ticker.fast_info.currency = currency
     return ticker
+
+
+class TestFetchQuoteInfo:
+    def test_returns_exchange_and_currency(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.side_effect = lambda sym: _make_ticker(
+                *{"AAPL": ("NMS", "USD"), "BP.L": ("LSE", "GBp")}[sym]
+            )
+            result = fetcher.fetch_quote_info(["AAPL", "BP.L", "BTC-USD"])
+        assert result == {
+            "AAPL": QuoteInfo("NMS", "USD"),
+            "BP.L": QuoteInfo("LSE", "GBp"),
+        }
+
+    def test_currency_kept_when_exchange_missing(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value = _make_ticker(None, "GBp")
+            result = fetcher.fetch_quote_info(["BP.L"])
+        assert result == {"BP.L": QuoteInfo(None, "GBp")}
+        # ...and the exchange-only wrapper omits it.
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value = _make_ticker(None, "GBp")
+            assert fetcher.fetch_exchange_names(["BP.L"]) == {}
+
+    def test_non_string_fields_become_none(self, fetcher: PriceFetcher):
+        with patch("stonks_cli.fetcher.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value = _make_ticker(MagicMock(), MagicMock())
+            assert fetcher.fetch_quote_info(["AAPL"]) == {}
 
 
 class TestFetchExchangeNames:

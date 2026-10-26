@@ -251,6 +251,26 @@ _YF_CODE_TO_LABEL: dict[str, str] = {
 }
 
 
+# Yahoo quotes some markets in a minor currency unit: LSE in pence (``GBp``,
+# occasionally ``GBX``), Johannesburg in cents (``ZAc``) and Tel Aviv in
+# agorot (``ILA``).  Positions are held in the major unit, so those prices
+# are divided by 100 before use.  ``GBp`` is matched case-sensitively: a
+# genuine pound quote is spelled ``GBP`` and must not be scaled.
+_MINOR_UNIT_QUOTES = frozenset({"GBp", "GBX", "ZAc", "ZAC", "ILA"})
+_MINOR_UNIT_DIVISOR = 100.0
+
+
+def quote_price_divisor(quote_currency: str | None) -> float:
+    """Return the divisor converting a *quote_currency* price to its major unit.
+
+    ``100.0`` for pence, cents and agorot quotes (``GBp``, ``GBX``, ``ZAc``,
+    ``ILA``); ``1.0`` for everything else, including ``None``.
+    """
+    if quote_currency in _MINOR_UNIT_QUOTES:
+        return _MINOR_UNIT_DIVISOR
+    return 1.0
+
+
 # Crypto pairs on Yahoo look like ``BTC-USD``: a base symbol, a dash, and a
 # three- or four-letter quote currency.  Share classes also use a dash
 # (``BRK-B``, ``BF-B``) but with a one-letter suffix, so they don't match.
