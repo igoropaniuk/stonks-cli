@@ -172,30 +172,30 @@ Both can also be set with `stonks set name` and `stonks set base-currency`.
 
 **Positions** fields:
 
-| Field         | Type          | Required | Description                                                  |
-| ------------- | ------------- | -------- | ------------------------------------------------------------ |
-| `symbol`      | string        | yes      | Yahoo Finance ticker (case-insensitive); use `BASE-USD` for crypto |
-| `quantity`    | int \| float  | yes      | Units held; fractional values supported for crypto           |
-| `avg_cost`    | float         | yes      | Average cost per unit (positive)                             |
-| `currency`    | string        | no       | ISO 4217 code; defaults to `USD`                             |
-| `asset_type`  | string        | no       | Asset class: `equity`, `crypto`, `etf`, `bond`, `commodity`, `forex` |
-| `external_id` | string        | no       | Provider-specific ID used for price lookup  |
-| `bond`        | mapping       | no       | Bond terms; see [Bonds](#bonds)                              |
+| Field         | Type         | Required | Description                                                          |
+| ------------- | ------------ | -------- | -------------------------------------------------------------------- |
+| `symbol`      | string       | yes      | Yahoo Finance ticker (case-insensitive); use `BASE-USD` for crypto   |
+| `quantity`    | int \| float | yes      | Units held; fractional values supported for crypto                   |
+| `avg_cost`    | float        | yes      | Average cost per unit (positive)                                     |
+| `currency`    | string       | no       | ISO 4217 code; defaults to `USD`                                     |
+| `asset_type`  | string       | no       | Asset class: `equity`, `crypto`, `etf`, `bond`, `commodity`, `forex` |
+| `external_id` | string       | no       | Provider-specific ID used for price lookup                           |
+| `bond`        | mapping      | no       | Bond terms; see [Bonds](#bonds)                                      |
 
 **Cash** fields:
 
-| Field      | Type   | Required | Description |
+| Field      | Type   | Required | Description                       |
 | ---------- | ------ | -------- | --------------------------------- |
 | `currency` | string | yes      | ISO 4217 code (e.g. `USD`, `EUR`) |
-| `amount`   | float  | yes      | Cash held (positive) |
+| `amount`   | float  | yes      | Cash held (positive)              |
 
 **Watchlist** fields:
 
-| Field         | Type   | Required | Description                                                       |
-| ------------- | ------ | -------- | ----------------------------------------------------------------- |
+| Field         | Type   | Required | Description                                                        |
+| ------------- | ------ | -------- | ------------------------------------------------------------------ |
 | `symbol`      | string | yes      | Yahoo Finance ticker (case-insensitive); use `BASE-USD` for crypto |
-| `asset_type`  | string | no       | Same values as positions; set to `crypto` for CoinGecko routing   |
-| `external_id` | string | no       | CoinGecko coin ID (or other provider ID) for unambiguous lookup   |
+| `asset_type`  | string | no       | Same values as positions; set to `crypto` for CoinGecko routing    |
+| `external_id` | string | no       | CoinGecko coin ID (or other provider ID) for unambiguous lookup    |
 
 Watchlist items are displayed in the dashboard with a dimmed style and only
 show the live price and daily change -- they have no quantity, cost, or market
@@ -256,25 +256,25 @@ Append the appropriate suffix to the base ticker symbol.
 
 ### Asia-Pacific
 
-| Suffix  | Exchange                       | Country     |
-| ------- | ------------------------------ | ----------- |
-| `.AX`   | Australian Securities Exchange | Australia   |
-| `.NZ`   | New Zealand Exchange           | New Zealand |
-| `.HK`   | Hong Kong Stock Exchange       | Hong Kong   |
-| `.T`    | Tokyo Stock Exchange           | Japan       |
-| `.KS`   | Korea Exchange (KOSPI)         | South Korea |
-| `.KQ`   | KOSDAQ                         | South Korea |
-| `.TW`   | Taiwan Stock Exchange          | Taiwan      |
-| `.TWO`  | Taiwan OTC                     | Taiwan      |
-| `.SS`   | Shanghai Stock Exchange        | China       |
-| `.SZ`   | Shenzhen Stock Exchange        | China       |
-| `.NS`   | National Stock Exchange        | India       |
-| `.BO`   | Bombay Stock Exchange          | India       |
-| `.JK`   | Indonesia Stock Exchange       | Indonesia   |
-| `.SI`   | Singapore Exchange             | Singapore   |
-| `.KL`   | Bursa Malaysia                 | Malaysia    |
-| `.BK`   | Stock Exchange of Thailand     | Thailand    |
-| `.VN`   | Ho Chi Minh Stock Exchange     | Vietnam     |
+| Suffix | Exchange                       | Country     |
+| ------ | ------------------------------ | ----------- |
+| `.AX`  | Australian Securities Exchange | Australia   |
+| `.NZ`  | New Zealand Exchange           | New Zealand |
+| `.HK`  | Hong Kong Stock Exchange       | Hong Kong   |
+| `.T`   | Tokyo Stock Exchange           | Japan       |
+| `.KS`  | Korea Exchange (KOSPI)         | South Korea |
+| `.KQ`  | KOSDAQ                         | South Korea |
+| `.TW`  | Taiwan Stock Exchange          | Taiwan      |
+| `.TWO` | Taiwan OTC                     | Taiwan      |
+| `.SS`  | Shanghai Stock Exchange        | China       |
+| `.SZ`  | Shenzhen Stock Exchange        | China       |
+| `.NS`  | National Stock Exchange        | India       |
+| `.BO`  | Bombay Stock Exchange          | India       |
+| `.JK`  | Indonesia Stock Exchange       | Indonesia   |
+| `.SI`  | Singapore Exchange             | Singapore   |
+| `.KL`  | Bursa Malaysia                 | Malaysia    |
+| `.BK`  | Stock Exchange of Thailand     | Thailand    |
+| `.VN`  | Ho Chi Minh Stock Exchange     | Vietnam     |
 
 ### Cryptocurrency
 
@@ -360,15 +360,15 @@ since there is no price history for individual bonds.
 
 ### Examples
 
-| Symbol       | Instrument                |
-| ------------ | ------------------------- |
-| `AAPL`       | Apple (NASDAQ)            |
-| `ASML.AS`    | ASML (Euronext Amsterdam) |
-| `7203.T`     | Toyota (Tokyo SE)         |
-| `HSBA.L`     | HSBC (London SE)          |
-| `005930.KS`  | Samsung (KOSPI)           |
-| `BTC-USD`    | Bitcoin / USD             |
-| `ETH-USD`    | Ethereum / USD            |
+| Symbol      | Instrument                |
+| ----------- | ------------------------- |
+| `AAPL`      | Apple (NASDAQ)            |
+| `ASML.AS`   | ASML (Euronext Amsterdam) |
+| `7203.T`    | Toyota (Tokyo SE)         |
+| `HSBA.L`    | HSBC (London SE)          |
+| `005930.KS` | Samsung (KOSPI)           |
+| `BTC-USD`   | Bitcoin / USD             |
+| `ETH-USD`   | Ethereum / USD            |
 
 ---
 
@@ -542,8 +542,8 @@ Lists all `.yaml` files found in `~/.config/stonks/`.
 Positions can be bulk-imported from broker exports instead of being added one
 by one.
 
-| Broker | Command | Guide |
-|---|---|---|
+| Broker              | Command                            | Guide                                                                    |
+| ------------------- | ---------------------------------- | ------------------------------------------------------------------------ |
 | Interactive Brokers | `stonks import ibkr positions.csv` | [docs/import/interactive-brokers.md](docs/import/interactive-brokers.md) |
 
 ### Health checks (doctor)
@@ -564,16 +564,16 @@ stonks -p personal -p work doctor
 Each check prints a coloured `OK`, `WARN`, or `FAIL` line. The command exits
 with code `0` when everything passes and code `1` if any hard check fails.
 
-| Check | What it verifies |
-| ----- | ---------------- |
-| Python version | Interpreter is 3.11 or newer |
-| stonks-cli version | Installed version vs. latest PyPI release |
-| exchange-calendars | NYSE calendar loads and today's session is readable |
-| Portfolio file | File exists and parses without errors; reports position/cash/watchlist counts |
-| yfinance | Fetches AAPL `fast_info` as a live connectivity probe |
-| CoinGecko | Hits `/ping`; warns if `COINGECKO_DEMO_API_KEY` is unset |
-| Forex rates | Fetches a live EUR/USD rate via yfinance |
-| Symbol validation | Probes each ticker in the portfolio; equity in parallel, crypto via CoinGecko batch |
+| Check              | What it verifies                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Python version     | Interpreter is 3.11 or newer                                                        |
+| stonks-cli version | Installed version vs. latest PyPI release                                           |
+| exchange-calendars | NYSE calendar loads and today's session is readable                                 |
+| Portfolio file     | File exists and parses without errors; reports position/cash/watchlist counts       |
+| yfinance           | Fetches AAPL `fast_info` as a live connectivity probe                               |
+| CoinGecko          | Hits `/ping`; warns if `COINGECKO_DEMO_API_KEY` is unset                            |
+| Forex rates        | Fetches a live EUR/USD rate via yfinance                                            |
+| Symbol validation  | Probes each ticker in the portfolio; equity in parallel, crypto via CoinGecko batch |
 
 Symbol validation is skipped for equity symbols when yfinance is unreachable,
 and for crypto symbols when CoinGecko is unreachable, to avoid a flood of
@@ -585,17 +585,17 @@ redundant errors.
 
 ### Columns
 
-| Column         | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| Instrument     | Ticker symbol                                                        |
-| Exchange       | Exchange name derived from ticker suffix (e.g. NYSE/NASDAQ, Crypto)  |
-| Qty            | Number of shares held                                                |
-| Avg Cost       | Average purchase price per share                                     |
-| Last Price     | Most recent price; tagged PRE, AH, or CLS for non-regular sessions   |
-| Daily Chg      | Absolute price change vs. the previous close (green / red)           |
-| Daily Chg %    | Percentage change vs. the previous close (green / red)               |
-| Mkt Value      | Current market value (Qty * Last Price)                              |
-| Unrealized P&L | Profit/loss vs. average cost (bold green / bold red)                 |
+| Column         | Description                                                         |
+| -------------- | ------------------------------------------------------------------- |
+| Instrument     | Ticker symbol                                                       |
+| Exchange       | Exchange name derived from ticker suffix (e.g. NYSE/NASDAQ, Crypto) |
+| Qty            | Number of shares held                                               |
+| Avg Cost       | Average purchase price per share                                    |
+| Last Price     | Most recent price; tagged PRE, AH, or CLS for non-regular sessions  |
+| Daily Chg      | Absolute price change vs. the previous close (green / red)          |
+| Daily Chg %    | Percentage change vs. the previous close (green / red)              |
+| Mkt Value      | Current market value (Qty * Last Price)                             |
+| Unrealized P&L | Profit/loss vs. average cost (bold green / bold red)                |
 
 Both daily change columns show `--` for closed-session tickers (CLS).
 
@@ -666,32 +666,32 @@ return to the dashboard.
 
 ### Time ranges
 
-| Label    | Period | Interval |
-| -------- | ------ | -------- |
-| `1D 1m`  | 1 day  | 1 minute  |
-| `1D 2m`  | 1 day  | 2 minutes |
-| `5D 5m`  | 5 days | 5 minutes |
-| `1M 15m` | 1 month | 15 minutes |
-| `3M 1h`  | 3 months | 1 hour  |
-| `6M 1d`  | 6 months | 1 day   |
-| `1Y 1d`  | 1 year  | 1 day   |
-| `5Y 1wk` | 5 years | 1 week  |
+| Label    | Period   | Interval   |
+| -------- | -------- | ---------- |
+| `1D 1m`  | 1 day    | 1 minute   |
+| `1D 2m`  | 1 day    | 2 minutes  |
+| `5D 5m`  | 5 days   | 5 minutes  |
+| `1M 15m` | 1 month  | 15 minutes |
+| `3M 1h`  | 3 months | 1 hour     |
+| `6M 1d`  | 6 months | 1 day      |
+| `1Y 1d`  | 1 year   | 1 day      |
+| `5Y 1wk` | 5 years  | 1 week     |
 
 The default view opens at **5D 5m**.
 
 ### Keyboard shortcuts
 
-| Key          | Action                                 |
-| ------------ | -------------------------------------- |
-| `Left`       | Move cursor to the previous candle     |
-| `Right`      | Move cursor to the next candle         |
-| `Home`       | Jump to the first (oldest) candle      |
-| `End`        | Jump to the last (newest) candle       |
-| `+` / `=`    | Zoom in (narrower interval)            |
-| `-` / `_`    | Zoom out (wider interval)              |
-| `Up`         | Expand Y-axis range                    |
-| `Down`       | Narrow Y-axis range                    |
-| `Escape` / `Q` | Close and return to the dashboard    |
+| Key            | Action                             |
+| -------------- | ---------------------------------- |
+| `Left`         | Move cursor to the previous candle |
+| `Right`        | Move cursor to the next candle     |
+| `Home`         | Jump to the first (oldest) candle  |
+| `End`          | Jump to the last (newest) candle   |
+| `+` / `=`      | Zoom in (narrower interval)        |
+| `-` / `_`      | Zoom out (wider interval)          |
+| `Up`           | Expand Y-axis range                |
+| `Down`         | Narrow Y-axis range                |
+| `Escape` / `Q` | Close and return to the dashboard  |
 
 When you reach the leftmost or rightmost candle, the chart automatically
 prefetches older or newer data so you can scroll continuously through history.
@@ -728,11 +728,11 @@ The detail screen displays:
 
 stonks-cli writes structured log messages to a platform-specific file:
 
-| Platform | Path                                          |
-| -------- | --------------------------------------------- |
-| Linux    | `~/.local/state/stonks/log/stonks.log`        |
-| macOS    | `~/Library/Logs/stonks/stonks.log`            |
-| Windows  | `%LOCALAPPDATA%\stonks\Logs\stonks.log`       |
+| Platform | Path                                    |
+| -------- | --------------------------------------- |
+| Linux    | `~/.local/state/stonks/log/stonks.log`  |
+| macOS    | `~/Library/Logs/stonks/stonks.log`      |
+| Windows  | `%LOCALAPPDATA%\stonks\Logs\stonks.log` |
 
 The default verbosity is `WARNING` (only warnings and errors are recorded).
 Use `--log-level` to capture more detail:
@@ -802,15 +802,15 @@ performed over a historical period, compared against a benchmark index.
 
 ### Configuration
 
-| Field            | Default | Description                                            |
-| ---------------- | ------- | ------------------------------------------------------ |
+| Field            | Default | Description                                           |
+| ---------------- | ------- | ----------------------------------------------------- |
 | Benchmark Symbol | `SPY`   | Ticker to compare against (e.g. `SPY`, `QQQ`, `VT`)   |
-| Starting Amount  | `10000` | Initial investment amount in USD                       |
-| Start Year       | `2010`  | First year of the simulation                           |
-| End Year         | current | Last year of the simulation                            |
-| Yearly Cashflows | `0`     | Additional amount contributed each year                |
-| Rebalancing      | none    | `none`, `monthly`, or `annual` rebalancing strategy    |
-| Skip unavailable | on      | Skip positions without historical data for the period  |
+| Starting Amount  | `10000` | Initial investment amount in USD                      |
+| Start Year       | `2010`  | First year of the simulation                          |
+| End Year         | current | Last year of the simulation                           |
+| Yearly Cashflows | `0`     | Additional amount contributed each year               |
+| Rebalancing      | none    | `none`, `monthly`, or `annual` rebalancing strategy   |
+| Skip unavailable | on      | Skip positions without historical data for the period |
 
 The portfolio's current allocation weights are held constant throughout the
 simulation. Historical prices are fetched from Yahoo Finance.
