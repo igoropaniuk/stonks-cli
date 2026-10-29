@@ -329,17 +329,6 @@ def check_exchange_calendars() -> bool:
         return False
 
 
-def check_openai() -> None:
-    """Report whether the OpenAI key is configured (AI chat feature)."""
-    click.echo("\nAI Chat (optional)")
-    key = os.environ.get("OPENAI_API_KEY", "")
-    if key:
-        masked = key[:8] + "..." if len(key) > 8 else "***"
-        _ok("OPENAI_API_KEY is set", masked)
-    else:
-        _warn("OPENAI_API_KEY not set", "AI chat screen will be disabled")
-
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -391,8 +380,6 @@ def run_doctor(portfolio_paths: list[Path]) -> int:
         ]
         if items_to_check and not check_symbols(items_to_check):
             failures += 1
-
-    check_openai()  # advisory only -- never counts as a failure
 
     click.echo("\n" + "=" * 48)
     if failures == 0:
