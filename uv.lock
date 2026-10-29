@@ -1598,7 +1598,7 @@ requires-dist = [
     { name = "rich", specifier = ">=15.0,<16" },
     { name = "textual", specifier = ">=8.1.0,<9" },
     { name = "textual-plotext", specifier = ">=1.0.0,<2" },
-    { name = "yfinance", specifier = ">=1.4.0,<2" },
+    { name = "yfinance", specifier = ">=1.7.0,<2" },
 ]
 
 [package.metadata.requires-dev]
