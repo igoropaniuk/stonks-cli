@@ -72,7 +72,6 @@ show_missing = true
 skip_covered = false
 
 [tool.mypy]
-python_version = "3.11"
 plugins = []
 files = ["src"]
 ignore_missing_imports = true
