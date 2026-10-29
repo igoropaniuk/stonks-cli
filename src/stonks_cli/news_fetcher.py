@@ -1,10 +1,13 @@
 """yfinance-backed news fetcher for the ``feed`` command."""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,6 +25,7 @@ class NewsFetcher:
 
     _MAX_ITEMS = 10
     _MAX_ITEM_AGE = timedelta(days=3)
+    _SEARCH_NEWS_COUNT = 20
 
     @classmethod
     def _is_recent(cls, item: "NewsItem") -> bool:
@@ -63,13 +67,68 @@ class NewsFetcher:
             timestamp=ts,
         )
 
+    @staticmethod
+    def _parse_search_item(raw: dict) -> "NewsItem | None":
+        """Parse an article from ``yf.Search().news``, a flat dict."""
+        headline = (raw.get("title") or "").strip()
+        if not headline:
+            return None
+        ts = raw.get("providerPublishTime")
+        published = "N/A"
+        if isinstance(ts, int) and ts > 0:
+            try:
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                published = dt.astimezone().strftime("%b %d %H:%M")
+            except (ValueError, OSError, OverflowError):
+                ts = 0
+        else:
+            ts = 0
+        return NewsItem(
+            headline=headline,
+            source=(raw.get("publisher") or "").strip(),
+            published_at=published,
+            url=(raw.get("link") or "").strip(),
+            timestamp=ts,
+        )
+
+    def _search_news(self, symbol: str) -> list["NewsItem | None"]:
+        """Fall back to Yahoo's search API when ``Ticker.news`` is empty.
+
+        Yahoo retired the endpoint behind ``Ticker.news`` in October 2026
+        (yfinance issue #3004) and it now always returns nothing.  Search
+        still returns news, but also articles that only mention the query
+        text, so keep the ones Yahoo tags with *symbol*.
+        """
+        try:
+            raw_list = (
+                yf.Search(
+                    symbol,
+                    max_results=0,
+                    news_count=self._SEARCH_NEWS_COUNT,
+                    lists_count=0,
+                    include_cb=False,
+                    recommended=0,
+                ).news
+                or []
+            )
+        except Exception:
+            logger.warning("News search for %s failed", symbol, exc_info=True)
+            return []
+        return [
+            self._parse_search_item(raw)
+            for raw in raw_list
+            if symbol in (raw.get("relatedTickers") or [])
+        ]
+
     def fetch(self, symbol: str, limit: int | None = None) -> list["NewsItem"]:
         limit = self._MAX_ITEMS if limit is None else limit
-        raw_list = yf.Ticker(symbol.upper()).news or []
+        symbol = symbol.upper()
+        parsed = [self._parse_item(raw) for raw in yf.Ticker(symbol).news or []]
+        if not any(parsed):
+            parsed = self._search_news(symbol)
         seen_keys: set[str] = set()
         items: list[NewsItem] = []
-        for raw in raw_list:
-            item = self._parse_item(raw)
+        for item in parsed:
             if item is None:
                 continue
             if not self._is_recent(item):
@@ -78,7 +137,7 @@ class NewsFetcher:
             if key in seen_keys:
                 continue
             seen_keys.add(key)
-            item.symbol = symbol.upper()
+            item.symbol = symbol
             items.append(item)
         items.sort(key=lambda x: x.timestamp, reverse=True)
         return items[:limit]

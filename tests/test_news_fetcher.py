@@ -1,5 +1,6 @@
 """Unit tests for NewsFetcher."""
 
+import logging
 from datetime import datetime
 from unittest.mock import patch
 
@@ -28,6 +29,17 @@ _RAW_ARTICLE = {
         "provider": {"displayName": "Reuters"},
         "canonicalUrl": {"url": "https://reuters.com/1"},
     }
+}
+
+
+# 2026-03-31T09:00:00Z, the shape ``yf.Search().news`` returns.
+_SEARCH_ARTICLE = {
+    "title": "Apple unveils new chip",
+    "publisher": "The Wall Street Journal",
+    "link": "https://finance.yahoo.com/a/1",
+    "providerPublishTime": 1774947600,
+    "type": "STORY",
+    "relatedTickers": ["AAPL", "TSM"],
 }
 
 
@@ -151,7 +163,15 @@ class TestFetch:
         with patch("stonks_cli.news_fetcher.datetime") as mock_dt:
             mock_dt.now.return_value = _FIXED_NOW
             mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+            mock_dt.fromtimestamp.side_effect = datetime.fromtimestamp
             yield
+
+    @pytest.fixture(autouse=True)
+    def search(self):
+        """Keep the search fallback off the network; empty unless a test fills it."""
+        with patch("yfinance.Search") as mock_search_cls:
+            mock_search_cls.return_value.news = []
+            yield mock_search_cls
 
     def test_calls_yfinance(self):
         with patch("yfinance.Ticker") as mock_ticker_cls:
@@ -303,6 +323,75 @@ class TestFetch:
             fetcher = NewsFetcher()
             items = fetcher.fetch("AAPL")
         assert [item.headline for item in items] == ["Apple hits all-time high"]
+
+    def test_searches_when_ticker_news_is_empty(self, search):
+        search.return_value.news = [_SEARCH_ARTICLE]
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = []
+            items = NewsFetcher().fetch("aapl")
+        assert search.call_args.args == ("AAPL",)
+        assert [
+            (i.headline, i.source, i.url, i.timestamp, i.symbol) for i in items
+        ] == [
+            (
+                "Apple unveils new chip",
+                "The Wall Street Journal",
+                "https://finance.yahoo.com/a/1",
+                1774947600,
+                "AAPL",
+            )
+        ]
+
+    def test_search_keeps_only_articles_tagged_with_the_symbol(self, search):
+        untagged = {
+            **_SEARCH_ARTICLE,
+            "link": "https://x/2",
+            "relatedTickers": ["MSFT"],
+        }
+        no_tags = {**_SEARCH_ARTICLE, "link": "https://x/3"}
+        del no_tags["relatedTickers"]
+        search.return_value.news = [_SEARCH_ARTICLE, untagged, no_tags]
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = None
+            items = NewsFetcher().fetch("AAPL")
+        assert [i.url for i in items] == ["https://finance.yahoo.com/a/1"]
+
+    def test_no_search_when_ticker_news_has_articles(self, search):
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = [_RAW_ARTICLE]
+            items = NewsFetcher().fetch("AAPL")
+        search.assert_not_called()
+        assert len(items) == 1
+
+    def test_search_failure_returns_empty_and_logs(self, search, caplog):
+        search.side_effect = RuntimeError("Yahoo is down")
+        with patch("yfinance.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.return_value.news = []
+            with caplog.at_level(logging.WARNING, logger="stonks_cli.news_fetcher"):
+                items = NewsFetcher().fetch("AAPL")
+        assert items == []
+        assert "News search for AAPL failed" in caplog.text
+
+
+class TestParseSearchItem:
+    def test_parses_fields(self):
+        item = NewsFetcher._parse_search_item(_SEARCH_ARTICLE)
+        assert item is not None
+        assert item.headline == "Apple unveils new chip"
+        assert item.source == "The Wall Street Journal"
+        assert item.url == "https://finance.yahoo.com/a/1"
+        assert item.timestamp == 1774947600
+        assert item.published_at != "N/A"
+
+    @pytest.mark.parametrize("title", [None, "", "   "])
+    def test_returns_none_without_title(self, title):
+        assert NewsFetcher._parse_search_item({"title": title}) is None
+
+    @pytest.mark.parametrize("ts", [None, 0, "1774947600"])
+    def test_missing_or_bad_time(self, ts):
+        item = NewsFetcher._parse_search_item({"title": "x", "providerPublishTime": ts})
+        assert item is not None
+        assert (item.timestamp, item.published_at) == (0, "N/A")
 
 
 class TestFetchForSymbols:
