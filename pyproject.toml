@@ -22,7 +22,6 @@ dependencies = [
     "textual-plotext>=1.0.0,<2",
     "platformdirs>=4.9.4,<5",
     "httpx>=0.27.0",
-    "openai>=2.30.0,<3",
 ]
 
 [project.scripts]
@@ -51,9 +50,6 @@ include = ["src/stonks_cli"]
 
 [tool.hatch.build.targets.wheel]
 include = ["src/stonks_cli"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"README.md" = "README.md"
 
 [tool.hatch.build.targets.wheel.sources]
 "src/stonks_cli" = "stonks_cli"
