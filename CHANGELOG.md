@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TUI support for bonds: choosing the "Bond" asset type in the add/edit form
   reveals the bond fields, and `f` / Enter on a bond opens a detail view
   with terms, price source, yield to maturity and a value breakdown.
+- `stonks add` and `stonks remove` accept fractional quantities
+  (`stonks add BTC-USD 0.5 60000`). `add` tags `BASE-USD` symbols as
+  crypto, fills in the CoinGecko coin ID when the bundled map knows it
+  unambiguously, and takes `--currency`, `--asset-type` and
+  `--external-id`.
 
 ### Changed
 
@@ -34,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands rather than a traceback.
 - Backtests skip bond positions and list them under "Skipped (no historical
   data)".
+- Requires yfinance 1.7 or newer and rich 15; pandas is now a declared
+  dependency. Python 3.13 and 3.14 are tested in CI.
+- Python warnings (such as pandas deprecations raised inside yfinance) are
+  written to the log file instead of the terminal.
+- The Docker image is built on Python 3.14, installs the exact versions in
+  `uv.lock` and runs as user `stonks` (uid 1000). Mount the directory that
+  holds your portfolio, not the file itself: saving through a single-file
+  mount fails with "Device or resource busy".
 
 ### Removed
 
@@ -55,6 +68,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Forex rates for minor currencies against a non-USD base can be crossed
   through USD; unresolved currencies and yfinance download failures are
   now written to the log file.
+- Portfolio files are written atomically, and the TUI no longer overwrites
+  edits made with the CLI (or an editor) while it was open: it reloads the
+  file and asks you to repeat the edit.
+- `stonks import ibkr` merges rows for the same symbol (e.g. one stock held
+  in two accounts) into one position with a weighted average cost, instead
+  of writing a file that cannot be loaded.
+- News headlines and error messages containing square brackets are shown
+  verbatim instead of being parsed as markup (a headline starting with
+  `[Update]` lost that word).
+- The news panel and `stonks feed` show headlines again. Yahoo retired the
+  endpoint yfinance used for news, so stonks falls back to Yahoo's search
+  API; it has little news for non-US listings.
 
 ## [0.6.4] - 2026-05-29
 
