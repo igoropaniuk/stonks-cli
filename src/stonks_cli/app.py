@@ -22,7 +22,6 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, Label, Static
 
 from stonks_cli import app_actions
-from stonks_cli.chat import ChatScreen
 from stonks_cli.detail import StockDetailScreen
 from stonks_cli.dto import BacktestConfig, CashResult, EquityResult, WatchResult
 from stonks_cli.forms import (
@@ -36,7 +35,6 @@ from stonks_cli.forms import (
 from stonks_cli.helpers import ThreadGuardMixin
 from stonks_cli.logviewer import LogViewerScreen
 from stonks_cli.market import MarketSnapshot, build_market_snapshot
-from stonks_cli.messages import HistoryUpdated
 from stonks_cli.models import (
     CashPosition,
     Portfolio,
@@ -514,7 +512,6 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         ("f", "financials", "Details"),
         ("l", "view_logs", "Logs"),
         ("n", "toggle_news", "News"),
-        ("c", "chat", "Chat"),
         ("g", "chart", "Chart"),
         ("b", "backtest", "Backtest"),
     ]
@@ -567,7 +564,6 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self.stores = stores or []
         self._refresh_lock = threading.Lock()
         self._news_items: deque[NewsItem] = deque(maxlen=NEWS_HISTORY_LIMIT)
-        self._chat_history: list[dict[str, str]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -910,21 +906,6 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
 
     def action_view_logs(self) -> None:
         self.push_screen(LogViewerScreen())
-
-    def action_chat(self) -> None:
-        if isinstance(self.screen, ChatScreen):
-            return
-        self.push_screen(
-            ChatScreen(
-                self.portfolios,
-                lambda: self._snap,
-                self._news_items,
-                self._chat_history,
-            )
-        )
-
-    def on_history_updated(self, event: HistoryUpdated) -> None:
-        self._chat_history = event.history
 
     def action_toggle_news(self) -> None:
         try:
