@@ -46,7 +46,7 @@ docker-build: ## Build the Docker image
 	docker build -t $(IMAGE) .
 
 docker-run: docker-build ## Run the dashboard from portfolio.yaml in current dir
-	docker run --rm -it -v ./portfolio.yaml:/data/portfolio.yaml:ro \
+	docker run --rm -it -v "$(CURDIR):/data:ro" \
 		$(IMAGE) --portfolio /data/portfolio.yaml dashboard
 
 docker-demo: docker-build ## Run the demo portfolio in Docker
