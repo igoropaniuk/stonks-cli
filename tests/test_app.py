@@ -2595,38 +2595,16 @@ async def test_dispatch_edit_cash_not_found_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_action_chat_opens_screen(portfolio: Portfolio) -> None:
-    """action_chat pushes a ChatScreen onto the screen stack."""
-    from stonks_cli.chat import ChatScreen
-
+async def test_c_no_longer_opens_a_screen(portfolio: Portfolio) -> None:
+    """The AI chat was removed; its old key must not open anything."""
     app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        with patch.object(app, "push_screen") as mock_push:
-            app.action_chat()
-        mock_push.assert_called_once()
-        pushed_arg = mock_push.call_args[0][0]
-        assert isinstance(pushed_arg, ChatScreen)
-
-
-@pytest.mark.asyncio
-async def test_action_chat_no_op_when_already_open(portfolio: Portfolio) -> None:
-    """action_chat is a no-op when a ChatScreen is already the active screen."""
-    from stonks_cli.chat import ChatScreen
-
-    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
-
-    async with app.run_test() as pilot:
+        app.query_one(DataTable).focus()
+        await pilot.press("c")
         await pilot.pause()
-        # Open ChatScreen once so it becomes the active screen.
-        app.action_chat()
-        await pilot.pause()
-        assert isinstance(app.screen, ChatScreen)
-        # Call again -- push_screen must not be invoked a second time.
-        with patch.object(app, "push_screen") as mock_push:
-            app.action_chat()
-        mock_push.assert_not_called()
+        assert app.screen is app.screen_stack[0]
 
 
 def _static_content(widget: Static) -> str:
@@ -2727,23 +2705,6 @@ async def test_combined_total_widget_renders_na_on_missing_price(
         widget = await _combined_total(app, pilot)
         text = _static_content(widget)
         assert "N/A" in text
-
-
-@pytest.mark.asyncio
-async def test_history_updated_message_syncs_to_app(portfolio: Portfolio) -> None:
-    """HistoryUpdated message from ChatScreen updates app._chat_history."""
-    from stonks_cli.messages import HistoryUpdated
-
-    app = PortfolioApp(portfolios=[portfolio], prices={}, forex_rates=USD_RATES)
-
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        new_history = [
-            {"role": "user", "content": "Hi"},
-            {"role": "assistant", "content": "Hello!"},
-        ]
-        app.on_history_updated(HistoryUpdated(new_history))
-        assert app._chat_history == new_history
 
 
 @pytest.mark.asyncio
