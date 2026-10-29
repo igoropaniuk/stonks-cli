@@ -1,0 +1,8 @@
+# Only pyproject.toml, uv.lock, README.md and src/ are copied into the
+# image; keep the rest out of the build context.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+**/__pycache__
