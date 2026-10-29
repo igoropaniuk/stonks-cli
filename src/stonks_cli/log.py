@@ -102,6 +102,13 @@ def setup_logging(level: int = logging.WARNING) -> None:
         yf_logger.setLevel(logging.WARNING)
         yf_logger.propagate = False
         yf_logger.addHandler(fh)
+        # Deprecation warnings raised inside pandas and yfinance would
+        # otherwise print hundreds of lines under every CLI command.  Keep
+        # them in the log file; they are for maintainers, not users.
+        logging.captureWarnings(True)
+        warnings_logger = logging.getLogger("py.warnings")
+        warnings_logger.propagate = False
+        warnings_logger.addHandler(fh)
     except OSError:
         logger.warning(
             "Failed to set up file logging to %s; continuing with console only.",

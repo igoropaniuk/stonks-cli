@@ -23,10 +23,19 @@ def _reset_logger():
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
     logger.propagate = True
+    # setup_logging() also routes Python warnings to the log file; undo
+    # that so one test's temp log file doesn't capture the next test's
+    # warnings.
+    warnings_logger = logging.getLogger("py.warnings")
+    original_warnings_handlers = warnings_logger.handlers[:]
+    original_warnings_propagate = warnings_logger.propagate
     yield
     logger.handlers = original_handlers
     logger.setLevel(original_level)
     logger.propagate = original_propagate
+    logging.captureWarnings(False)
+    warnings_logger.handlers = original_warnings_handlers
+    warnings_logger.propagate = original_warnings_propagate
 
 
 class TestSetupLogging:
@@ -213,3 +222,26 @@ def test_yfinance_warnings_go_to_the_log_file_only(tmp_path, monkeypatch):
         yf_logger.handlers = saved[0]
         yf_logger.setLevel(saved[1])
         yf_logger.propagate = saved[2]
+
+
+def test_python_warnings_go_to_the_log_file_only(tmp_path, monkeypatch, capsys):
+    """Deprecation warnings from pandas/yfinance must not flood the console."""
+    import warnings
+
+    import stonks_cli.log as log_module
+    from stonks_cli.log import setup_logging
+
+    log_file = tmp_path / "stonks.log"
+    monkeypatch.setattr(log_module, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(log_module, "LOG_FILE", log_file)
+    warn_logger = logging.getLogger("py.warnings")
+    warn_logger.handlers.clear()
+
+    setup_logging(level=logging.WARNING)
+    # Call the hook warnings.warn() ends in; setup_logging replaced it.
+    warnings.showwarning("inplace is deprecated", FutureWarning, "x.py", 1)
+    for h in warn_logger.handlers:
+        h.flush()
+    assert "inplace is deprecated" in log_file.read_text()
+    assert "inplace is deprecated" not in capsys.readouterr().err
+    assert warn_logger.propagate is False
