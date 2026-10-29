@@ -765,14 +765,32 @@ docker build -t stonks .
 
 ```bash
 docker run --rm -it \
-  -v ./config/sample_portfolio.yaml:/data/portfolio.yaml:ro \
+  -v ~/.config/stonks:/data:ro \
   stonks --portfolio /data/portfolio.yaml dashboard
 ```
 
-The `-v` flag bind-mounts a local YAML file into the container. Replace
-`./config/sample_portfolio.yaml` with the path to your own portfolio file.
+The `-v` flag bind-mounts a local directory into the container at `/data`.
+`~/.config/stonks` is where stonks keeps `portfolio.yaml` by default on Linux;
+replace it with the directory that holds your own portfolio file. To try the
+app without a portfolio, run `docker run --rm -it stonks demo`.
+
 Drop `:ro` if you want `add` / `remove` commands to persist changes back to
-the host.
+the host. Mount the directory, not the file itself: changes are saved by
+writing a temporary file next to the portfolio and renaming it over the old
+one, which fails on a file that is itself a mount point.
+
+The container runs as user `stonks` (uid 1000). If your host user has a
+different uid and you mount a directory read-write, run as your own user so
+saved files keep your ownership:
+
+```bash
+docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -v ~/.config/stonks:/data \
+  stonks --portfolio /data/portfolio.yaml add AAPL 1 150
+```
+
+`HOME=/tmp` gives the log file a writable location, since that uid has no
+home directory in the image.
 
 ---
 
