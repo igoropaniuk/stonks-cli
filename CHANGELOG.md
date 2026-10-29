@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Backtests skip bond positions and list them under "Skipped (no historical
   data)".
 
+### Removed
+
+- The AI chat screen (`c` in the dashboard), its `stonks doctor` check
+  and the `openai` dependency. `OPENAI_API_KEY`, `OPENAI_MODEL` and
+  `OPENAI_BASE_URL` are no longer read.
+
 ### Fixed
 
 - A lowercase `currency` on a position no longer blanks the row and the
