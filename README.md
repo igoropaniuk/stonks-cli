@@ -28,7 +28,6 @@ stonks demo # create demo portfolio
 - **News feed panel** -- per-symbol headlines
 - **Stock detail screen** -- charts, earnings, analyst insights, key statistics
 - **Backtesting** -- simulate historical portfolio performance vs. a benchmark
-- **AI chat assistant** -- ask questions about your portfolio
 - **Watchlist** -- track symbols without a position; dimmed in the dashboard
 - **Cryptocurrency** -- `BTC-USD`-style symbols priced via CoinGecko
 - **Bonds** -- Treasuries priced from Treasury data, others at a manual price
@@ -68,11 +67,6 @@ stonks demo # create demo portfolio
   - [Time ranges](#time-ranges)
   - [Keyboard shortcuts](#keyboard-shortcuts-1)
 - [Stock detail screen](#stock-detail-screen)
-- [AI Chat](#ai-chat)
-  - [Requirements](#requirements)
-  - [Environment variables](#environment-variables)
-  - [Usage](#usage-1)
-  - [What the assistant can help with](#what-the-assistant-can-help-with)
 - [Logging](#logging)
 - [Running with Docker](#running-with-docker)
   - [Build the image](#build-the-image)
@@ -580,7 +574,6 @@ with code `0` when everything passes and code `1` if any hard check fails.
 | CoinGecko | Hits `/ping`; warns if `COINGECKO_DEMO_API_KEY` is unset |
 | Forex rates | Fetches a live EUR/USD rate via yfinance |
 | Symbol validation | Probes each ticker in the portfolio; equity in parallel, crypto via CoinGecko batch |
-| AI Chat (advisory) | Reports whether `OPENAI_API_KEY` is set; never causes a failure |
 
 Symbol validation is skipped for equity symbols when yfinance is unreachable,
 and for crypto symbols when CoinGecko is unreachable, to avoid a flood of
@@ -643,7 +636,6 @@ for the daily change rather than a misleading `0.00`.
 | `f`     | Open the detail screen for the selected row         |
 | `g`     | Open the candlestick chart (not for bonds)          |
 | `Tab`   | Switch focus between portfolio tables               |
-| `c`     | Open the AI chat assistant                          |
 | `b`     | Run a portfolio backtest                            |
 | `n`     | Toggle the news feed panel                          |
 | `l`     | Open the log viewer                                 |
@@ -729,60 +721,6 @@ The detail screen displays:
 - **Analyst insights** -- price targets (low / mean / high), consensus rating,
   and a monthly recommendations breakdown (Strong Buy to Strong Sell)
 - **Statistics** -- valuation measures and financial highlights
-
----
-
-## AI Chat
-
-Press **`c`** from the dashboard to open the AI chat assistant. The assistant
-has access to your live portfolio snapshot, current prices, forex rates, and
-recent news headlines, so it can answer questions grounded in your actual data.
-
-### Requirements
-
-Set the `OPENAI_API_KEY` environment variable before starting stonks:
-
-```bash
-export OPENAI_API_KEY=sk-...
-stonks
-```
-
-The input field is disabled with an error message if the key is missing or if
-live prices have not yet loaded.
-
-### Environment variables
-
-| Variable          | Default        | Description                                      |
-| ----------------- | -------------- | ------------------------------------------------ |
-| `OPENAI_API_KEY`  | *(required)*   | Your OpenAI API key                              |
-| `OPENAI_MODEL`    | `gpt-5.4-mini` | Model to use for chat completions                |
-| `OPENAI_BASE_URL` | *(OpenAI)*     | Override the API endpoint (proxies, local LLMs)  |
-
-`OPENAI_BASE_URL` is useful for pointing the client at any OpenAI-compatible
-server -- for example [Ollama](https://ollama.com), LM Studio, or a corporate
-proxy:
-
-```bash
-export OPENAI_BASE_URL=http://localhost:11434/v1
-export OPENAI_MODEL=llama3
-stonks
-```
-
-### Usage
-
-- Type a question in the input field and press **Enter** to send.
-- The assistant streams the reply as Markdown directly in the chat log.
-- Previous messages are kept in context within the session.
-- Press **Escape** to close the chat and return to the dashboard.
-
-### What the assistant can help with
-
-- Portfolio breakdown -- positions, P&L, concentration risk
-- Market context -- connecting recent headlines to your holdings
-- App usage -- how to load portfolios, configure watchlists, use the CLI
-
-The assistant will not invent prices, news, or ratings. If data is unavailable
-it will say so explicitly.
 
 ---
 
