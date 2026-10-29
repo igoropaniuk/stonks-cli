@@ -71,7 +71,7 @@ step_enabled() {
 # ---------------------------------------------------------------------------
 # 1. Read version from pyproject.toml
 # ---------------------------------------------------------------------------
-VERSION=$(python -c "
+VERSION=$(uv run --no-project --python ">=3.11" python -c "
 import tomllib, pathlib
 d = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
 print(d['project']['version'])
