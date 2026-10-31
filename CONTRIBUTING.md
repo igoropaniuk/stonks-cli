@@ -79,9 +79,12 @@ When adding or changing behaviour, please include unit tests.
 Guidelines:
 
 - Prefer **pure / deterministic** functions and small units.
-- Mock external services (Yahoo Finance / yfinance network calls).
-- Tests should not require network access -- stub the price refresh worker
-  in TUI tests (see `tests/conftest.py` for the existing autouse fixture).
+- Mock external services (Yahoo Finance / yfinance, CoinGecko, Treasury).
+- Tests cannot reach the network: pytest-socket allows only loopback
+  connections, and `tests/conftest.py` blocks curl_cffi, which yfinance
+  uses. A test that makes a real request fails with
+  `SocketConnectBlockedError` or `NetworkBlockedError`; mock the call
+  instead. TUI tests already stub the refresh workers in the same file.
 
 ---
 
