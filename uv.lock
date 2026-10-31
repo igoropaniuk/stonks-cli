@@ -1374,6 +1374,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-socket"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/ce/4ef7b049852c95a8727b4a7e6496f762df1ac0b47bc0320d10293f5e95ec/pytest_socket-0.8.1.tar.gz", hash = "sha256:2f57787914ad2e1308d09ce141b95c3e55741fbb4fb7b7556593a6b063e0c9c7", size = 17313, upload-time = "2026-08-19T15:16:25.653Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/ef/ab507f117b3d19b54e3c9c632a99c28c3b284562ec6e02e274581d530d92/pytest_socket-0.8.1-py3-none-any.whl", hash = "sha256:f9846bed1dcd96eed459e5e14795bbaf96715cf4e827891fe70773817ecb8ed4", size = 8751, upload-time = "2026-08-19T15:16:24.426Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1585,6 +1597,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "pytest-socket" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
@@ -1610,6 +1623,7 @@ dev = [
     { name = "pytest", specifier = ">=9.0,<10" },
     { name = "pytest-asyncio", specifier = ">=1.3.0,<2" },
     { name = "pytest-cov", specifier = ">=7.0.0,<8" },
+    { name = "pytest-socket", specifier = ">=0.8.1,<1" },
     { name = "ruff", specifier = ">=0.17,<0.18" },
     { name = "types-pyyaml", specifier = ">=6.0,<7" },
 ]

@@ -37,6 +37,7 @@ dev = [
     "types-PyYAML>=6.0,<7",
     "pre-commit>=4.5.0,<5",
     "pytest-cov>=7.0.0,<8",
+    "pytest-socket>=0.8.1,<1",
 ]
 
 [tool.uv]
@@ -64,6 +65,10 @@ select = ["E", "F", "I"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Tests must not reach the network: only loopback connections are allowed
+# (asyncio needs them on Windows).  curl_cffi, which yfinance uses, is
+# blocked separately in tests/conftest.py.
+addopts = "--allow-hosts=127.0.0.1,::1 --allow-unix-socket"
 
 [tool.coverage.run]
 source = ["stonks_cli"]
