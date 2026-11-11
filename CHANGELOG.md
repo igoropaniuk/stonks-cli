@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The dashboard's separate "Total" line is replaced by a bold TOTAL row
+  pinned to the bottom of each portfolio table.  Besides market value it
+  now shows the total cost (under Avg Cost), today's value change (Daily
+  Chg and Daily Chg %) and the total unrealized P&L, all in the base
+  currency.
+
 ## [0.7.0] - 2026-10-29
 
 ### Added

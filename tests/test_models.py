@@ -4,15 +4,17 @@ from datetime import date
 
 import pytest
 
-from stonks_cli.bonds import BondInfo
+from stonks_cli.bonds import BondInfo, clean_value
 from stonks_cli.models import (
     CashPosition,
     Portfolio,
     Position,
     WatchlistItem,
     combined_portfolio_total,
+    daily_change_abs,
     daily_change_pct,
     portfolio_total,
+    portfolio_totals,
 )
 
 
@@ -431,6 +433,88 @@ class TestPortfolioTotal:
         assert portfolio_total(p, prices, rates) == pytest.approx(5 * 120.0 * 1.1)
 
 
+class TestDailyChangeAbs:
+    def test_regular_session(self):
+        assert daily_change_abs(110.0, 100.0, "regular") == pytest.approx(10.0)
+
+    def test_none_when_price_missing(self):
+        assert daily_change_abs(None, 100.0, "regular") is None
+        assert daily_change_abs(110.0, None, "regular") is None
+
+    def test_none_when_closed_or_stale(self):
+        assert daily_change_abs(110.0, 100.0, "closed") is None
+        assert daily_change_abs(110.0, 100.0, "stale") is None
+
+
+class TestPortfolioTotals:
+    def test_sums_positions_and_cash(self):
+        p = Portfolio(
+            positions=[Position("AAPL", 10, 150.0), Position("NVDA", 5, 100.0)],
+            cash=[CashPosition("USD", 500.0)],
+        )
+        prices = {"AAPL": 200.0, "NVDA": 90.0}
+        prev = {"AAPL": 190.0, "NVDA": 92.0}
+        t = portfolio_totals(p, prices, prev, {}, {"USD": 1.0})
+        assert t.cost == pytest.approx(1500.0 + 500.0 + 500.0)
+        assert t.daily_chg == pytest.approx(10 * 10.0 + 5 * -2.0)
+        assert t.mkt_value == pytest.approx(2000.0 + 450.0 + 500.0)
+        assert t.pnl == pytest.approx(500.0 - 50.0)
+        assert t.mkt_value - t.cost == pytest.approx(t.pnl)
+
+    def test_converts_to_base_currency(self):
+        p = Portfolio(positions=[Position("ASML", 10, 700.0, currency="EUR")])
+        t = portfolio_totals(p, {"ASML": 800.0}, {"ASML": 780.0}, {}, {"EUR": 1.1})
+        assert t.cost == pytest.approx(7000.0 * 1.1)
+        assert t.daily_chg == pytest.approx(200.0 * 1.1)
+        assert t.mkt_value == pytest.approx(8000.0 * 1.1)
+        assert t.pnl == pytest.approx(1000.0 * 1.1)
+
+    def test_closed_session_contributes_no_daily_change(self):
+        p = Portfolio(
+            positions=[Position("AAPL", 10, 150.0), Position("SAP.DE", 1, 100.0)],
+        )
+        prices = {"AAPL": 200.0, "SAP.DE": 120.0}
+        prev = {"AAPL": 190.0, "SAP.DE": 110.0}
+        sessions = {"SAP.DE": "closed"}
+        t = portfolio_totals(p, prices, prev, sessions, {"USD": 1.0})
+        assert t.daily_chg == pytest.approx(100.0)
+
+    def test_daily_change_none_when_no_position_has_one(self):
+        p = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+        t = portfolio_totals(p, {"AAPL": 200.0}, {}, {}, {"USD": 1.0})
+        assert t.daily_chg is None
+        assert t.pnl == pytest.approx(500.0)
+
+    def test_missing_price_keeps_cost_only(self):
+        p = Portfolio(positions=[Position("AAPL", 10, 150.0)])
+        t = portfolio_totals(p, {}, {}, {}, {"USD": 1.0})
+        assert t.cost == pytest.approx(1500.0)
+        assert t.daily_chg is None
+        assert t.mkt_value is None
+        assert t.pnl is None
+
+    def test_missing_rate_makes_everything_none(self):
+        p = Portfolio(positions=[Position("ASML", 10, 700.0, currency="EUR")])
+        t = portfolio_totals(p, {"ASML": 800.0}, {"ASML": 780.0}, {}, {})
+        assert (t.cost, t.daily_chg, t.mkt_value, t.pnl) == (None, None, None, None)
+
+    def test_missing_cash_rate_clears_cost(self):
+        p = Portfolio(
+            positions=[Position("AAPL", 10, 150.0)],
+            cash=[CashPosition("EUR", 100.0)],
+        )
+        t = portfolio_totals(p, {"AAPL": 200.0}, {}, {}, {"USD": 1.0})
+        assert t.cost is None
+        assert t.pnl == pytest.approx(500.0)
+
+    def test_watchlist_is_excluded(self):
+        p = Portfolio(watchlist=[WatchlistItem("TSLA")])
+        t = portfolio_totals(p, {"TSLA": 250.0}, {"TSLA": 240.0}, {}, {})
+        assert t.cost == pytest.approx(0.0)
+        assert t.daily_chg is None
+        assert t.mkt_value == pytest.approx(0.0)
+
+
 class TestCombinedPortfolioTotal:
     def test_empty_list_returns_none_usd(self):
         total, base = combined_portfolio_total([], {}, {})
@@ -510,6 +594,14 @@ UST_2031 = BondInfo(maturity=date(2031, 9, 30), coupon=5.0)
 
 class TestBondPosition:
     bond = UST_2031
+
+    def test_cost_basis_uses_clean_price(self):
+        pos = self._pos()
+        assert pos.cost_basis() == pytest.approx(clean_value(self.bond, 15, 100.47))
+
+    def test_value_change_scales_by_face_value(self):
+        pos = self._pos()
+        assert pos.value_change(0.5) == pytest.approx(clean_value(self.bond, 15, 0.5))
 
     def _pos(self, **kwargs):
         args = {"symbol": "UST5.0SEP31", "quantity": 15, "avg_cost": 100.47}

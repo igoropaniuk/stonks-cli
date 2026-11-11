@@ -33,6 +33,14 @@ _COL_CHG = _COLS.index("Daily Chg")
 _COL_CHG_PCT = _COLS.index("Daily Chg %")
 _COL_MKT = _COLS.index("Mkt Value")
 _COL_PNL = _COLS.index("Unrealized P&L")
+_COL_COST = _COLS.index("Avg Cost")
+
+
+def _total_cell(table: DataTable, col: int) -> str:
+    """Return the text of *col* in the TOTAL row (always the last row)."""
+    last = table.row_count - 1
+    assert str(table.get_cell_at((last, 0))) == "TOTAL"
+    return str(table.get_cell_at((last, col)))
 
 
 @pytest.fixture
@@ -53,7 +61,7 @@ async def test_table_row_count(portfolio: Portfolio) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        assert table.row_count == 2
+        assert table.row_count == 3  # 2 positions + TOTAL
 
 
 @pytest.mark.asyncio
@@ -153,8 +161,8 @@ async def test_total_usd_single_currency(portfolio: Portfolio) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        label = app.query_one("#total", Static)
-        assert "34,000.00" in str(label.content)
+        mkt = _total_cell(app.query_one(DataTable), _COL_MKT)
+        assert "34,000.00" in mkt
 
 
 @pytest.mark.asyncio
@@ -172,8 +180,51 @@ async def test_total_converts_foreign_currency() -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        label = app.query_one("#total", Static)
-        assert "8,800.00" in str(label.content)
+        mkt = _total_cell(app.query_one(DataTable), _COL_MKT)
+        assert "8,800.00" in mkt
+
+
+@pytest.mark.asyncio
+async def test_total_row_shows_cost_daily_change_and_pnl(
+    portfolio: Portfolio,
+) -> None:
+    """TOTAL row sums cost, daily change, market value and P&L."""
+    # AAPL 100 @ 150 -> 160 (prev 155); NVDA 200 @ 112 -> 90 (prev 91)
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    prev_closes = {"AAPL": 155.0, "NVDA": 91.0}
+    app = PortfolioApp(
+        portfolios=[portfolio],
+        prices=prices,
+        prev_closes=prev_closes,
+        forex_rates=USD_RATES,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        table = app.query_one(DataTable)
+        assert _total_cell(table, 1) == "USD"
+        assert _total_cell(table, _COL_COST) == "37,400.00"
+        assert _total_cell(table, _COL_CHG) == "+300.00"  # 500 - 200
+        assert _total_cell(table, _COL_MKT) == "34,000.00"
+        assert _total_cell(table, _COL_PNL) == "-3,400.00"
+        assert _total_cell(table, 2) == "--"  # Qty
+        assert _total_cell(table, _COL_LAST) == "--"
+        assert _total_cell(table, _COL_CHG_PCT) == "+0.89%"  # 300 / 33,700
+
+
+@pytest.mark.asyncio
+async def test_total_row_has_no_row_meta(portfolio: Portfolio) -> None:
+    """Item actions ignore the TOTAL row: it has no RowMeta."""
+    prices = {"AAPL": 160.0, "NVDA": 90.0}
+    app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one(PortfolioTableWidget)
+        table = widget.query_one(DataTable)
+        table.move_cursor(row=table.row_count - 1)
+        await pilot.pause()
+        assert widget.get_row_meta() is None
 
 
 @pytest.mark.asyncio
@@ -200,22 +251,22 @@ async def test_status_bar_clears_after_prices_loaded(portfolio: Portfolio) -> No
 
 
 @pytest.mark.asyncio
-async def test_total_shows_na_when_any_price_missing(
+async def test_total_shows_dash_when_any_price_missing(
     portfolio: Portfolio,
 ) -> None:
-    """Total shows N/A when any equity position has no price yet."""
+    """Total shows -- when any equity position has no price yet."""
     prices = {"AAPL": 160.0}  # NVDA price is missing
     app = PortfolioApp(portfolios=[portfolio], prices=prices, forex_rates=USD_RATES)
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        label = app.query_one("#total", Static)
-        assert "N/A" in str(label.content)
+        mkt = _total_cell(app.query_one(DataTable), _COL_MKT)
+        assert mkt == "--"
 
 
 @pytest.mark.asyncio
-async def test_total_shows_na_when_equity_forex_rate_missing() -> None:
-    """Total shows N/A when the forex rate for an equity's currency is missing."""
+async def test_total_shows_dash_when_equity_forex_rate_missing() -> None:
+    """Total shows -- when the forex rate for an equity currency is missing."""
     portfolio = Portfolio(
         positions=[
             Position(symbol="ASML.AS", quantity=10, avg_cost=700.0, currency="EUR")
@@ -229,8 +280,8 @@ async def test_total_shows_na_when_equity_forex_rate_missing() -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        label = app.query_one("#total", Static)
-        assert "N/A" in str(label.content)
+        mkt = _total_cell(app.query_one(DataTable), _COL_MKT)
+        assert mkt == "--"
 
 
 @pytest.mark.asyncio
@@ -301,8 +352,8 @@ async def test_multiple_portfolios_separate_tables() -> None:
         await pilot.pause()
         t0 = app.query_one("#table-0", DataTable)
         t1 = app.query_one("#table-1", DataTable)
-        assert t0.row_count == 1
-        assert t1.row_count == 1
+        assert t0.row_count == 2  # position + TOTAL
+        assert t1.row_count == 2
         assert str(t0.get_cell_at((0, 0))) == "AAPL"
         assert str(t1.get_cell_at((0, 0))) == "NVDA"
 
@@ -574,6 +625,7 @@ async def test_sort_by_column_header(portfolio: Portfolio) -> None:
         table = app.query_one(DataTable)
         # Default order: AAPL, NVDA
         assert str(table.get_cell_at((0, 0))) == "AAPL"
+        assert str(table.get_cell_at((2, 0))) == "TOTAL"
 
         col_keys = list(table.columns.keys())
         col0_key = col_keys[0]
@@ -594,6 +646,8 @@ async def test_sort_by_column_header(portfolio: Portfolio) -> None:
         await pilot.pause()
         assert str(table.get_cell_at((0, 0))) == "NVDA"
         assert str(table.get_cell_at((1, 0))) == "AAPL"
+        # The TOTAL row stays pinned to the bottom in either direction.
+        assert str(table.get_cell_at((2, 0))) == "TOTAL"
 
 
 @pytest.mark.asyncio
@@ -1829,8 +1883,8 @@ async def test_watchlist_rows_appear_in_table() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         table = app.query_one(DataTable)
-        # 1 equity + 2 watchlist = 3 rows
-        assert table.row_count == 3
+        # 1 equity + 2 watchlist + TOTAL = 4 rows
+        assert table.row_count == 4
 
 
 @pytest.mark.asyncio
@@ -1880,9 +1934,9 @@ async def test_watchlist_excluded_from_total() -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        label = app.query_one("#total", Static)
+        mkt = _total_cell(app.query_one(DataTable), _COL_MKT)
         # Total should be 16,000 (AAPL only), not including TSLA
-        assert "16,000.00" in str(label.content)
+        assert "16,000.00" in mkt
 
 
 @pytest.mark.asyncio

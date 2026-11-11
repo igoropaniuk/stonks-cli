@@ -139,6 +139,22 @@ class Position:
             return (last_price - self.avg_cost) * self.quantity
         return clean_value(self.bond, self.quantity, last_price - self.avg_cost)
 
+    def cost_basis(self) -> float:
+        """Return what the position cost: quantity times average cost.
+
+        For a bond the cost is measured on the clean price, matching
+        :meth:`unrealized_pnl`.
+        """
+        if self.bond is None:
+            return self.avg_cost * self.quantity
+        return clean_value(self.bond, self.quantity, self.avg_cost)
+
+    def value_change(self, price_change: float) -> float:
+        """Return how much the position's value moves for a *price_change*."""
+        if self.bond is None:
+            return price_change * self.quantity
+        return clean_value(self.bond, self.quantity, price_change)
+
 
 @dataclass
 class WatchlistItem:
@@ -371,6 +387,96 @@ def daily_change_pct(last: float, prev: float | None, session: str) -> float | N
     if prev is None or prev == 0 or session in (Session.CLOSED, Session.STALE):
         return None
     return (last - prev) / prev * 100
+
+
+def daily_change_abs(
+    last: float | None, prev: float | None, session: str
+) -> float | None:
+    """Return the daily change in price units, or None when it cannot be computed.
+
+    Returns None when either price is absent or the market session is
+    'closed' or 'stale'.
+    """
+    if last is None or prev is None or session in (Session.CLOSED, Session.STALE):
+        return None
+    return last - prev
+
+
+@dataclass
+class PortfolioTotals:
+    """Portfolio-wide sums in base currency; None when data is incomplete.
+
+    Attributes:
+        cost: Cost basis of all positions plus cash balances.
+        daily_chg: Today's value change of all positions; None also when no
+            position has a daily change (e.g. every market is closed).
+        mkt_value: Market value of all positions plus cash balances.
+        pnl: Unrealized P&L of all positions.
+    """
+
+    cost: float | None
+    daily_chg: float | None
+    mkt_value: float | None
+    pnl: float | None
+
+
+def portfolio_totals(
+    portfolio: "Portfolio",
+    prices: dict[str, float],
+    prev_closes: dict[str, float],
+    sessions: dict[str, str],
+    rates: dict[str, float],
+) -> PortfolioTotals:
+    """Return the :class:`PortfolioTotals` of *portfolio* in base currency.
+
+    Cash counts toward cost and market value at face value, so
+    ``mkt_value - cost == pnl`` for a portfolio of plain equities.
+
+    Args:
+        portfolio: The portfolio to sum up.
+        prices: Last prices keyed by symbol.
+        prev_closes: Previous closing prices keyed by symbol.
+        sessions: Market session labels keyed by symbol.
+        rates: Forex conversion rates to base currency, keyed by currency.
+    """
+    cost: float | None = 0.0
+    pnl: float | None = 0.0
+    daily_chg: float | None = 0.0
+    any_chg = False
+    for pos in portfolio.positions:
+        rate = rates.get(pos.currency)
+        price = prices.get(pos.symbol)
+        if rate is None:
+            cost = pnl = daily_chg = None
+            break
+        if cost is not None:
+            cost += pos.cost_basis() * rate
+        if price is None:
+            pnl = daily_chg = None
+            continue
+        if pnl is not None:
+            pnl += pos.unrealized_pnl(price) * rate
+        chg = daily_change_abs(
+            price,
+            prev_closes.get(pos.symbol),
+            sessions.get(pos.symbol, Session.REGULAR),
+        )
+        if chg is not None and daily_chg is not None:
+            daily_chg += pos.value_change(chg) * rate
+            any_chg = True
+    for cash_pos in portfolio.cash:
+        rate = rates.get(cash_pos.currency)
+        if rate is None:
+            cost = None
+            break
+        if cost is not None:
+            cost += cash_pos.amount * rate
+    return PortfolioTotals(
+        cost=cost,
+        daily_chg=daily_chg if any_chg else None,
+        mkt_value=portfolio_total(portfolio, prices, rates),
+        pnl=pnl,
+    )
 
 
 def portfolio_total(
