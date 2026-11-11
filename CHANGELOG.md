@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Portfolio history chart: press `g` on the TOTAL row to see what the
+  current holdings were worth on each day over the last 1M to 5Y (`+`/`-`
+  change the range), against a cost-basis line, with a summary of the
+  change, high, low and maximum drawdown.
+
 ### Changed
 
 - The dashboard's separate "Total" line is replaced by a bold TOTAL row

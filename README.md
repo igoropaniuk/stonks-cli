@@ -64,6 +64,7 @@ stonks demo # create demo portfolio
   - [Keyboard shortcuts](#keyboard-shortcuts)
 - [News feed](#news-feed)
 - [Candlestick chart](#candlestick-chart)
+- [Portfolio history](#portfolio-history)
   - [Time ranges](#time-ranges)
   - [Keyboard shortcuts](#keyboard-shortcuts-1)
 - [Stock detail screen](#stock-detail-screen)
@@ -646,7 +647,8 @@ for the daily change rather than a misleading `0.00`.
 | `r`     | Remove the selected position, cash or watchlist row |
 | `Enter` | Open the detail screen for the selected row         |
 | `f`     | Open the detail screen for the selected row         |
-| `g`     | Open the candlestick chart (not for bonds)          |
+| `g`     | Open the candlestick chart (not for bonds); on the  |
+|         | TOTAL row, open the portfolio history chart         |
 | `Tab`   | Switch focus between portfolio tables               |
 | `b`     | Run a portfolio backtest                            |
 | `n`     | Toggle the news feed panel                          |
@@ -708,6 +710,30 @@ The default view opens at **5D 5m**.
 When you reach the leftmost or rightmost candle, the chart automatically
 prefetches older or newer data so you can scroll continuously through history.
 Zooming recentres on the candle under the cursor.
+
+---
+
+## Portfolio history
+
+Select the **TOTAL** row and press **`g`** to chart how the portfolio's
+value moved over time. The portfolio file records what you hold now, not
+when you bought it, so the chart shows what **today's holdings** were
+worth on each past day: current quantities times that day's closing price,
+converted to the base currency at that day's forex rate, plus cash.
+
+A flat **Cost** line marks the cost basis of the charted holdings plus cash,
+so the gap between the two lines is the unrealized P&L. Below the chart a
+summary lists the value at the start and end of the range, the change, the
+highest and lowest value and the maximum drawdown.
+
+| Key            | Action                                           |
+| -------------- | ------------------------------------------------ |
+| `+` / `-`      | Shorter / longer range (1M, 3M, 6M, 1Y, 2Y, 5Y)  |
+| `Up` / `Down`  | Scroll                                           |
+| `Escape` / `Q` | Close and return to the dashboard                |
+
+The default range is 1Y. Bonds, and positions or cash whose price or forex
+history Yahoo doesn't have, are left out and listed above the chart.
 
 ---
 

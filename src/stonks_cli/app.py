@@ -910,7 +910,13 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     # ------------------------------------------------------------------
 
     def action_chart(self) -> None:
-        """Open a candlestick chart for the currently selected symbol."""
+        """Open a candlestick chart for the currently selected symbol, or the portfolio on TOTAL."""
+        active = self._get_active_table_and_index()
+        if active is not None and self._total_row_selected(active[0]):
+            from stonks_cli.history_screen import PortfolioHistoryScreen
+
+            self.push_screen(PortfolioHistoryScreen(self.portfolios[active[1]]))
+            return
         selection = self._get_active_selection()
         if selection is None:
             return
@@ -1129,6 +1135,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self, widget: PortfolioTableWidget, portfolio: Portfolio
     ) -> None:
         widget.refresh_data(portfolio, self._snap)
+
+    @staticmethod
+    def _total_row_selected(table: DataTable) -> bool:
+        """Return True when the cursor is on *table*'s TOTAL row."""
+        try:
+            row_key = table.ordered_rows[table.cursor_row].key
+        except (IndexError, AttributeError):
+            return False
+        return row_key.value == TOTAL_ROW_KEY
 
     def _get_row_meta(self, table: DataTable) -> RowMeta | None:
         """Return the RowMeta for the row currently under the cursor, or None."""
