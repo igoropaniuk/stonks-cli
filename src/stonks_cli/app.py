@@ -910,7 +910,9 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     # ------------------------------------------------------------------
 
     def action_chart(self) -> None:
-        """Open a candlestick chart for the currently selected symbol, or the portfolio on TOTAL."""
+        """Open a candlestick chart for the currently selected symbol
+        or the portfolio on TOTAL.
+        """
         active = self._get_active_table_and_index()
         if active is not None and self._total_row_selected(active[0]):
             from stonks_cli.history_screen import PortfolioHistoryScreen
