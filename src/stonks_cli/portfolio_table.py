@@ -21,6 +21,8 @@ from stonks_cli.helpers import fmt_chg, fmt_qty
 from stonks_cli.market_session import SESSION_BADGE, Session
 from stonks_cli.models import (
     Portfolio,
+    PortfolioTotals,
+    daily_change_abs,
     daily_change_pct,
 )
 
@@ -73,14 +75,7 @@ def _compute_change(
 ) -> tuple[float | None, float | None]:
     """Return ``(chg_pct, chg_abs)`` for a symbol's daily change."""
     chg_pct = daily_change_pct(last, prev_close, session) if last is not None else None
-    chg_abs = (
-        last - prev_close
-        if last is not None
-        and prev_close is not None
-        and session not in (Session.CLOSED, Session.STALE)
-        else None
-    )
-    return chg_pct, chg_abs
+    return chg_pct, daily_change_abs(last, prev_close, session)
 
 
 def build_row_data(
@@ -369,6 +364,60 @@ def _watchlist_to_row(rd: RowData) -> TuiRowData:
         Text("--", style="dim"),
     )
     return TuiRowData(sort_key_w, display_w, RowMeta(RowKind.WATCHLIST, rd.symbol))
+
+
+_TOTAL_DASH = Text("--", style="bold")
+
+
+def _fmt_total(value: float | None, signed: bool = False) -> Text:
+    """Return a bold total cell; signed values are colored green/red."""
+    if value is None:
+        return _TOTAL_DASH.copy()
+    if not signed:
+        return Text(f"{value:,.2f}", style="bold")
+    sign = "+" if value >= 0 else ""
+    color = "green" if value >= 0 else "red"
+    return Text(f"{sign}{value:,.2f}", style=f"bold {color}")
+
+
+def total_chg_pct(totals: PortfolioTotals) -> float | None:
+    """Return today's change as a percentage of yesterday's portfolio value.
+
+    Yesterday's value is ``mkt_value - daily_chg``, so cash and positions in
+    closed markets count toward it.  None when either total is unknown or
+    yesterday's value is zero.
+    """
+    if totals.daily_chg is None or totals.mkt_value is None:
+        return None
+    prev_value = totals.mkt_value - totals.daily_chg
+    if prev_value == 0:
+        return None
+    return totals.daily_chg / prev_value * 100
+
+
+def total_row_cells(totals: PortfolioTotals, base_currency: str) -> tuple[Text, ...]:
+    """Return the display cells of the TOTAL row, one per TABLE_COLUMNS entry.
+
+    Totals are in *base_currency*, shown in the Exchange column.  Columns
+    with no meaningful sum (quantity, price) and unknown totals show ``--``.
+    """
+    chg_pct = total_chg_pct(totals)
+    if chg_pct is None:
+        chg_pct_cell = _TOTAL_DASH.copy()
+    else:
+        color = "green" if chg_pct >= 0 else "red"
+        chg_pct_cell = Text(fmt_chg(chg_pct), style=f"bold {color}")
+    return (
+        Text("TOTAL", style="bold"),
+        Text(base_currency, style="bold"),
+        _TOTAL_DASH.copy(),
+        _fmt_total(totals.cost),
+        _TOTAL_DASH.copy(),
+        _fmt_total(totals.daily_chg, signed=True),
+        chg_pct_cell,
+        _fmt_total(totals.mkt_value),
+        _fmt_total(totals.pnl, signed=True),
+    )
 
 
 def to_tui_rows(row_data: list[RowData]) -> list[TuiRowData]:

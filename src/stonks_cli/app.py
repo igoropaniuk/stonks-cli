@@ -41,7 +41,7 @@ from stonks_cli.models import (
     Position,
     WatchlistItem,
     combined_portfolio_total,
-    portfolio_total,
+    portfolio_totals,
 )
 from stonks_cli.news_fetcher import NewsFetcher, NewsItem
 from stonks_cli.portfolio_table import (
@@ -53,6 +53,7 @@ from stonks_cli.portfolio_table import (
     TuiRowData,
     build_row_data,
     to_tui_rows,
+    total_row_cells,
 )
 from stonks_cli.storage import PortfolioConflictError, PortfolioStore
 
@@ -66,9 +67,11 @@ _AddFormFactory = Callable[[], Any]
 _ActiveSelection = tuple[Portfolio, int, str, RowMeta]
 _ScreenCallback = Callable[[Any], None]
 
+TOTAL_ROW_KEY = "__total__"
+
 
 class PortfolioTableWidget(Widget):
-    """DataTable plus a total bar for a single portfolio.
+    """DataTable with a pinned TOTAL row for a single portfolio.
 
     Owns sort state, row metadata, and all table-rendering logic.
     Call :meth:`refresh_data` to push new portfolio/price data into the widget.
@@ -85,11 +88,9 @@ class PortfolioTableWidget(Widget):
         self,
         widget_id: str | None = None,
         table_id: str | None = None,
-        total_id: str | None = None,
     ) -> None:
         super().__init__(id=widget_id)
         self._table_id = table_id
-        self._total_id = total_id
         self._sort_column: int | None = None
         self._sort_reverse: bool = False
         self._row_meta: dict[str, RowMeta] = {}
@@ -99,7 +100,6 @@ class PortfolioTableWidget(Widget):
 
     def compose(self) -> ComposeResult:
         yield DataTable(zebra_stripes=True, cursor_type="row", id=self._table_id)
-        yield Static("", id=self._total_id, classes="total")
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
@@ -184,7 +184,6 @@ class PortfolioTableWidget(Widget):
             return
         table = self.query_one(DataTable)
         self._render_rows(table)
-        self._update_total()
 
     def _apply_sort(self, rows: list[TuiRowData]) -> list[TuiRowData]:
         if self._sort_column is None:
@@ -220,21 +219,19 @@ class PortfolioTableWidget(Widget):
             )
         )
         self._write_rows(table, self._apply_sort(rows))
+        # The TOTAL row stays last regardless of sorting and has no
+        # RowMeta, so edit/delete/detail actions ignore it.
+        totals = portfolio_totals(
+            portfolio,
+            self._snap.prices,
+            self._snap.prev_closes,
+            self._snap.sessions,
+            rates,
+        )
+        table.add_row(
+            *total_row_cells(totals, portfolio.base_currency), key=TOTAL_ROW_KEY
+        )
         table.move_cursor(row=saved_cursor.row, column=saved_cursor.column)
-
-    def _update_total(self) -> None:
-        portfolio = self._portfolio
-        assert portfolio is not None
-        rates = self._snap.forex_rates.get(portfolio.base_currency, {})
-        total = portfolio_total(portfolio, self._snap.prices, rates)
-        base = portfolio.base_currency
-        widget = self.query_one(Static)
-        if total is None:
-            widget.update(Text(f"Total ({base})  ").append("N/A", style="bold"))
-        else:
-            widget.update(
-                Text(f"Total ({base})  ").append(f"{total:,.2f}", style="bold")
-            )
 
 
 class NewsFeedWidget(Widget, can_focus=True, can_focus_children=False):
@@ -518,11 +515,6 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
 
     CSS = """
     DataTable { height: auto; width: 100%; }
-    .total {
-        padding: 0 1;
-        text-align: left;
-        border-top: solid $accent;
-    }
     .portfolio-header {
         padding: 1 1 0 1;
         color: $accent;
@@ -569,7 +561,7 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         yield Header()
         if len(self.portfolios) == 1:
             with Vertical():
-                yield PortfolioTableWidget(total_id="total")
+                yield PortfolioTableWidget()
         else:
             with VerticalScroll():
                 for i, portfolio in enumerate(self.portfolios):
@@ -578,14 +570,13 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
                     yield PortfolioTableWidget(
                         widget_id=f"pf-{i}",
                         table_id=f"table-{i}",
-                        total_id=f"total-{i}",
                     )
         yield Static("", id="status")
         yield Static("", id="error")
         yield NewsFeedWidget(id="news-panel")
         # The aggregate "Total all portfolios" label only renders when more
         # than one portfolio is loaded -- in single-portfolio mode it would
-        # just duplicate the per-portfolio Total row.  We always mount it
+        # just duplicate the per-portfolio TOTAL row.  We always mount it
         # so the footer layout doesn't shift; visibility is toggled via the
         # ``-hidden`` class on the Static inside.
         yield _FooterWithTotal(
@@ -919,7 +910,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
     # ------------------------------------------------------------------
 
     def action_chart(self) -> None:
-        """Open a candlestick chart for the currently selected symbol."""
+        """Open a candlestick chart for the currently selected symbol
+        or the portfolio on TOTAL.
+        """
+        active = self._get_active_table_and_index()
+        if active is not None and self._total_row_selected(active[0]):
+            from stonks_cli.history_screen import PortfolioHistoryScreen
+
+            self.push_screen(PortfolioHistoryScreen(self.portfolios[active[1]]))
+            return
         selection = self._get_active_selection()
         if selection is None:
             return
@@ -1138,6 +1137,15 @@ class PortfolioApp(ThreadGuardMixin, App[None]):
         self, widget: PortfolioTableWidget, portfolio: Portfolio
     ) -> None:
         widget.refresh_data(portfolio, self._snap)
+
+    @staticmethod
+    def _total_row_selected(table: DataTable) -> bool:
+        """Return True when the cursor is on *table*'s TOTAL row."""
+        try:
+            row_key = table.ordered_rows[table.cursor_row].key
+        except (IndexError, AttributeError):
+            return False
+        return row_key.value == TOTAL_ROW_KEY
 
     def _get_row_meta(self, table: DataTable) -> RowMeta | None:
         """Return the RowMeta for the row currently under the cursor, or None."""
